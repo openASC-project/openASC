@@ -39,11 +39,35 @@ Cargo downloads/builds locked dependencies on first use. Windows also needs the 
 
 The renderer uses native Vulkan/DirectX 12/Metal adapter selection through wgpu. Only the platforms/backends recorded in the compatibility record are verified. Append `--fallback` to explicitly request a software/fallback adapter if one is installed; absence of one is an error. No silent no-op renderer is used.
 
-The current native scope is one static KN5, active visible renderable near-level meshes, composed node transforms, source UVs/normals and supported embedded txDiffuse textures. BC1/2/3 and bounded mask-defined RGB/luminance textures are decoded in Rust and uploaded as RGBA; authored compressed and raw mip chains are retained. Raw textures with only a base level receive approximate generated mips. Camera framing favours active ROAD bounds, otherwise visible scene bounds.
+The current native scope is a static KN5 or an explicit static scene configuration, active visible renderable near-level meshes, composed node transforms, source UVs/normals and supported embedded txDiffuse textures. BC1/2/3 and bounded mask-defined RGB/luminance textures are decoded in Rust and uploaded as RGBA; authored compressed and raw mip chains are retained. Raw textures with only a base level receive approximate generated mips. Camera framing favours active ROAD bounds, otherwise visible scene bounds.
 
 Rendering includes approximate opaque, alpha-test and straight-alpha blend states, material opacity, basic lighting and depth modes. Add `--diagnostic` to skip texture loading for comparison; it can be combined with `--fallback`. Stdout includes uploaded texture and draw-state counts, resource diagnostics and decoded texture metadata. Invalid/missing/ambiguous resources use diagnostic colours with an explanation. Inspect both scene and render diagnostics.
 
-Original shaders, multilayer/detail/normal maps, alpha-to-coverage and shadows are not reproduced. In Drift, grass remains visibly white/stippled because its original material behavior is unsupported. Transparent intersections, colour/lighting and coplanar surfaces remain approximate. Skinned meshes are structurally read and omitted. Track scene/layout configuration, dynamic LOD, native vehicle simulation and FFB are not implemented. Use the existing browser path below for keyboard-driving features.
+Original shaders, multilayer/detail/normal maps, alpha-to-coverage and shadows are not reproduced. In Drift, grass remains visibly white/stippled because its original material behavior is unsupported. Transparent intersections, colour/lighting and coplanar surfaces remain approximate. Skinned meshes are structurally read and omitted. Dynamic objects/LOD, nonzero model rotations, native vehicle simulation and FFB are not implemented. Use the existing browser path below for keyboard-driving features.
+
+## Native static scene configuration
+
+Use an explicit configuration path, including the layout suffix when needed:
+
+```sh
+cargo run --locked -p asc-app -- inspect ./assettocorsa/content/tracks/magione/models.ini
+cargo run --locked -p asc-app -- view ./assettocorsa/content/tracks/magione/models.ini
+cargo run --locked -p asc-app -- render ./assettocorsa/content/tracks/magione/models.ini reports/native-magione.png
+cargo run --locked -p asc-app -- view ./assettocorsa/content/tracks/ks_barcelona/models_layout_gp.ini
+```
+
+Only `MODEL_n` sections are assembled, in declaration order. Each requires `FILE`, `POSITION` and `ROTATION`. Zero rotation and finite translations within the supported world range are implemented; nonzero rotations fail explicitly until their original convention is validated. Models resolve relative to the selected configuration's directory. Windows/Unix absolute paths, drives, streams, parent traversal and symlinks resolving outside that directory are rejected. Missing/invalid static models fail the entire load. Dynamic sections and unknown keys are omitted with diagnostics.
+
+The native manifest reports each source model's version, position and material/texture ranges. Composed geometry uses version `0` as a composition marker, not a KN5 format version. Textures resolve from each model's own embedded table; original shared/cross-model texture precedence is unvalidated. Source and decoded texture budgets apply to the whole scene. Resources beyond them use diagnostic colours and report the reason. Magione currently reaches the decoded-texture budget; its road/grass and several other materials are visibly incomplete. Original source files remain unchanged.
+
+Native text inspection is also available without a GPU:
+
+```sh
+cargo run --locked -p asc-app -- ini ./assettocorsa/content/tracks/drift/models.ini
+cargo run --locked -p asc-app -- lut ./assettocorsa/content/cars/CAR/data/CURVE.lut --sample 5000
+```
+
+Replace the LUT example with an existing unpacked file; the native path does not read ACD archives yet. Native text input is UTF-8 with an optional BOM, with strict duplicate/quote checks and source lines. LUT interpolation is linear with clamped endpoints and finite-number/range checks. Legacy encodings, includes and inline expressions are unsupported. The Python research tools retain their separate explicit encoding support.
 
 ## Native desktop window
 

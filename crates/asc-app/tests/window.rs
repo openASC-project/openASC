@@ -8,6 +8,16 @@ use std::{
 #[test]
 #[ignore = "Requires a desktop display and GPU/software Vulkan; Linux CI uses Xvfb."]
 fn native_window_presents_resizes_and_reads_back_changed_cameras() {
+    run_window(false);
+}
+
+#[test]
+#[ignore = "Requires a desktop display and GPU/software Vulkan; Linux CI uses Xvfb."]
+fn native_window_presents_a_composed_models_ini_scene() {
+    run_window(true);
+}
+
+fn run_window(composed: bool) {
     let serial = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap()
@@ -48,21 +58,51 @@ fn native_window_presents_resizes_and_reads_back_changed_cameras() {
         ),
     )
     .unwrap();
+    let config = path.with_extension("ini");
+    if composed {
+        let name = path.file_name().unwrap().to_str().unwrap();
+        std::fs::write(&config, format!("[MODEL_0]\nFILE={name}\nPOSITION=0,0,0\nROTATION=0,0,0\n[MODEL_1]\nFILE={name}\nPOSITION=2,0,0\nROTATION=0,0,0\n")).unwrap();
+    }
     let mut command = Command::new(env!("CARGO_BIN_EXE_openasc"));
     let capture = path.with_extension("png");
-    command.arg("view").arg(&path).arg("--smoke");
+    command
+        .arg("view")
+        .arg(if composed { &config } else { &path })
+        .arg("--smoke");
     command.arg("--capture").arg(&capture);
     if std::env::var_os("OPENASC_TEST_FALLBACK").is_some() {
         command.arg("--fallback");
     }
     let output = command.output().unwrap();
     let _ = std::fs::remove_file(&path);
+    if composed {
+        let _ = std::fs::remove_file(&config);
+    }
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         output.status.success(),
         "Native window failed: {stdout}\n{stderr}"
     );
+    if composed {
+        let manifest: serde_json::Value = serde_json::from_str(
+            stdout
+                .lines()
+                .find(|l| l.starts_with("{\"manifest\":"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(manifest["manifest"]["models"].as_array().unwrap().len(), 2);
+        let native: serde_json::Value = serde_json::from_str(
+            stdout
+                .lines()
+                .find(|l| l.starts_with("{\"native_window\":"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(native["native_window"]["scene"]["triangles"], 2);
+        assert_eq!(native["native_window"]["scene"]["textured_draws"], 2);
+    }
     let png = std::fs::read(&capture).unwrap();
     std::fs::remove_file(&capture).unwrap();
     assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n");

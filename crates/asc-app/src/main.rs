@@ -4,11 +4,61 @@ use std::{error::Error, path::Path, process::ExitCode};
 mod app;
 use app::viewer;
 
+struct Input {
+    scene: kn5::Scene,
+    resources: Option<render::Resources>,
+    manifest: Option<asc_scene::Manifest>,
+}
+fn load_input(path: &Path, diagnostic: bool) -> Result<Input, Box<dyn Error>> {
+    if path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("ini"))
+    {
+        let track = asc_scene::load(path)?;
+        let resources = (!diagnostic).then(|| render::load_track_textures(&track));
+        Ok(Input {
+            scene: track.scene,
+            resources,
+            manifest: Some(track.manifest),
+        })
+    } else {
+        let scene = kn5::load(path)?;
+        let resources = (!diagnostic).then(|| render::load_textures(&scene, path));
+        Ok(Input {
+            scene,
+            resources,
+            manifest: None,
+        })
+    }
+}
+
 fn run() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    let usage = "Usage: openasc inspect MODEL.kn5 | render MODEL.kn5 NEW.png [--fallback] [--diagnostic] | view MODEL.kn5 [--fallback] [--diagnostic] [--captures DIR] [--capture NEW.png] [--smoke]";
+    let usage = "Usage: openasc inspect SCENE | render SCENE NEW.png [--fallback] [--diagnostic] | view SCENE [--fallback] [--diagnostic] [--captures DIR] [--capture NEW.png] [--smoke] | ini FILE.ini | lut FILE.lut [--sample X]. SCENE is a KN5 file or an explicit models.ini/models_LAYOUT.ini path.";
     let command = args.first().and_then(|v| v.to_str()).ok_or(usage)?;
     match command {
+        "ini" if args.len() == 2 => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&asc_config::read_ini(Path::new(&args[1]))?)?
+            );
+        }
+        "lut" if args.len() == 2 || (args.len() == 4 && args[2] == "--sample") => {
+            let table = asc_config::read_lut(Path::new(&args[1]))?;
+            let sample = if args.len() == 4 {
+                let x =
+                    asc_config::finite_number(args[3].to_str().ok_or(usage)?, &table.source, 0)?;
+                Some(serde_json::json!({"x":x,"y":table.sample(x)?}))
+            } else {
+                None
+            };
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &serde_json::json!({"source":table.source,"points":table.points(),"sample":sample})
+                )?
+            );
+        }
         "view" if args.len() >= 2 => {
             let (mut fallback, mut diagnostic, mut smoke, mut captures) =
                 (false, false, false, None);
@@ -32,12 +82,17 @@ fn run() -> Result<(), Box<dyn Error>> {
                     _ => return Err(usage.into()),
                 }
             }
-            let scene = kn5::load(Path::new(&args[1]))?;
-            let resources = if diagnostic {
-                None
-            } else {
-                Some(render::load_textures(&scene, Path::new(&args[1])))
-            };
+            let Input {
+                scene,
+                resources,
+                manifest,
+            } = load_input(Path::new(&args[1]), diagnostic)?;
+            if let Some(manifest) = manifest {
+                println!(
+                    "{}",
+                    serde_json::to_string(&serde_json::json!({"manifest":manifest}))?
+                );
+            }
             println!("{}", serde_json::to_string(&scene.summary)?);
             viewer::run(
                 scene,
@@ -51,8 +106,17 @@ fn run() -> Result<(), Box<dyn Error>> {
             )?;
         }
         "inspect" if args.len() == 2 => {
-            let scene = kn5::load(Path::new(&args[1]))?;
-            println!("{}", serde_json::to_string_pretty(&scene.summary)?);
+            let input = load_input(Path::new(&args[1]), true)?;
+            if let Some(manifest) = input.manifest {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(
+                        &serde_json::json!({"manifest":manifest,"scene":input.scene.summary})
+                    )?
+                );
+            } else {
+                println!("{}", serde_json::to_string_pretty(&input.scene.summary)?);
+            }
         }
         "render"
             if (3..=5).contains(&args.len())
@@ -64,12 +128,14 @@ fn run() -> Result<(), Box<dyn Error>> {
             if output.exists() {
                 return Err("Output already exists; choose a new PNG path.".into());
             }
-            let scene = kn5::load(Path::new(&args[1]))?;
-            let resources = if args[3..].iter().any(|v| v == "--diagnostic") {
-                None
-            } else {
-                Some(render::load_textures(&scene, Path::new(&args[1])))
-            };
+            let Input {
+                scene,
+                resources,
+                manifest,
+            } = load_input(
+                Path::new(&args[1]),
+                args[3..].iter().any(|v| v == "--diagnostic"),
+            )?;
             let frame = pollster::block_on(render::render_with_textures(
                 &scene,
                 resources.as_ref(),
@@ -84,7 +150,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             println!(
                 "{}",
                 serde_json::to_string_pretty(
-                    &serde_json::json!({"scene": scene.summary, "render": frame.report, "texture_resources": resources.as_ref().map(|r| r.textures.iter().map(|t| &t.info).collect::<Vec<_>>())})
+                    &serde_json::json!({"manifest":manifest,"scene": scene.summary, "render": frame.report, "texture_resources": resources.as_ref().map(|r| r.textures.iter().map(|t| &t.info).collect::<Vec<_>>())})
                 )?
             );
         }

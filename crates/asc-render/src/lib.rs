@@ -5,5 +5,5 @@ pub mod resources;
 pub mod scene;
 
 pub use gpu::capture::{Frame, Report, render, render_with_textures, save_png};
-pub use resources::texture::{Resources, load as load_textures};
+pub use resources::texture::{Resources, load as load_textures, load_track as load_track_textures};
 pub use scene::camera::camera;

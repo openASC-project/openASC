@@ -1,6 +1,26 @@
 //! Original generated fixtures. No game or SDK bytes are included.
 use glam::Mat4;
 
+/// Original 4x4 single-colour BC1 DDS, with no game-derived bytes.
+pub fn bc1(colour: u16) -> Vec<u8> {
+    let mut header = [0u32; 31];
+    header[0] = 124;
+    header[1] = 0x1007;
+    header[2] = 4;
+    header[3] = 4;
+    header[6] = 1;
+    header[18] = 32;
+    header[19] = 4;
+    header[20] = u32::from_le_bytes(*b"DXT1");
+    let mut out = b"DDS ".to_vec();
+    for value in header {
+        out.extend(value.to_le_bytes());
+    }
+    out.extend(colour.to_le_bytes());
+    out.extend([0; 6]);
+    out
+}
+
 pub fn u32(out: &mut Vec<u8>, value: u32) {
     out.extend(value.to_le_bytes());
 }

@@ -109,6 +109,10 @@ fn bad_embedded_ranges_and_source_budget_fall_back_without_large_allocations() {
     let r = textures::load(&scene, &source.0);
     assert!(r.textures.is_empty());
     assert!(r.diagnostics[0].contains("declared range"));
+    scene.textures[0].offset = u64::MAX;
+    let r = textures::load(&scene, &source.0);
+    assert!(r.textures.is_empty());
+    assert!(r.diagnostics[0].contains("declared range"));
 }
 
 #[test]

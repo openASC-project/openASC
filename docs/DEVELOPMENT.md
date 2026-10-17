@@ -14,17 +14,17 @@ cargo build --workspace --locked
 python tools/check_native_parity.py --native target/debug/openasc
 ```
 
-Use `target/debug/openasc.exe` on Windows. Native/Python contract checks compare original KN5 fixtures, selection, transforms/bounds and rejection codes. Optional repeated `--model PATH` arguments compare locally installed models without copying them. Agreement between two openASC implementations does not establish original-simulator parity.
+Use `target/debug/openasc.exe` on Windows. Native/Python contract checks compare original KN5 fixtures, selection, transforms/bounds, INI values/order/source lines, LUT samples, static model declarations and rejection codes. Optional repeated `--model PATH` arguments compare locally installed models without copying them. Agreement between two openASC implementations does not establish original-simulator parity.
 
 The separate GPU test is explicitly opt-in on a machine with a native adapter:
 
 ```sh
-cargo test -p asc-render --locked --test gpu -- --ignored --nocapture
+cargo test -p asc-render --locked --test gpu --test track_textures -- --ignored --nocapture
 ```
 
-The five GPU tests check non-background geometry, occlusion independent of triangle order, non-aligned row readback, PNG pixels/overwrite refusal, UV orientation, opaque versus cutout alpha, opacity and linear-light blending, read-only/disabled depth and back-to-front transparency ordering. Set `OPENASC_TEST_FALLBACK=1` to request a software adapter; Linux CI installs Mesa Vulkan and runs these tests explicitly. GPU adapter absence fails the explicit tests. Structural, DDS and resource-resolution tests remain GPU-independent. Cargo build outputs under `target/` are ignored; commit `Cargo.lock` with dependency changes.
+Five single-model GPU tests check non-background geometry, occlusion independent of triangle order, non-aligned row readback, PNG pixels/overwrite refusal, UV orientation, opaque versus cutout alpha, opacity and linear-light blending, read-only/disabled depth and back-to-front transparency ordering. A sixth GPU test proves that two composed models with identical texture names retain distinct red/green pixels. CPU fixtures cover native config parsing, translation and rebasing, resource confinement, model/texture budgets and per-model resource isolation. Set `OPENASC_TEST_FALLBACK=1` to request a software adapter; Linux CI installs Mesa Vulkan and runs these tests explicitly. GPU adapter absence fails the explicit tests. Structural, DDS and resource-resolution tests remain GPU-independent. Cargo build outputs under `target/` are ignored; commit `Cargo.lock` with dependency changes.
 
-The explicit desktop test opens a real window and therefore requires a display:
+The two explicit desktop tests open real windows for a KN5 and a composed models.ini scene and therefore requires a display:
 
 ```sh
 cargo test -p asc-app --locked --test window -- --ignored --nocapture
@@ -32,7 +32,7 @@ cargo test -p asc-app --locked --test window -- --ignored --nocapture
 
 Linux CI installs `mesa-vulkan-drivers`, `xvfb` and `libxkbcommon-x11-0`, then runs it under Xvfb with software Vulkan. The X11 window backend requires the xkbcommon X11 runtime library. It verifies one uncaptured presentation and four presented/read-back frames, real window resize to 640 by 480, changed camera matrices, BGRA-to-RGBA PNG output and changed pixels from a diffuse toggle at a fixed camera. Camera math and camera-dependent transparency order also have GPU-independent tests. This diagnostic automation does not establish real mouse/keyboard, DPI, monitor migration or device-loss recovery behavior.
 
-Source is organised as a subsystem workspace under `crates/`, following the openOMSI project layout. Build the executable with `cargo build -p asc-app`; it is named `openasc` (`openasc.exe` on Windows). The former `native/openasc-native` package has been replaced by the four native crates. Python/WebGL research source is under `tools/prototype/`; the root Python package is only a compatibility entry point. See the [architecture](ARCHITECTURE.md) for dependency boundaries.
+Source is organised as a subsystem workspace under `crates/`, following the openOMSI project layout. Build the executable with `cargo build -p asc-app`; it is named `openasc` (`openasc.exe` on Windows). The former `native/openasc-native` package has been replaced by the subsystem crates. Python/WebGL research source is under `tools/prototype/`; the root Python package is only a compatibility entry point. See the [architecture](ARCHITECTURE.md) for dependency boundaries.
 
 Python 3.10+ is enough for the tools, tests, and documentation builder. No game installation is needed for tests.
 

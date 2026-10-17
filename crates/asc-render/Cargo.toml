@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+asc-scene.workspace = true
 asc-kn5.workspace = true
 asc-texture.workspace = true
 bytemuck.workspace = true

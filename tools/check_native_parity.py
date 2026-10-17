@@ -14,7 +14,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / 'tests'))
 from openasc.kn5 import IDENTITY, load_kn5
-from openasc.config import ContentError
+from openasc.config import ContentError, parse_ini, parse_lut
+from openasc.scene import inspect_scene
 from kn5_fixtures import base, file_bytes, mesh
 
 
@@ -81,6 +82,66 @@ def fixtures(native):
     return {'accepted_original_fixtures': len(cases), 'rejected_original_fixtures': len(rejected)}
 
 
+def text_and_scene_contracts(native):
+    """Original config/scene fixtures; agreement is not original-game validation."""
+    with tempfile.TemporaryDirectory(prefix='openasc-native-text-') as directory:
+        root = Path(directory)
+        ini = root / 'original.ini'
+        text = '\ufeff# original fixture\n[model_7]\nfile="folder\\a;b.kn5" ; tail\nempty=\nvalue=a=b\n[second]\nnumber=2'
+        ini.write_text(text, encoding='utf-8')
+        result = subprocess.run([str(native), 'ini', str(ini)], capture_output=True, text=True, check=True)
+        report = json.loads(result.stdout)
+        parsed = parse_ini(text, str(ini))
+        expected = [{'name': s.name, 'line': s.line,
+                     'values': {key: {'text': value, 'line': s.lines[key]} for key, value in s.values.items()}}
+                    for s in parsed.sections.values()]
+        if report['sections'] != expected:
+            raise AssertionError('Native/Python INI values/order/source lines differ')
+        lut = root / 'original.lut'
+        text = '# original fixture\n0|10\n10|30\n30|-10'
+        lut.write_text(text, encoding='utf-8')
+        table = parse_lut(text)
+        samples = [-5, 0, 5, 10, 20, 30, 99]
+        for x in samples:
+            result = subprocess.run([str(native), 'lut', str(lut), '--sample', str(x)], capture_output=True, text=True, check=True)
+            if json.loads(result.stdout)['sample']['y'] != table.sample(x):
+                raise AssertionError(f'Native/Python LUT sample differs at {x}')
+        rejected = [('ini', '[A]\nx=1\nX=2'), ('ini', '[A]\nx="unfinished'),
+                    ('lut', '1|2\n0|3'), ('lut', '0|nan'), ('lut', '')]
+        for command, text in rejected:
+            path = ini if command == 'ini' else lut
+            path.write_text(text, encoding='utf-8')
+            try:
+                (parse_ini if command == 'ini' else parse_lut)(text)
+            except ContentError as error:
+                code = error.diagnostic.code
+            else:
+                raise AssertionError('Python accepted rejected config fixture')
+            result = subprocess.run([str(native), command, str(path)], capture_output=True, text=True)
+            if result.returncode == 0 or code not in result.stderr:
+                raise AssertionError(f'Native did not reject config with {code}: {result.stderr}')
+        content = root / 'content' / 'tracks' / 'original'
+        content.mkdir(parents=True)
+        (content / 'a.kn5').write_bytes(file_bytes(base([mesh()])))
+        (content / 'b.kn5').write_bytes(file_bytes(base([mesh()])))
+        config = content / 'models_layout.ini'
+        config.write_text('[MODEL_8]\nFILE=a.kn5\nPOSITION=0,0,0\nROTATION=0,0,0\n'
+                          '[MODEL_2]\nFILE=b.kn5\nPOSITION=10,2,-3\nROTATION=0,0,0\n'
+                          '[DYNAMIC_OBJECT_0]\nFILE=a.kn5\n', encoding='utf-8')
+        python = inspect_scene(root, 'original', 'layout')
+        result = subprocess.run([str(native), 'inspect', str(config)], capture_output=True, text=True, check=True)
+        report = json.loads(result.stdout)
+        for a, b in zip(python['models'], report['manifest']['models'], strict=True):
+            for field in ['section', 'file', 'position', 'rotation']:
+                if a[field] != b[field]:
+                    raise AssertionError(f'Native/Python scene {field} differs')
+            if a['kn5']['version'] != b['version']:
+                raise AssertionError('Native/Python scene model version differs')
+        if report['scene']['drawn_triangles'] != 2 or not report['manifest']['diagnostics']:
+            raise AssertionError('Native scene composition or dynamic omission diagnostics missing')
+    return {'ini_documents': 1, 'lut_samples': len(samples), 'rejected_configs': len(rejected), 'composed_models': 2}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--native', required=True, type=Path)
@@ -88,6 +149,7 @@ def main():
     args = parser.parse_args()
     native = args.native.resolve(strict=True)
     report = fixtures(native)
+    report['text_and_scene_contracts'] = text_and_scene_contracts(native)
     report['local_models'] = [{'source': path.name, **compare(native, path)} for path in args.model]
     print(json.dumps(report, indent=2, allow_nan=False))
 
