@@ -45,7 +45,7 @@
   <div class="page-shell">
     <main id="main" tabindex="-1" class="documentation">
       <article class="document"><h1>User guide</h1>
-<p>openASC provides local content inventory, configuration readers, and static scene resource diagnostics. There is no playable engine or scene viewer yet.</p>
+<p>openASC provides content inventory, configuration readers, static scene resource diagnostics, and a first local geometry viewer. There is no playable driving engine yet.</p>
 <h2>Requirements</h2>
 <ul><li>Python 3.10 or newer.</li><li>Your own installed copy of Assetto Corsa (2014) to inspect game content.</li><li>No third-party Python packages.</li></ul>
 <p>The website and automated tests work without an installation of the game.</p>
@@ -79,7 +79,17 @@ python -m openasc scene ./assettocorsa --track ks_barcelona --layout layout_gp</
 <p>The track is a folder name beneath <code>content/tracks</code>. A layout selects <code>models_LAYOUT.ini</code>; without it, the command requires <code>models.ini</code>. If a choice is required, the error lists available layout identifiers rather than picking one automatically.</p>
 <p>Each <code>MODEL_n</code> declaration needs an explicit <code>FILE</code>, <code>POSITION</code>, and <code>ROTATION</code>. Resource references must stay within the selected track directory. The tool checks file presence and a KN5 version 5/6 header. It preserves transform values but does not apply them or decode geometry.</p>
 <p>The JSON report labels this scope <code>configuration_and_header_only</code> and sets <code>geometry_loaded</code> to false. Dynamic objects, other sections, and unknown model keys produce warnings. Invalid transforms, missing files, and unsupported headers produce errors. A report can contain valid models alongside errors, so always inspect <code>has_errors</code> and <code>diagnostics</code>.</p>
-<p>Successful inspections exit with code 0. Error diagnostics exit with code 2; warnings alone do not change the exit status. These commands write JSON to standard output and never modify the installation. Parse failures are written as JSON to standard error.</p><a class="edit-link" href="https://github.com/openASC-project/openASC/blob/main/docs/USER_GUIDE.md">View this document on GitHub ↗</a></article>
+<p>Successful inspections exit with code 0. Error diagnostics exit with code 2; warnings alone do not change the exit status. These commands write JSON to standard output and never modify the installation. Parse failures are written as JSON to standard error.</p>
+<h2>Preview local track geometry</h2>
+<pre><code>python -m openasc view ./assettocorsa --track drift</code></pre>
+<p>Open <a href="http://127.0.0.1:4180/">the local viewer</a> in a browser with WebGL 2. Loading can take several seconds while geometry is validated. The server prints its URL and stays running until Ctrl+C. Use <code>--port 4181</code> if the default port is occupied, and <code>--layout NAME</code> to select a track layout.</p>
+<ul><li>Left-drag to orbit, right-drag or Shift-drag to pan, and scroll to zoom.</li><li>Focus the canvas and use arrow keys to orbit or plus/minus to zoom.</li><li>Fit road names uses bounds of active meshes containing ROAD, including non-renderable meshes. This is a naming heuristic, not verified surface classification.</li><li>Fit all includes the full visible scene, which can contain a large background landscape.</li><li>Top view changes camera elevation. Filter the mesh list and select an entry to focus and highlight it.</li><li>The inspector shows material definitions, shader parameters, resource mappings, and diagnostics.</li></ul>
+<p>The viewer uses opaque diagnostic colours and basic lighting. Embedded textures are indexed but not decoded; alpha compositing, original shaders, shadows, and exact LOD behavior are not reproduced. Coplanar overlays may flicker or show depth artifacts. This is a geometry inspection tool, not a screenshot of the original rendering.</p>
+<p>Inactive, hidden, non-renderable, empty, and later-LOD meshes are omitted from drawing. Nonzero model-level ROTATION values are diagnosed and skipped until their convention is validated. Node hierarchy transforms and model translations are applied. Skinned meshes are diagnosed and skipped.</p>
+<p>The server binds only to 127.0.0.1 and rejects foreign Host/Origin headers. It serves the selected scene from memory without exporting assets to disk. Do not use a proxy or tunnel to expose it publicly. GitHub Pages serves documentation only and cannot access the local game installation.</p>
+<h2>Inspect a KN5 directly</h2>
+<pre><code>python -m openasc kn5 ./assettocorsa/content/tracks/drift/drift.kn5</code></pre>
+<p>This parses the supported binary structure and returns counts and diagnostics without opening a server or exporting geometry. Binary errors include a <code>byte_offset</code> as well as the source filename. A header-only file that passes the lightweight scene inspector will fail this full supported-structure reader.</p><a class="edit-link" href="https://github.com/openASC-project/openASC/blob/main/docs/USER_GUIDE.md">View this document on GitHub ↗</a></article>
     </main>
     <footer class="footer">openASC is an independent project, not affiliated with Kunos Simulazioni. Game content is not included.<br><a href="https://github.com/openASC-project/openASC/blob/main/LICENSE">MIT license</a><span aria-hidden="true"> · </span><a href="https://openomsi.org/">Inspired by openOMSI</a></footer>
   </div>

@@ -1,6 +1,6 @@
 # User guide
 
-openASC provides local content inventory, configuration readers, and static scene resource diagnostics. There is no playable engine or scene viewer yet.
+openASC provides content inventory, configuration readers, static scene resource diagnostics, and a first local geometry viewer. There is no playable driving engine yet.
 
 ## Requirements
 
@@ -84,3 +84,32 @@ Each `MODEL_n` declaration needs an explicit `FILE`, `POSITION`, and `ROTATION`.
 The JSON report labels this scope `configuration_and_header_only` and sets `geometry_loaded` to false. Dynamic objects, other sections, and unknown model keys produce warnings. Invalid transforms, missing files, and unsupported headers produce errors. A report can contain valid models alongside errors, so always inspect `has_errors` and `diagnostics`.
 
 Successful inspections exit with code 0. Error diagnostics exit with code 2; warnings alone do not change the exit status. These commands write JSON to standard output and never modify the installation. Parse failures are written as JSON to standard error.
+
+## Preview local track geometry
+
+```sh
+python -m openasc view ./assettocorsa --track drift
+```
+
+Open [the local viewer](http://127.0.0.1:4180/) in a browser with WebGL 2. Loading can take several seconds while geometry is validated. The server prints its URL and stays running until Ctrl+C. Use `--port 4181` if the default port is occupied, and `--layout NAME` to select a track layout.
+
+- Left-drag to orbit, right-drag or Shift-drag to pan, and scroll to zoom.
+- Focus the canvas and use arrow keys to orbit or plus/minus to zoom.
+- Fit road names uses bounds of active meshes containing ROAD, including non-renderable meshes. This is a naming heuristic, not verified surface classification.
+- Fit all includes the full visible scene, which can contain a large background landscape.
+- Top view changes camera elevation. Filter the mesh list and select an entry to focus and highlight it.
+- The inspector shows material definitions, shader parameters, resource mappings, and diagnostics.
+
+The viewer uses opaque diagnostic colours and basic lighting. Embedded textures are indexed but not decoded; alpha compositing, original shaders, shadows, and exact LOD behavior are not reproduced. Coplanar overlays may flicker or show depth artifacts. This is a geometry inspection tool, not a screenshot of the original rendering.
+
+Inactive, hidden, non-renderable, empty, and later-LOD meshes are omitted from drawing. Nonzero model-level ROTATION values are diagnosed and skipped until their convention is validated. Node hierarchy transforms and model translations are applied. Skinned meshes are diagnosed and skipped.
+
+The server binds only to 127.0.0.1 and rejects foreign Host/Origin headers. It serves the selected scene from memory without exporting assets to disk. Do not use a proxy or tunnel to expose it publicly. GitHub Pages serves documentation only and cannot access the local game installation.
+
+## Inspect a KN5 directly
+
+```sh
+python -m openasc kn5 ./assettocorsa/content/tracks/drift/drift.kn5
+```
+
+This parses the supported binary structure and returns counts and diagnostics without opening a server or exporting geometry. Binary errors include a `byte_offset` as well as the source filename. A header-only file that passes the lightweight scene inspector will fail this full supported-structure reader.

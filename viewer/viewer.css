@@ -1,0 +1,47 @@
+:root { color-scheme: dark; font-family: "Segoe UI", Arial, sans-serif; background: #111318; color: #eeeef2; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+header { height: 60px; display: flex; gap: 25px; align-items: center; padding: 0 24px; border-top: 3px solid #df1826; border-bottom: 1px solid #363942; background: #1c1e24; }
+.brand { font-style: italic; font-weight: 850; font-size: 24px; color: #fff; text-decoration: none; letter-spacing: -1px; }
+.brand span { color: #ee2534; font-size: 1.4em; }
+.header-label { font-size: 10px; letter-spacing: 2px; color: #b6b9c4; }
+#track { margin-left: auto; font-size: 13px; }
+main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; height: calc(100dvh - 60px); }
+.viewport { position: relative; overflow: hidden; min-width: 0; min-height: 320px; }
+canvas { width: 100%; height: 100%; display: block; touch-action: none; }
+.toolbar { position: absolute; left: 16px; top: 16px; display: flex; gap: 8px; flex-wrap: wrap; right: 16px; pointer-events: none; }
+button { background: #242730; color: #f0f0f5; font: inherit; border: 1px solid #515561; padding: 8px 12px; font-size: 12px; cursor: pointer; pointer-events: auto; }
+button:hover { border-color: #ed2534; }
+button:disabled { opacity: .45; cursor: default; }
+button:focus-visible, input:focus-visible, summary:focus-visible, canvas:focus-visible { outline: 2px solid #ff7883; outline-offset: 3px; }
+#status { position: absolute; left: 16px; bottom: 43px; padding: 8px 12px; max-width: calc(100% - 32px); background: #14161ee8; color: #d6d9e2; font-size: 12px; }
+.hint { position: absolute; bottom: 14px; left: 16px; right: 16px; color: #a6adbb; font-size: 10px; text-shadow: 0 1px #000; }
+.inspector { border-left: 1px solid #373a43; background: #1b1e24; padding: 22px 20px; overflow: auto; }
+h1 { font-size: 20px; font-style: italic; text-transform: uppercase; margin: 0 0 18px; }
+h2 { font-size: 15px; margin-top: 24px; }
+.notice { background: #341e26; border-left: 3px solid #df1826; padding: 12px; color: #f2b9c0; font-size: 12px; line-height: 1.6; }
+dl { display: grid; grid-template-columns: 1fr 1fr; font-size: 12px; line-height: 2; }
+dt { color: #aeb5c3; }
+dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+details { border-block: 1px solid #373a43; padding: 13px 0; margin: 18px 0; font-size: 12px; }
+summary { cursor: pointer; font-weight: 600; }
+#diagnostics { list-style: none; padding: 0; max-height: 225px; overflow: auto; font-size: 11px; line-height: 1.6; }
+#diagnostics li { padding: 8px 0; border-bottom: 1px solid #343842; overflow-wrap: anywhere; }
+.error { color: #ff919d; }
+.diagnostic-code { display: block; color: #d2ac79; font: 10px Consolas, monospace; margin-bottom: 4px; }
+label { display: block; font-size: 11px; color: #aeb5c3; margin-bottom: 8px; }
+input { width: 100%; background: #111419; border: 1px solid #505663; padding: 10px; color: #fff; font: inherit; font-size: 12px; }
+#selection { color: #b6bece; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+#mesh-list { max-height: 280px; overflow: auto; }
+.mesh-button { display: block; width: 100%; text-align: left; margin-bottom: 4px; padding: 8px 9px; font-size: 11px; overflow-wrap: anywhere; }
+.mesh-button[aria-pressed="true"] { background: #3c222b; border-color: #df1826; }
+#materials p { font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
+#materials pre { font-size: 10px; max-height: 260px; overflow: auto; background: #101216; padding: 10px; }
+.local-note { font-size: 10px; line-height: 1.7; color: #969eae; }
+@media(max-width: 800px) {
+  header { padding: 0 12px; gap: 15px; }
+  .header-label { display: none; }
+  main { display: block; height: auto; }
+  .viewport { height: 65dvh; }
+  .inspector { border-left: 0; border-top: 1px solid #373a43; }
+}

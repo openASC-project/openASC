@@ -2,7 +2,7 @@
 
 An independent open-source engine project for **Assetto Corsa (2014)** content, inspired by [openOMSI](https://github.com/openOMSI-org/openOMSI).
 
-**Status: content tools. There is no playable engine yet.** The repository contains a local inventory, source-aware INI/LUT readers, static track configuration and KN5 header inspection, original tests, and a documentation website. Inspecting a header does not establish geometry or gameplay compatibility.
+**Status: first static geometry viewer. There is no playable driving engine yet.** The repository contains local inventory, INI/LUT readers, a bounded KN5 static geometry importer, an interactive local WebGL viewer, original tests, and a documentation website. Textures, original shaders, and vehicle simulation are not implemented.
 
 [Website](https://openasc-project.github.io/openASC/) · [User guide](docs/USER_GUIDE.md) · [Compatibility record](docs/FORMATS.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/FEASIBILITY.md)
 
@@ -15,12 +15,15 @@ python tools/inspect_content.py ./assettocorsa
 python tools/inspect_content.py ./assettocorsa --output reports/content.json
 python -m openasc scene ./assettocorsa --track drift
 python -m openasc scene ./assettocorsa --track ks_barcelona --layout layout_gp
+python -m openasc view ./assettocorsa --track drift
 python -m unittest discover -s tests -v
 ```
 
 The scanner reads the immediate `content/cars` and `content/tracks` directories and checks for expected files. It does not launch the game, unpack ACD archives, parse geometry, or copy resources. Reports use content-relative paths and are not saved unless requested. Existing output files are never overwritten.
 
-The `openasc` CLI also provides `ini FILE` and `lut FILE --sample X` commands. The `scene` command resolves static model declarations, validates transforms and referenced KN5 headers, and reports unsupported sections. It does not load geometry or render a scene. See the [supported format subset](docs/FORMATS.md).
+The `openasc` CLI also provides `ini FILE`, `lut FILE --sample X`, and `kn5 FILE` commands. The `scene` command remains a lightweight configuration/header inspector. The `view` command loads supported static geometry and starts an interactive preview at [127.0.0.1:4180](http://127.0.0.1:4180/). See the [user guide](docs/USER_GUIDE.md) and [supported format subset](docs/FORMATS.md).
+
+The viewer requires a browser with WebGL 2. Drag to orbit, right-drag to pan, scroll to zoom, or select a mesh to focus it. It uses diagnostic material colours and basic lighting, not the game's shaders or textures. Original resources remain local and are not written into the website or repository.
 
 Your installation may live outside this repository: pass its root path instead of `./assettocorsa`. The `assettocorsa/` and `reports/` directories are ignored by Git.
 
@@ -45,6 +48,7 @@ web/                      Website template and overview source
 site/                     Generated HTML and shared static assets
 tools/inspect_content.py  Local content inventory
 openasc/                  INI/LUT readers and scene resource diagnostics
+viewer/                   Local WebGL geometry preview interface
 tools/build_site.py       Documentation site builder
 tests/                    Original, game-independent test fixtures
 .github/workflows/        CI and GitHub Pages
@@ -53,7 +57,7 @@ assettocorsa/             Local game installation, ignored by Git
 
 ## Next milestone
 
-Read KN5 geometry, hierarchy, and materials, then display one real local scene in a viewer with unsupported features diagnosed explicitly. INI/LUT readers and static scene resource diagnostics are implemented. Vehicle physics, force feedback, AI, audio, and networking are separate later stages. Full mod compatibility, CSP support, and exact original behavior are not established.
+Improve the first viewer with texture decoding, material fidelity, validated model rotation conventions, and broader scene validation before moving toward a first drive. Static KN5 geometry, hierarchy, and material definitions are read; unsupported features are diagnosed. Vehicle physics, force feedback, AI, audio, and networking are separate later stages. Full mod compatibility, CSP support, and exact original behavior are not established.
 
 ## License and independence
 

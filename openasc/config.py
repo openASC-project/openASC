@@ -12,9 +12,13 @@ class Diagnostic:
     source: str
     line: int = 0
     severity: str = 'error'
+    byte_offset: int | None = None
 
     def as_dict(self):
-        return asdict(self)
+        result = asdict(self)
+        if self.byte_offset is None:
+            del result['byte_offset']
+        return result
 
 
 class ContentError(ValueError):

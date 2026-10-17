@@ -10,9 +10,12 @@ Python 3.10+ is enough for the tools, tests, and documentation builder. No game 
 python -m unittest discover -s tests -v
 python tools/build_site.py --check
 node --check site/app.js
+node --check viewer/viewer.js
 ```
 
 Node.js is only used for JavaScript syntax checks. The website itself has no npm dependencies or build-time JavaScript framework.
+
+The local geometry viewer also has no npm dependencies. Its JavaScript is in `viewer/`, served only by `python -m openasc view`. Tests construct original complete KN5 fixtures and exercise the loopback server, including foreign-host/origin rejection. Binary fixtures are not copied from the game.
 
 ## Update the website
 

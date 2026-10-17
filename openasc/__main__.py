@@ -5,6 +5,7 @@ import sys
 
 from .config import ContentError, read_ini, read_lut
 from .scene import inspect_scene
+from .kn5 import load_kn5
 
 
 def main(argv=None):
@@ -21,6 +22,14 @@ def main(argv=None):
     scene.add_argument('--track', required=True)
     scene.add_argument('--layout')
     scene.add_argument('--encoding', default='utf-8-sig')
+    kn5 = commands.add_parser('kn5', help='Inspect supported KN5 static geometry without exporting assets')
+    kn5.add_argument('file')
+    viewer = commands.add_parser('view', help='Start a local-only static geometry viewer')
+    viewer.add_argument('installation')
+    viewer.add_argument('--track', required=True)
+    viewer.add_argument('--layout')
+    viewer.add_argument('--encoding', default='utf-8-sig')
+    viewer.add_argument('--port', type=int, default=4180)
     args = parser.parse_args(argv)
     try:
         if args.command == 'ini':
@@ -32,12 +41,19 @@ def main(argv=None):
             result = {'source': table.source, 'scope': 'lut_subset', 'points': table.points}
             if args.sample is not None:
                 result['sample'] = {'x': args.sample, 'y': table.sample(args.sample), 'boundary': 'clamp'}
+        elif args.command == 'kn5':
+            result = load_kn5(args.file).summary()
+        elif args.command == 'view':
+            from .viewer import serve_preview
+            if not 0 <= args.port <= 65535:
+                parser.error('--port must be between 0 and 65535.')
+            return serve_preview(args.installation, args.track, args.layout, args.encoding, args.port)
         else:
             result = inspect_scene(args.installation, args.track, args.layout, args.encoding)
         print(json.dumps(result, indent=2, ensure_ascii=True, allow_nan=False))
         return 2 if result.get('has_errors') else 0
     except ContentError as error:
-        print(json.dumps({'diagnostics': [error.diagnostic.as_dict()]}), file=sys.stderr)
+        print(json.dumps({'diagnostics': getattr(error, 'diagnostics', [error.diagnostic.as_dict()])}), file=sys.stderr)
         return 2
     except (OSError, LookupError) as error:
         print(json.dumps({'diagnostics': [{'code': 'input_io', 'message': str(error), 'severity': 'error'}]}), file=sys.stderr)

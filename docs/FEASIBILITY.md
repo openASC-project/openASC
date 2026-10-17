@@ -6,7 +6,7 @@ An independent engine that reads Assetto Corsa content is a technically plausibl
 
 ## Current state
 
-Implemented: file-presence inventory, INI/LUT readers, interpolation, static model resource/transform validation, KN5 header inspection, tests on original fixtures, English documentation, and a GitHub Pages website. Not implemented: geometry import, rendering, vehicle simulation, wheel input, force feedback, audio, or networking.
+Implemented: inventory, INI/LUT readers, static model diagnostics, supported KN5 geometry/hierarchy/material definitions, and a first local WebGL viewer with camera and mesh inspection. Original fixtures, English documentation, and the GitHub Pages site accompany the implementation. Not implemented: texture rendering, original shaders, vehicle simulation, wheel input, force feedback, audio, or networking.
 
 The local installation includes SDK documentation and UDP server examples. These are research starting points, not resources distributed by openASC.
 
@@ -23,7 +23,7 @@ The local installation includes SDK documentation and UDP server examples. These
 
 ## Immediate work
 
-The initial configuration subset and resource manifest are implemented. Next, decode KN5 geometry, hierarchy, and materials before building the first viewer. Keep source locations in diagnostics and identify unsupported syntax explicitly. The first viewer must display real local geometry, rather than a placeholder scene.
+The initial configuration subset, resource manifest, and first geometry viewer are implemented and verified with the local Drift track. Next, decode textures, improve material behavior, validate model-level rotation conventions, and expand scene validation before building a first drive. Keep unsupported features visible in diagnostics and preserve source locations in errors.
 
 ## Long-term scope
 

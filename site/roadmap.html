@@ -48,7 +48,7 @@
 <p>An independent engine that reads Assetto Corsa content is a technically plausible engineering direction. Access to modding tools and an SDK does not provide the simulator source or guarantee an exact reproduction of its physics.</p>
 <p><a href="https://github.com/openOMSI-org/openOMSI">openOMSI</a> is the inspiration for organizing an independent implementation around documented formats and a public website. It is not an existing engine base for Assetto Corsa.</p>
 <h2>Current state</h2>
-<p>Implemented: file-presence inventory, INI/LUT readers, interpolation, static model resource/transform validation, KN5 header inspection, tests on original fixtures, English documentation, and a GitHub Pages website. Not implemented: geometry import, rendering, vehicle simulation, wheel input, force feedback, audio, or networking.</p>
+<p>Implemented: inventory, INI/LUT readers, static model diagnostics, supported KN5 geometry/hierarchy/material definitions, and a first local WebGL viewer with camera and mesh inspection. Original fixtures, English documentation, and the GitHub Pages site accompany the implementation. Not implemented: texture rendering, original shaders, vehicle simulation, wheel input, force feedback, audio, or networking.</p>
 <p>The local installation includes SDK documentation and UDP server examples. These are research starting points, not resources distributed by openASC.</p>
 <h2>Development stages</h2>
 <div class="table-scroll" tabindex="0" role="region" aria-label="Documentation table"><table><thead><tr>
@@ -64,7 +64,7 @@
 <tr><td>5. Ecosystem</td><td>Wider content support, AI, audio, and networking</td><td>Separate compatibility evidence for each subsystem</td></tr>
 </tbody></table></div>
 <h2>Immediate work</h2>
-<p>The initial configuration subset and resource manifest are implemented. Next, decode KN5 geometry, hierarchy, and materials before building the first viewer. Keep source locations in diagnostics and identify unsupported syntax explicitly. The first viewer must display real local geometry, rather than a placeholder scene.</p>
+<p>The initial configuration subset, resource manifest, and first geometry viewer are implemented and verified with the local Drift track. Next, decode textures, improve material behavior, validate model-level rotation conventions, and expand scene validation before building a first drive. Keep unsupported features visible in diagnostics and preserve source locations in errors.</p>
 <h2>Long-term scope</h2>
 <p>Full compatibility may require years of development and is not guaranteed. CSP, Python apps, plugins, and exact original physics need separate investigation. No release date or platform support is promised before a working prototype is tested.</p>
 <p>Use the <a href="./formats.html">compatibility record</a> for implemented behavior and the <a href="./architecture.html">architecture</a> for proposed module boundaries.</p>
