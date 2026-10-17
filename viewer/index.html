@@ -25,10 +25,11 @@
       <dl id="stats"></dl>
       <section id="drive-panel" hidden aria-label="First-drive controls">
         <h2 id="drive-car">First-drive prototype</h2>
-        <p class="notice">Independent prototype. No wall response, suspension dynamics, wheel animation, audio or FFB. Ground loss stops the car.</p>
+        <p class="notice">Independent prototype with upright body-box contact against static WALL meshes. Suspension dynamics, wheel animation, audio and FFB remain unimplemented. Ground loss stops the car.</p>
         <div class="drive-readout"><output id="drive-speed">0 km/h</output><output id="drive-gear">1</output><output id="drive-rpm">0 rpm</output></div>
         <div class="drive-buttons"><button id="drive-toggle" type="button">Resume</button><button id="drive-reset" type="button">Reset</button><button id="drive-follow" type="button" aria-pressed="true">Follow car</button></div>
         <p id="drive-status" role="status">Ready</p>
+        <p id="drive-wall" class="local-note">No wall contact yet.</p>
         <p class="local-note">Focus the scene to drive. W/S: throttle/brake · A/D: steer · Space: handbrake · E/Q: gears (R, N, 1…) · P: pause · R: reset. Tab switches and missing input heartbeats pause the simulation.</p>
       </section>
       <details open><summary id="diagnostic-title">Diagnostics</summary><ul id="diagnostics"></ul></details>

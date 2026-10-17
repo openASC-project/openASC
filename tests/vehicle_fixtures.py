@@ -3,7 +3,7 @@ from pathlib import Path
 import struct
 
 from openasc.acd import folder_key
-from kn5_fixtures import file_bytes
+from kn5_fixtures import file_bytes, mesh
 
 FILES = {
     'car.ini': '[HEADER]\nVERSION=1\n[BASIC]\nTOTALMASS=900\nINERTIA=1.5,1.2,3.5\nGRAPHICS_OFFSET=0,-.3,.1\nGRAPHICS_PITCH_ROTATION=.5\n[CONTROLS]\nSTEER_LOCK=360\nSTEER_RATIO=12\n',
@@ -40,4 +40,8 @@ def install_car(root, identifier='fixture', packed=False, files=None):
         for name, text in files.items():
             (path / 'data' / name).write_text(text, encoding='utf-8')
     (path / 'original.kn5').write_bytes(file_bytes())
+    points = tuple((x, y, z) for x in (-.7, .7) for y in (.2, 1.2) for z in (-1.7, 1.7))
+    indices = (0, 1, 3, 0, 3, 2, 4, 6, 7, 4, 7, 5, 0, 4, 5, 0, 5, 1,
+               2, 3, 7, 2, 7, 6, 0, 2, 6, 0, 6, 4, 1, 5, 7, 1, 7, 3)
+    (path / 'collider.kn5').write_bytes(file_bytes(mesh(points=points, indices=indices)))
     return path

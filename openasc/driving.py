@@ -14,6 +14,7 @@ from .placement import load_spawns
 from .scene import confined
 from .vehicle import load_vehicle
 from .viewer import Preview, load_preview, make_server, prepare_materials
+from .walls import load_body
 
 
 def add_vehicle(preview, installation, vehicle):
@@ -145,7 +146,7 @@ class Session:
 
 def load_drive(installation, car, track, spawn='AC_PIT_0', layout=None, compound=None, mode='auto', encoding='utf-8-sig'):
     vehicle = load_vehicle(installation, car, compound, mode, encoding)
-    ground = load_ground(installation, track, layout, encoding)
+    ground = load_ground(installation, track, layout, encoding, include_walls=True)
     if ground.summary()['has_errors']:
         error = ContentError('drive_ground_errors', 'Ground loading errors prevent driving; inspect the ground report.')
         error.diagnostics = ground.diagnostics + [error.diagnostic.as_dict()]
@@ -155,11 +156,16 @@ def load_drive(installation, car, track, spawn='AC_PIT_0', layout=None, compound
         error = ContentError('spawn_missing', 'Selected drive spawn is absent, ambiguous or unsupported.')
         error.diagnostics = diagnostics + [error.diagnostic.as_dict()]
         raise error
-    model = Dynamics(vehicle, ground, spawns[spawn])
+    body = load_body(installation, vehicle)
+    model = Dynamics(vehicle, ground, spawns[spawn], ground.walls, body)
     preview = load_preview(installation, track, layout, encoding, hide_markers=True)
     preview, count = add_vehicle(preview, installation, vehicle)
     preview.metadata['diagnostics'].extend(diagnostics + vehicle.diagnostics + ground.diagnostics)
-    preview.metadata['diagnostics'].append(Diagnostic('first_drive_prototype', 'Independent planar four-patch dynamics with geometric road attachment. No walls, suspension dynamics, wheel animation, original tyre/drivetrain behavior, FFB, audio, AI or networking. Keyboard input; static load distribution and approximate graphics alignment.', '<drive>', severity='warning').as_dict())
+    if not ground.walls.mesh_ids:
+        preview.metadata['diagnostics'].append(Diagnostic('wall_geometry_empty', 'No supported static WALL triangles were found; this scene has no indexed wall barriers.', '<drive>', severity='warning').as_dict())
+    preview.metadata['diagnostics'].append(Diagnostic('first_drive_prototype', 'Independent planar four-patch dynamics with geometric road attachment and an upright collider-bounds body proxy against static WALL triangles. No full convex/6DOF collision, suspension dynamics, wheel animation, original tyre/drivetrain behavior, FFB, audio, AI or networking. Keyboard input; static load distribution and approximate graphics alignment.', '<drive>', severity='warning').as_dict())
+    preview.metadata['wall_collision'] = ground.walls.summary() | {'body_center': body.center, 'body_half_extents': body.half,
+                                                                 'body_source': body.source, 'body_shape': 'upright_collider_bounds'}
     preview.metadata['diagnostics'] = list({tuple(sorted(d.items())): d for d in preview.metadata['diagnostics']}.values())
     preview.metadata['has_errors'] = any(d['severity'] == 'error' for d in preview.metadata['diagnostics'])
     preview.metadata['scope'] = 'first_drive_prototype'
@@ -175,7 +181,7 @@ def serve_drive(installation, car, track, spawn='AC_PIT_0', layout=None, compoun
         session.start()
         print(f'Local first-drive prototype: http://127.0.0.1:{server.server_port}/', flush=True)
         print('Starts paused. Keyboard: W/S throttle/brake, A/D steer, Space handbrake, E/Q gears, P pause, R reset.', flush=True)
-        print('Prototype limits: no wall response, original physics, wheel animation, audio or FFB. Press Ctrl+C to stop.', flush=True)
+        print('Prototype limits: upright body proxy, no original physics, wheel animation, audio or FFB. Press Ctrl+C to stop.', flush=True)
         try:
             server.serve_forever()
         except KeyboardInterrupt:

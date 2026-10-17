@@ -331,7 +331,7 @@
     fit(roads.length ? roads : meshes);
     if (scene.drive) await OPENASC_DRIVE.attach({canvas,
       onState: value => { driveState = value; invalidate(); },
-      onFollow: value => { followCar = value; invalidate(); }});
+      onFollow: value => { if (value) followCar = true; else releaseFollow(); invalidate(); }});
   }
   start().catch(error => { canvas.dataset.error = 'true'; setStatus(`Cannot display scene: ${error.message}`); console.error(error); });
 })();

@@ -117,11 +117,13 @@ python -m openasc drive ./assettocorsa --car bmw_m3_e30 --track drift --port 418
 
 Open the printed loopback URL in a WebGL 2 browser. Loading validates car data, physical ground and spawn transforms, then loads the local track and car model. The session starts paused; click Resume to focus the scene. W/S apply throttle/brake, A/D steer, Space applies the handbrake, and E/Q shift up/down through reverse, neutral and forward gears. Arrow keys are alternative driving controls. P pauses/resumes; R resets to the selected spawn and pauses. The Follow car button switches the chase camera on/off; dragging, zooming or using inspection camera buttons releases follow mode.
 
-The command also accepts `--spawn`, `--layout`, `--compound`, `--data-source` and `--encoding`. Naturally aspirated RWD/FWD configurations within the documented prototype bounds are admitted. Local verification currently covers BMW M3 E30 on Drift. A separate duplicate Drift start slot remains visible as a catalog error; the selected AC_PIT_0 is unambiguous and has four support contacts. Ground-loading errors or an invalid selected spawn prevent startup.
+The command also accepts `--spawn`, `--layout`, `--compound`, `--data-source` and `--encoding`. Naturally aspirated RWD/FWD configurations within the documented prototype bounds are admitted, and an existing supported collider.kn5 is required. Local verification currently covers BMW M3 E30 on Drift. A separate duplicate Drift start slot remains visible as a catalog error; the selected AC_PIT_0 is unambiguous and has four support contacts. Ground-loading errors, an invalid selected spawn or initial body/wall overlap prevent startup.
 
 This is an independently implemented first-drive prototype, not validated Assetto Corsa physics. It uses a 120 Hz planar force model, four friction-limited contact patches and geometric road attachment. Chassis height is estimated from ground, tyre radius and BASEY, without solving spring equilibrium. Steering and wheel spin are not animated. The renderer applies the recorded graphics offset and a local X pitch rotation approximately; external skin textures and original paint/material behavior remain unsupported.
 
-There is no wall/body collision response. A car can pass through barriers where supporting ground exists. Missing/steep support, a ground-height jump over 0.35 metre or a numeric limit pauses the prototype at the last valid position. Surface bumps, suspension dynamics, real tyre slip curves, weight transfer, clutch/engine rotational dynamics, original differential behavior, fuel/aero/electronics, audio, FFB, AI and multiplayer are not implemented. Use the on-screen diagnostics and [compatibility record](FORMATS.md).
+Static WALL meshes now contact an upright box enclosing the car's collider model. Continuous translation/yaw queries prevent ordinary endpoint tunnelling; inelastic planar impulses oppose entry and allow sliding/reverse departure. This is an approximate box proxy: full convex/6DOF contact, body/ground scraping, moving obstacles and non-WALL meshes are not supported. The on-screen wall label reports contact resolutions; repeated contact does not mean a distinct crash each time. A bounded event cap may drop remaining step motion in a complex contact and is counted in telemetry.
+
+Missing/steep support, a ground-height jump over 0.35 metre, unsupported vertical contact, terrain-induced body overlap or a numeric/query limit pauses the prototype at the last valid position. Surface bumps, suspension dynamics, real tyre slip curves, weight transfer, clutch/engine rotational dynamics, original differential behavior, fuel/aero/electronics, audio, FFB, AI and multiplayer are not implemented. Use the on-screen diagnostics and [compatibility record](FORMATS.md).
 
 Tab hiding, window blur or 0.5 second without a valid controller heartbeat pauses the simulation and clears pedal/steering input. Use one controller tab per session. Closing the page leaves the loopback process running until Ctrl+C; controller sequence errors from another tab require reloading. The local command endpoint checks same-origin headers, a session nonce, a monotonically increasing sequence and a bounded JSON input schema. It is not a public/network game server.
 
@@ -155,6 +157,7 @@ This is a geometric preflight, not a playable session. Suspension equilibrium, t
 
 ```sh
 python -m openasc ground ./assettocorsa --track drift
+python -m openasc ground ./assettocorsa --track drift --walls
 python -m openasc ground ./assettocorsa --track drift --at 0 100 0 --distance 150
 ```
 

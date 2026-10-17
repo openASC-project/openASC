@@ -3,7 +3,6 @@
 This is geometric contact preparation, not rigid-body or tyre simulation.
 """
 from array import array
-from dataclasses import dataclass
 import math
 from pathlib import Path
 
@@ -11,18 +10,10 @@ from .config import ContentError, Diagnostic, finite_number
 from .kn5 import IDENTITY, load_kn5, multiply, transform, values_from_bytes
 from .scene import confined, inspect_scene
 from .surfaces import load_surfaces, mesh_surface
+from .spatial import build_bvh
 
 MAX_TRIANGLES = 1_000_000
 MAX_COORDINATE = 10_000_000
-
-
-@dataclass
-class Node:
-    bounds: tuple
-    start: int = 0
-    end: int = 0
-    left: object = None
-    right: object = None
 
 
 class Ground:
@@ -35,6 +26,7 @@ class Ground:
         self.diagnostics = []
         self.skipped_degenerate = 0
         self.input_triangles = 0
+        self.walls = None
 
     def add_mesh(self, mesh, world, surface, model):
         """Ignore render visibility; transform the physical mesh once on loading."""
@@ -63,24 +55,11 @@ class Ground:
 
     def build(self):
         """Median BVH over projected triangle bounds; leaf tests retain full heights."""
-        bounds, centres = [], []
+        bounds = []
         for i in range(len(self.mesh_ids)):
             tri = self.triangles[i * 9:i * 9 + 9]
             bounds.append(tuple(min(tri[a::3]) for a in range(3)) + tuple(max(tri[a::3]) for a in range(3)))
-            centres.append(tuple((bounds[-1][a] + bounds[-1][a + 3]) * .5 for a in range(3)))
-        self.order = list(range(len(self.mesh_ids)))
-
-        def node(start, end):
-            selected = self.order[start:end]
-            box = tuple(min(bounds[i][a] for i in selected) for a in range(3)) + tuple(max(bounds[i][a] for i in selected) for a in range(3, 6))
-            if end - start <= 12:
-                return Node(box, start, end)
-            axis = max((0, 2), key=lambda a: box[a + 3] - box[a])
-            self.order[start:end] = sorted(selected, key=lambda i: centres[i][axis])
-            middle = (start + end) // 2
-            return Node(box, left=node(start, middle), right=node(middle, end))
-
-        self.root = node(0, len(self.order)) if self.order else None
+        self.root, self.order = build_bvh(bounds)
 
     def probe(self, origin, max_distance=1000.):
         """Nearest double-sided triangle below origin, inclusive of shared edges.
@@ -132,19 +111,25 @@ class Ground:
         return result
 
     def summary(self):
-        return {'scope': 'static_ground_query', 'triangles': len(self.mesh_ids),
+        result = {'scope': 'static_ground_query', 'triangles': len(self.mesh_ids),
                 'input_triangles': self.input_triangles,
                 'meshes': self.meshes, 'bvh_ready': self.root is not None,
                 'skipped_vertical_or_degenerate': self.skipped_degenerate,
                 'diagnostics': self.diagnostics,
                 'has_errors': any(d['severity'] == 'error' for d in self.diagnostics)}
+        if self.walls is not None:
+            result['wall_geometry'] = self.walls.summary()
+        return result
 
 
-def load_ground(installation, track, layout=None, encoding='utf-8-sig'):
+def load_ground(installation, track, layout=None, encoding='utf-8-sig', include_walls=False):
     manifest = inspect_scene(installation, track, layout, encoding)
     surfaces, warnings = load_surfaces(installation, track, layout, encoding)
     content = confined(Path(installation).resolve(), f'content/tracks/{track}', '<ground>')
     ground = Ground()
+    if include_walls:
+        from .walls import Walls
+        ground.walls = Walls()
     ground.diagnostics.extend(manifest['diagnostics'] + warnings)
     ground.diagnostics.append(Diagnostic('ground_query_scope', 'Vertical static geometry support only: walls, rigid-body response, tyres, procedural surface bumps, audio and FFB are not simulated. Recorded surface coefficients are metadata.', manifest['config'], severity='warning').as_dict())
     for model in manifest['models']:
@@ -163,7 +148,10 @@ def load_ground(installation, track, layout=None, encoding='utf-8-sig'):
             if not mesh.active or not mesh.indices or mesh.lod[0] > 0:
                 continue
             if 'WALL' in mesh.name.upper():
-                ground.diagnostics.append(Diagnostic('ground_wall_omitted', f'{mesh.name!r}: wall collision is not implemented by the vertical support query.', model['file'], severity='warning').as_dict())
+                if ground.walls is not None:
+                    ground.walls.add_mesh(mesh, multiply(root, mesh.world), model['file'])
+                else:
+                    ground.diagnostics.append(Diagnostic('ground_wall_omitted', f'{mesh.name!r}: WALL geometry is separate from the vertical support query; the driving command loads the wall collider.', model['file'], severity='warning').as_dict())
                 continue
             try:
                 surface = mesh_surface(mesh.name, surfaces)
@@ -175,4 +163,6 @@ def load_ground(installation, track, layout=None, encoding='utf-8-sig'):
     if not ground.mesh_ids:
         ground.diagnostics.append(Diagnostic('no_ground', 'No supported ground triangles could be assembled.', manifest['config']).as_dict())
     ground.build()
+    if ground.walls is not None:
+        ground.walls.build()
     return ground

@@ -31,6 +31,7 @@ def main(argv=None):
     ground.add_argument('--encoding', default='utf-8-sig')
     ground.add_argument('--at', nargs=3, type=float, metavar=('X', 'Y', 'Z'))
     ground.add_argument('--distance', type=float, default=1000.)
+    ground.add_argument('--walls', action='store_true', help='Also index separate static WALL triangles')
     car = commands.add_parser('car', help='Inspect the supported vehicle configuration subset')
     car.add_argument('installation')
     car.add_argument('--car', required=True)
@@ -98,7 +99,7 @@ def main(argv=None):
             result = load_vehicle(args.installation, args.car, args.compound, args.data_source, args.encoding).summary()
         elif args.command == 'ground':
             from .ground import load_ground
-            ground = load_ground(args.installation, args.track, args.layout, args.encoding)
+            ground = load_ground(args.installation, args.track, args.layout, args.encoding, include_walls=args.walls)
             result = ground.summary()
             if args.at is not None:
                 result['probe'] = {'origin': args.at, 'max_distance': args.distance,

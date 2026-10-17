@@ -112,6 +112,7 @@ h2 { font-size: 25px; font-weight: 650; line-height: 1.4; letter-spacing: -.4px;
 .screenshot-grid img { display: block; width: 100%; height: auto; }
 .screenshot-grid figcaption { padding-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.7; }
 .screenshot-grid figcaption strong { color: var(--text); }
+.screenshot-grid .screenshot-wide { grid-column: 1 / -1; width: 100%; max-width: 760px; justify-self: center; }
 .screenshots .screenshot-note { font-size: 12px; }
 .document { max-width: 1000px; margin: 0 auto; padding: 44px 54px 64px; }
 .document h1 { font-size: 35px; line-height: 1.25; font-weight: 750; font-style: italic; text-transform: uppercase; margin: 0 0 26px; letter-spacing: -.6px; }

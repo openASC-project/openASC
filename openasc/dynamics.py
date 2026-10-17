@@ -47,8 +47,11 @@ class Controls:
 
 
 class Dynamics:
-    def __init__(self, vehicle, ground, spawn):
+    def __init__(self, vehicle, ground, spawn, walls=None, body=None):
         self.vehicle, self.ground, self.spawn = vehicle, ground, spawn
+        self.walls, self.body = walls, body
+        if (walls is None) != (body is None):
+            raise ContentError('drive_body', 'Body and wall geometry must be provided together.')
         self.offsets = vehicle.wheel_offsets()
         self.power = LutTable(vehicle.engine['torque_lut']['source'], vehicle.engine['torque_lut']['points'])
         self.mass = vehicle.mass_kg
@@ -80,6 +83,11 @@ class Dynamics:
         self.contacts = self.support(self.x, self.z, self.yaw, self.y + 1., 20.)
         self.y, self.up = self.pose_height(self.contacts)
         self.forces = []
+        self.wall_contacts, self.last_wall_contact, self.wall_motion_clamps = 0, None, 0
+        if self.walls is not None:
+            from .walls import Pose
+            if self.walls.overlaps(self.body, Pose((self.x, self.y, self.z), self.yaw)):
+                raise ContentError('drive_spawn_wall_overlap', 'The selected spawn body proxy overlaps static WALL geometry.')
 
     def support(self, x, z, yaw, ray_y, distance=5.):
         left, forward = (math.cos(yaw), -math.sin(yaw)), (math.sin(yaw), math.cos(yaw))
@@ -123,6 +131,35 @@ class Dynamics:
 
     def resume(self):
         self.paused, self.reason = False, ''
+
+    def wall_motion(self, velocity, rate):
+        from .walls import Pose, resolve_contacts
+        pose = Pose((self.x, self.y, self.z), self.yaw)
+        remaining, events, last = DT, 0, None
+        for _ in range(8):
+            vx, vz = velocity
+            x, z = pose.position[0] + vx * remaining, pose.position[2] + vz * remaining
+            yaw = math.remainder(pose.yaw + rate * remaining, 2 * math.pi)
+            y = pose.position[1]
+            try:
+                y, _ = self.pose_height(self.support(x, z, yaw, y + 2))
+            except ContentError:
+                pass  # A wall can be hit before an unsupported endpoint; final support is checked below.
+            end = Pose((x, y, z), yaw)
+            hits = self.walls.sweep(self.body, pose, end)
+            if not hits:
+                return end, velocity, rate, events, last, False
+            fraction = min(hit['fraction'] for hit in hits)
+            pose = pose.between(end, fraction)
+            velocity, rate, impulse = resolve_contacts(hits, pose, self.mass, self.inertia, velocity, rate)
+            events += 1
+            last = {key: hits[0][key] for key in ('mesh', 'model', 'normal', 'point', 'triangle')}
+            last['normal_impulse_ns'] = impulse
+            remaining *= 1 - fraction
+            if remaining < 1e-8:
+                return pose, velocity, rate, events, last, False
+        # Preserve the last nonpenetrating pose when a corner needs more contact events.
+        return pose, velocity, rate, events, last, True
 
     def step(self):
         if self.paused:
@@ -190,10 +227,21 @@ class Dynamics:
         try:
             if not all(math.isfinite(value) for value in (vx, vz, rate, yaw, x, z)) or math.hypot(vx, vz) > 150 or abs(rate) > 10:
                 raise ContentError('drive_numeric_limit', 'Prototype velocity or numeric limits exceeded.')
+            events, last, clamped = 0, None, False
+            if self.walls is not None:
+                pose, (vx, vz), rate, events, last, clamped = self.wall_motion((vx, vz), rate)
+                x, _, z = pose.position
+                yaw = math.remainder(pose.yaw, 2 * math.pi)
+                if not all(math.isfinite(n) for n in (vx, vz, rate)) or abs(rate) > 10:
+                    raise ContentError('drive_numeric_limit', 'Body contact exceeds the prototype yaw/numeric limit.')
             contacts = self.support(x, z, yaw, self.y + 2)
             height, up = self.pose_height(contacts)
             if abs(height - self.y) > .35:
                 raise ContentError('drive_height_step', 'Ground height discontinuity exceeds the 0.35 metre prototype limit.')
+            if self.walls is not None:
+                from .walls import Pose
+                if self.walls.overlaps(self.body, Pose((x, height, z), yaw)):
+                    raise ContentError('wall_terrain_overlap', 'Terrain attachment would put the body proxy inside WALL geometry.')
         except ContentError as error:
             self.vx = self.vz = self.yaw_rate = 0.
             self.pause(error.diagnostic.code + ': ' + error.diagnostic.message)
@@ -201,6 +249,10 @@ class Dynamics:
         self.x, self.y, self.z, self.yaw = x, height, z, yaw
         self.vx, self.vz, self.yaw_rate, self.up = vx, vz, rate, up
         self.contacts, self.forces = contacts, forces
+        self.wall_contacts += events
+        self.wall_motion_clamps += int(clamped)
+        if last is not None:
+            self.last_wall_contact = last
         self.tick += 1
 
     def world(self):
@@ -217,4 +269,6 @@ class Dynamics:
                 'rpm': min(self.rpm, self.vehicle.engine['limiter_rpm']), 'steer_angle_rad': self.steer_angle,
                 'gear': self.controls.gear, 'paused': self.paused, 'reason': self.reason,
                 'controls': asdict(self.controls), 'forces': self.forces,
+                'wall_contacts': self.wall_contacts, 'last_wall_contact': self.last_wall_contact,
+                'wall_motion_clamps': self.wall_motion_clamps,
                 'surfaces': {name: hit['surface']['key'] for name, hit in self.contacts.items()}}

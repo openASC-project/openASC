@@ -22,10 +22,12 @@ window.OPENASC_DRIVE = {
       canvas.dataset.driveTick = String(value.tick);
       canvas.dataset.driveSpeed = String(value.speed_kmh);
       canvas.dataset.drivePaused = String(value.paused);
+      canvas.dataset.wallContacts = String(value.wall_contacts || 0);
       document.querySelector('#drive-speed').textContent = `${value.speed_kmh.toFixed(0)} km/h`;
       document.querySelector('#drive-gear').textContent = value.gear === -1 ? 'R' : value.gear === 0 ? 'N' : String(value.gear);
       document.querySelector('#drive-rpm').textContent = `${value.rpm.toFixed(0)} rpm`;
-      document.querySelector('#drive-hud').textContent = `openASC · prototype · ${value.speed_kmh.toFixed(0)} km/h · ${value.gear === -1 ? 'R' : value.gear === 0 ? 'N' : value.gear}`;
+      document.querySelector('#drive-hud').textContent = `openASC · prototype · ${value.speed_kmh.toFixed(0)} km/h · ${value.gear === -1 ? 'R' : value.gear === 0 ? 'N' : value.gear}${value.last_wall_contact ? ' · WALL contact' : ''}`;
+      document.querySelector('#drive-wall').textContent = value.last_wall_contact ? `Wall: ${value.last_wall_contact.mesh} · ${value.wall_contacts} contact resolutions${value.wall_motion_clamps ? ' · motion cap reached' : ''}` : 'No wall contact yet.';
       status.textContent = value.paused ? value.reason : `Running · 120 Hz · ${value.simulation_seconds.toFixed(1)} s${value.lag_events ? ' · clock lag recorded' : ''}`;
       toggle.textContent = value.paused ? 'Resume' : 'Pause';
       onState(value);
