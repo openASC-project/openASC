@@ -30,7 +30,7 @@ The explicit desktop test opens a real window and therefore requires a display:
 cargo test -p asc-app --locked --test window -- --ignored --nocapture
 ```
 
-Linux CI runs it under Xvfb with software Vulkan. It verifies one uncaptured presentation and four presented/read-back frames, real window resize to 640 by 480, changed camera matrices, BGRA-to-RGBA PNG output and changed pixels from a diffuse toggle at a fixed camera. Camera math and camera-dependent transparency order also have GPU-independent tests. This diagnostic automation does not establish real mouse/keyboard, DPI, monitor migration or device-loss recovery behavior.
+Linux CI installs `mesa-vulkan-drivers`, `xvfb` and `libxkbcommon-x11-0`, then runs it under Xvfb with software Vulkan. The X11 window backend requires the xkbcommon X11 runtime library. It verifies one uncaptured presentation and four presented/read-back frames, real window resize to 640 by 480, changed camera matrices, BGRA-to-RGBA PNG output and changed pixels from a diffuse toggle at a fixed camera. Camera math and camera-dependent transparency order also have GPU-independent tests. This diagnostic automation does not establish real mouse/keyboard, DPI, monitor migration or device-loss recovery behavior.
 
 Source is organised as a subsystem workspace under `crates/`, following the openOMSI project layout. Build the executable with `cargo build -p asc-app`; it is named `openasc` (`openasc.exe` on Windows). The former `native/openasc-native` package has been replaced by the four native crates. Python/WebGL research source is under `tools/prototype/`; the root Python package is only a compatibility entry point. See the [architecture](ARCHITECTURE.md) for dependency boundaries.
 

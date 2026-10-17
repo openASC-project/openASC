@@ -43,7 +43,7 @@ jobs:
           fi
       - name: Install software Vulkan for headless GPU verification
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers xvfb
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers xvfb libxkbcommon-x11-0
       - name: Verify rasterization, depth, readback and PNG on software Vulkan
         if: runner.os == 'Linux'
         env:
