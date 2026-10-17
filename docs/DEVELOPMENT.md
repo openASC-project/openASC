@@ -11,18 +11,20 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 cargo build --workspace --locked
-python tools/check_native_parity.py --native target/debug/openasc-native
+python tools/check_native_parity.py --native target/debug/openasc
 ```
 
-Use `target/debug/openasc-native.exe` on Windows. Native/Python contract checks compare original KN5 fixtures, selection, transforms/bounds and rejection codes. Optional repeated `--model PATH` arguments compare locally installed models without copying them. Agreement between two openASC implementations does not establish original-simulator parity.
+Use `target/debug/openasc.exe` on Windows. Native/Python contract checks compare original KN5 fixtures, selection, transforms/bounds and rejection codes. Optional repeated `--model PATH` arguments compare locally installed models without copying them. Agreement between two openASC implementations does not establish original-simulator parity.
 
 The separate GPU test is explicitly opt-in on a machine with a native adapter:
 
 ```sh
-cargo test --locked --test gpu -- --ignored --nocapture
+cargo test -p asc-render --locked --test gpu -- --ignored --nocapture
 ```
 
-It checks non-background geometry, occlusion independent of triangle order, non-aligned row readback, PNG pixels and overwrite refusal. Set `OPENASC_TEST_FALLBACK=1` to request a software adapter; Linux CI installs Mesa Vulkan and runs this test explicitly. GPU adapter absence fails the explicit test. Structural tests remain GPU-independent. Cargo build outputs under `target/` are ignored; commit `Cargo.lock` with dependency changes.
+The five GPU tests check non-background geometry, occlusion independent of triangle order, non-aligned row readback, PNG pixels/overwrite refusal, UV orientation, opaque versus cutout alpha, opacity and linear-light blending, read-only/disabled depth and back-to-front transparency ordering. Set `OPENASC_TEST_FALLBACK=1` to request a software adapter; Linux CI installs Mesa Vulkan and runs these tests explicitly. GPU adapter absence fails the explicit tests. Structural, DDS and resource-resolution tests remain GPU-independent. Cargo build outputs under `target/` are ignored; commit `Cargo.lock` with dependency changes.
+
+Source is organised as a subsystem workspace under `crates/`, following the openOMSI project layout. Build the executable with `cargo build -p asc-app`; it is named `openasc` (`openasc.exe` on Windows). The former `native/openasc-native` package has been replaced by the four native crates. Python/WebGL research source is under `tools/prototype/`; the root Python package is only a compatibility entry point. See the [architecture](ARCHITECTURE.md) for dependency boundaries.
 
 Python 3.10+ is enough for the tools, tests, and documentation builder. No game installation is needed for tests.
 
@@ -30,15 +32,15 @@ Python 3.10+ is enough for the tools, tests, and documentation builder. No game 
 python -m unittest discover -s tests -v
 python tools/build_site.py --check
 node --check site/app.js
-node --check viewer/viewer.js
-node --check viewer/dds.js
-node --check viewer/drive.js
+node --check tools/prototype/viewer/viewer.js
+node --check tools/prototype/viewer/dds.js
+node --check tools/prototype/viewer/drive.js
 node --test tests/test_dds.cjs
 ```
 
 Node.js 18+ is used for JavaScript syntax checks and original DDS pixel tests. The website itself has no npm dependencies or build-time JavaScript framework.
 
-The local geometry viewer also has no npm dependencies. Its JavaScript is in `viewer/`, served only by `python -m openasc view`. Tests construct original complete KN5 fixtures and exercise the loopback server, including foreign-host/origin rejection. Binary fixtures are not copied from the game.
+The local geometry viewer also has no npm dependencies. Its JavaScript is in `tools/prototype/viewer/`, served only by `python -m openasc view`. Tests construct original complete KN5 fixtures and exercise the loopback server, including foreign-host/origin rejection. Binary fixtures are not copied from the game.
 
 ## Update the website
 
@@ -53,7 +55,7 @@ Edit `docs/` for documentation, `web/overview.html` for the overview body, and `
 
 ## Contribute
 
-The independent driving model is in `openasc/dynamics.py`; its tests use original flat/sloped geometry and original car configurations. Keep rendering and HTTP telemetry reads out of the fixed-step solver. Controller tests can advance exact steps with an injected clock instead of sleeping. Real-content/browser validation remains local; record the scope and limitations before changing compatibility claims.
+The independent driving model is in `tools/prototype/openasc/dynamics.py`; its tests use original flat/sloped geometry and original car configurations. Keep rendering and HTTP telemetry reads out of the fixed-step solver. Controller tests can advance exact steps with an injected clock instead of sleeping. Real-content/browser validation remains local; record the scope and limitations before changing compatibility claims.
 
 Website progress screenshots are selected flattened captures under `site/images/`, with captions in `web/overview.html`. Update them after meaningful visual milestones. Do not add raw game assets or temporary browser reports. The project's MIT license does not relicense the underlying game content depicted in screenshots.
 

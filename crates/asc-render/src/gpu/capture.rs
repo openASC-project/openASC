@@ -1,6 +1,8 @@
 //! Offscreen native wgpu diagnostic rendering; no original shader/material parity.
-use crate::kn5::{Scene, Vertex};
-use glam::{DMat4, DVec3};
+use crate::{
+    pipelines::material as materials, resources::texture::Resources, scene::camera::camera,
+};
+use asc_kn5::Scene;
 use serde::Serialize;
 use std::{error::Error, fs::OpenOptions, io::BufWriter, path::Path, sync::mpsc, time::Duration};
 use wgpu::util::DeviceExt;
@@ -27,6 +29,11 @@ pub struct Report {
     pub non_background_pixels: usize,
     pub background_rgba: [u8; 4],
     pub triangles: usize,
+    pub uploaded_textures: usize,
+    pub textured_draws: usize,
+    pub alpha_test_draws: usize,
+    pub blended_draws: usize,
+    pub diagnostics: Vec<String>,
     pub scope: &'static str,
     pub camera_focus: &'static str,
 }
@@ -35,82 +42,17 @@ pub struct Frame {
     pub report: Report,
 }
 
-pub fn camera(bounds: [[f32; 3]; 2], width: u32, height: u32) -> Result<[f32; 16]> {
-    if width == 0 || height == 0 || width > 4096 || height > 4096 {
-        return Err("Image dimensions must be in 1..=4096.".into());
-    }
-    let lo = DVec3::from_array(bounds[0].map(f64::from));
-    let hi = DVec3::from_array(bounds[1].map(f64::from));
-    if !lo.is_finite() || !hi.is_finite() || (hi - lo).min_element() < 0. {
-        return Err("Invalid scene bounds.".into());
-    }
-    let center = (lo + hi) * 0.5;
-    let radius = ((hi - lo) * 0.5).length().max(0.1);
-    let z = DVec3::new(0.7, 1., 0.8).normalize();
-    let eye = center + z * radius * 3.;
-    let right = DVec3::Y.cross(z).normalize();
-    let up = z.cross(right);
-    let view = DMat4::from_cols_array(&[
-        right.x,
-        up.x,
-        z.x,
-        0.,
-        right.y,
-        up.y,
-        z.y,
-        0.,
-        right.z,
-        up.z,
-        z.z,
-        0.,
-        -right.dot(eye),
-        -up.dot(eye),
-        -z.dot(eye),
-        1.,
-    ]);
-    let (mut x, mut y) = (0.01_f64, 0.01_f64);
-    for i in 0..8 {
-        let p = DVec3::new(
-            if i & 1 == 0 { lo.x } else { hi.x },
-            if i & 2 == 0 { lo.y } else { hi.y },
-            if i & 4 == 0 { lo.z } else { hi.z },
-        );
-        let v = view.transform_point3(p);
-        x = x.max(v.x.abs());
-        y = y.max(v.y.abs());
-    }
-    let aspect = width as f64 / height as f64;
-    let half_height = y.max(x / aspect) * 1.1;
-    let half_width = half_height * aspect;
-    // Right-handed orthographic projection with WebGPU depth in [0, 1].
-    let near = radius;
-    let far = radius * 5.;
-    let projection = DMat4::from_cols_array(&[
-        1. / half_width,
-        0.,
-        0.,
-        0.,
-        0.,
-        1. / half_height,
-        0.,
-        0.,
-        0.,
-        0.,
-        1. / (near - far),
-        0.,
-        0.,
-        0.,
-        near / (near - far),
-        1.,
-    ]);
-    let matrix = (projection * view).to_cols_array().map(|v| v as f32);
-    if matrix.iter().any(|v| !v.is_finite()) {
-        return Err("Camera exceeds float32 range.".into());
-    }
-    Ok(matrix)
+pub async fn render(scene: &Scene, width: u32, height: u32, fallback: bool) -> Result<Frame> {
+    render_with_textures(scene, None, width, height, fallback).await
 }
 
-pub async fn render(scene: &Scene, width: u32, height: u32, fallback: bool) -> Result<Frame> {
+pub async fn render_with_textures(
+    scene: &Scene,
+    resources: Option<&Resources>,
+    width: u32,
+    height: u32,
+    fallback: bool,
+) -> Result<Frame> {
     let scene_bounds = scene
         .summary
         .bounds
@@ -139,47 +81,9 @@ pub async fn render(scene: &Scene, width: u32, height: u32, fallback: bool) -> R
     let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("Original diagnostic shader"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("diagnostic.wgsl").into()),
+        source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/diffuse.wgsl").into()),
     });
-    let attributes = wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3];
-    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("Diagnostic static mesh pipeline"),
-        layout: None,
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: Some("vertex"),
-            compilation_options: Default::default(),
-            buffers: &[Some(wgpu::VertexBufferLayout {
-                array_stride: size_of::<Vertex>() as u64,
-                step_mode: wgpu::VertexStepMode::Vertex,
-                attributes: &attributes,
-            })],
-        },
-        primitive: wgpu::PrimitiveState {
-            cull_mode: None,
-            ..Default::default()
-        },
-        depth_stencil: Some(wgpu::DepthStencilState {
-            format: wgpu::TextureFormat::Depth32Float,
-            depth_write_enabled: Some(true),
-            depth_compare: Some(wgpu::CompareFunction::Less),
-            stencil: Default::default(),
-            bias: Default::default(),
-        }),
-        multisample: Default::default(),
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: Some("fragment"),
-            compilation_options: Default::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format: wgpu::TextureFormat::Rgba8UnormSrgb,
-                blend: None,
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-        }),
-        multiview_mask: None,
-        cache: None,
-    });
+    let prepared = materials::prepare(&device, &queue, &shader, scene, resources)?;
     let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Camera"),
         contents: bytemuck::cast_slice(&matrix),
@@ -187,12 +91,13 @@ pub async fn render(scene: &Scene, width: u32, height: u32, fallback: bool) -> R
     });
     let camera_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("Camera"),
-        layout: &pipeline.get_bind_group_layout(0),
+        layout: &prepared.camera_layout,
         entries: &[wgpu::BindGroupEntry {
             binding: 0,
             resource: camera_buffer.as_entire_binding(),
         }],
     });
+    let order = materials::draw_order(scene, &prepared);
     let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
         label: Some("Static world vertices"),
         contents: bytemuck::cast_slice(&scene.vertices),
@@ -266,11 +171,16 @@ pub async fn render(scene: &Scene, width: u32, height: u32, fallback: bool) -> R
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        pass.set_pipeline(&pipeline);
         pass.set_bind_group(0, &camera_bind, &[]);
         pass.set_vertex_buffer(0, vertices.slice(..));
         pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
-        pass.draw_indexed(0..scene.indices.len() as u32, 0, 0..1);
+        for index in &order {
+            let draw = &scene.draws[*index];
+            let material = &prepared.materials[draw.material];
+            pass.set_pipeline(&prepared.pipelines[material.pipeline]);
+            pass.set_bind_group(1, &material.bind, &[]);
+            pass.draw_indexed(draw.start..draw.start + draw.count, 0, 0..1);
+        }
     }
     encoder.copy_texture_to_buffer(
         wgpu::TexelCopyTextureInfo {
@@ -328,7 +238,28 @@ pub async fn render(scene: &Scene, width: u32, height: u32, fallback: bool) -> R
             non_background_pixels,
             background_rgba: BACKGROUND,
             triangles: scene.indices.len() / 3,
-            scope: "native_static_diagnostic_colours",
+            uploaded_textures: prepared.uploaded,
+            textured_draws: scene
+                .draws
+                .iter()
+                .filter(|d| prepared.materials[d.material].textured)
+                .count(),
+            alpha_test_draws: scene
+                .draws
+                .iter()
+                .filter(|d| prepared.materials[d.material].cutout)
+                .count(),
+            blended_draws: scene
+                .draws
+                .iter()
+                .filter(|d| prepared.materials[d.material].blend)
+                .count(),
+            diagnostics: prepared.diagnostics,
+            scope: if resources.is_some() {
+                "native_static_diffuse_preview"
+            } else {
+                "native_static_material_diagnostics"
+            },
             camera_focus: if scene.summary.road_focus_bounds.is_some() {
                 "road_bounds"
             } else {

@@ -66,6 +66,9 @@ pub fn mesh(
     out
 }
 pub fn file(node: Vec<u8>, version: u32) -> Vec<u8> {
+    file_texture(node, version, &[11, 12, 13])
+}
+pub fn file_texture(node: Vec<u8>, version: u32, texture: &[u8]) -> Vec<u8> {
     let mut out = b"sc6969".to_vec();
     u32(&mut out, version);
     if version == 6 {
@@ -74,8 +77,8 @@ pub fn file(node: Vec<u8>, version: u32) -> Vec<u8> {
     u32(&mut out, 1);
     u32(&mut out, 1);
     string(&mut out, "original_texture");
-    u32(&mut out, 3);
-    out.extend([11, 12, 13]);
+    u32(&mut out, texture.len() as u32);
+    out.extend(texture);
     u32(&mut out, 1);
     string(&mut out, "original_material");
     string(&mut out, "original_shader");

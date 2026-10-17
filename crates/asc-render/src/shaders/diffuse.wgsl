@@ -1,0 +1,36 @@
+struct Camera { view_projection: mat4x4<f32> };
+struct Material { flags: vec4<f32>, lighting: vec4<f32> };
+@group(0) @binding(0) var<uniform> camera: Camera;
+@group(1) @binding(0) var diffuse_texture: texture_2d<f32>;
+@group(1) @binding(1) var diffuse_sampler: sampler;
+@group(1) @binding(2) var<uniform> material: Material;
+struct Surface {
+    @builtin(position) clip: vec4<f32>,
+    @location(0) position: vec3<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) uv: vec2<f32>,
+    @location(3) colour: vec3<f32>,
+};
+@vertex fn vertex(@location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, @location(2) uv: vec2<f32>, @location(3) colour: vec3<f32>) -> Surface {
+    var out: Surface;
+    out.clip = camera.view_projection * vec4<f32>(position, 1.0);
+    out.position = position;
+    out.normal = normal;
+    out.uv = uv;
+    out.colour = colour;
+    return out;
+}
+@fragment fn fragment(surface: Surface) -> @location(0) vec4<f32> {
+    let texel = textureSample(diffuse_texture, diffuse_sampler, surface.uv);
+    let geometric = cross(dpdx(surface.position), dpdy(surface.position));
+    var normal = surface.normal;
+    if length(normal) < 0.000001 { normal = geometric; }
+    normal = normal / max(length(normal), 0.000001);
+    var base = surface.colour;
+    if material.flags.x > 0.5 { base = texel.rgb; }
+    var alpha = 1.0;
+    if material.flags.z > 0.5 { alpha = texel.a * material.flags.w; }
+    if alpha < material.flags.y || alpha < 0.001 { discard; }
+    let light = (0.35 + 0.65 * abs(dot(normal, normalize(vec3<f32>(0.4, 1.0, 0.3))))) * material.lighting.x;
+    return vec4<f32>(base * light, alpha);
+}

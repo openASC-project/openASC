@@ -7,34 +7,52 @@ The implemented project contains a first native Rust KN5 reader and wgpu offscre
 | Location | Responsibility |
 | --- | --- |
 | `tools/inspect_content.py` | Read-only content inventory and JSON CLI |
-| `openasc/config.py` | Source-aware INI and LUT parsing, numeric validation, and interpolation |
-| `openasc/scene.py` | Confined static model references, transforms, and KN5 header inspection |
-| `openasc/kn5.py` | Bounded KN5 parsing, static meshes, node transforms, material definitions, and embedded texture offsets |
-| `openasc/dds.py` | DDS validation, mip descriptors, and bounded embedded texture reads |
-| `openasc/surfaces.py` | Typed surface definitions, explicit file precedence, and conservative physical mesh naming |
-| `openasc/ground.py` | World-space ground triangles, a BVH, and vertical geometric support queries |
-| `openasc/acd.py` | Bounded in-memory indexing and reading of ordinary folder-keyed ACD records |
-| `openasc/vehicle.py` | Explicit packed/unpacked car-data selection and typed vehicle configuration subset |
-| `openasc/placement.py` | Rigid spawn transforms and a four-wheel geometric support preflight |
-| `openasc/dynamics.py` | Independent fixed-step planar force model with four ground contact patches |
-| `openasc/driving.py` | Car/track preview assembly, a sequenced local controller and simulation clock |
-| `openasc/spatial.py` | Shared deterministic static AABB hierarchy |
-| `openasc/walls.py` | Static wall geometry, a collider-bounds body proxy, continuous SAT and planar contact impulses |
-| `openasc/viewer.py` | Local scene assembly and loopback-only preview server |
-| `viewer/` | WebGL 2 diffuse preview, portable DDS pixel decoding, camera controls, and mesh/material inspection |
-| `openasc/__main__.py` | JSON diagnostics through `python -m openasc` |
+| `tools/prototype/openasc/config.py` | Source-aware INI and LUT parsing, numeric validation, and interpolation |
+| `tools/prototype/openasc/scene.py` | Confined static model references, transforms, and KN5 header inspection |
+| `tools/prototype/openasc/kn5.py` | Bounded KN5 parsing, static meshes, node transforms, material definitions, and embedded texture offsets |
+| `tools/prototype/openasc/dds.py` | DDS validation, mip descriptors, and bounded embedded texture reads |
+| `tools/prototype/openasc/surfaces.py` | Typed surface definitions, explicit file precedence, and conservative physical mesh naming |
+| `tools/prototype/openasc/ground.py` | World-space ground triangles, a BVH, and vertical geometric support queries |
+| `tools/prototype/openasc/acd.py` | Bounded in-memory indexing and reading of ordinary folder-keyed ACD records |
+| `tools/prototype/openasc/vehicle.py` | Explicit packed/unpacked car-data selection and typed vehicle configuration subset |
+| `tools/prototype/openasc/placement.py` | Rigid spawn transforms and a four-wheel geometric support preflight |
+| `tools/prototype/openasc/dynamics.py` | Independent fixed-step planar force model with four ground contact patches |
+| `tools/prototype/openasc/driving.py` | Car/track preview assembly, a sequenced local controller and simulation clock |
+| `tools/prototype/openasc/spatial.py` | Shared deterministic static AABB hierarchy |
+| `tools/prototype/openasc/walls.py` | Static wall geometry, a collider-bounds body proxy, continuous SAT and planar contact impulses |
+| `tools/prototype/openasc/viewer.py` | Local scene assembly and loopback-only preview server |
+| `tools/prototype/viewer/` | WebGL 2 diffuse preview, portable DDS pixel decoding, camera controls, and mesh/material inspection |
+| `tools/prototype/openasc/__main__.py` | JSON diagnostics through `python -m openasc` |
 | `tests/` | Tests using original, temporary fixtures |
 | `docs/` | English documentation and current compatibility record |
 | `web/` | Shared website template and overview source |
 | `tools/build_site.py` | Build documentation pages using Python's standard library |
 | `site/` | Generated HTML, shared CSS/JS, and public static assets |
 | `.github/workflows/` | Source checks and GitHub Pages deployment |
-| `native/openasc-native/src/kn5.rs` | Independent bounded Rust KN5 structural reader and static world geometry |
-| `native/openasc-native/src/render.rs` | Native wgpu depth-tested diagnostic rendering and padded GPU readback |
-| `native/openasc-native/tests/` | Original structural, camera, depth and PNG fixtures |
+| `crates/asc-kn5/src/lib.rs` | Independent bounded Rust KN5 structural reader and static world geometry |
+| `crates/asc-render/src/gpu/capture.rs` | Native wgpu depth-tested diagnostic rendering and padded GPU readback |
+| `crates/asc-texture/src/lib.rs` | Bounded DDS decoding and authored mip preservation |
+| `crates/asc-render/src/resources/texture.rs` | Unique active embedded diffuse resolution and scene budgets |
+| `crates/asc-render/src/pipelines/material.rs` | Approximate diffuse, alpha and depth pipelines |
+| `crates/*/tests/` | Original format, resource, camera, material pixel and PNG fixtures |
+| `crates/asc-app/` | Native CLI executable named openasc |
+| `tools/test-support/` | Shared original Rust fixture crate |
 | `tools/check_native_parity.py` | Native/Python reader contract comparisons; not original-game physics validation |
 
-## Proposed engine boundaries
+## Workspace and subsystem boundaries
+
+The workspace follows the subsystem-crate organisation of [openOMSI](https://github.com/openOMSI-org/openOMSI/tree/main/crates), with original openASC implementation code. `asc-app` depends on `asc-kn5` and `asc-render`; `asc-render` depends on `asc-kn5` and `asc-texture`. Format crates have no wgpu dependency and can be tested independently of a GPU. Renderer sources are divided into `gpu/`, `pipelines/`, `resources/`, `scene/` and `shaders/`. The shared original fixture crate lives under `tools/test-support/` and is a development dependency. Additional simulation, input and audio crates belong alongside these as their implementations arrive.
+
+The earlier Python/WebGL research implementation lives under `tools/prototype/`. The root `openasc/__init__.py` only redirects package discovery there, preserving `python -m openasc` and existing Python imports. Website sources and documentation remain separate under `web/`, `docs/` and `site/`. No openOMSI implementation files are included.
+
+| openOMSI responsibility | openASC source location |
+| --- | --- |
+| `crates/omsi-app` application | `crates/asc-app` |
+| `crates/omsi-o3d` model-format reader | `crates/asc-kn5` for AC's model format |
+| `crates/omsi-texture` texture formats | `crates/asc-texture` |
+| `crates/omsi-render` rendering subsystems | `crates/asc-render` |
+| `tools/test-support` test utilities | `tools/test-support` |
+| `docs` and `site` documentation/publishing | `docs` and `site` |
 
 - **Content:** configuration readers, resource resolution, metadata, and precise loading diagnostics.
 - **Scene:** geometry, material definitions, transforms, surfaces, and collision data independent of a renderer.
@@ -49,7 +67,7 @@ Keep file-format readers separate from rendering and physics so each can be test
 
 The selected production stack is Rust for the engine core, including simulation, device input and force feedback, and wgpu for rendering. The first native content/render slice is implemented; native simulation, device input and FFB are not. Python currently keeps the broader research content loading and local HTTP server dependency-free. The browser inspection renderer uses WebGL 2 with original JavaScript and remains available alongside the native diagnostic renderer.
 
-The native binary directly opens one KN5 through a bounded buffered Rust reader; it does not call Python or the browser. Source node transforms are composed in double precision, validated and flattened into float32 world positions with original indices rebased into shared GPU buffers. Material names select diagnostic colours. A native WGSL pipeline applies a camera uniform, opaque flat lighting and depth testing to an offscreen sRGB target. A padded GPU copy is mapped back, unpacked row by row and encoded into an explicitly requested new PNG. Camera framing uses active near-level ROAD bounds when present, otherwise visible scene bounds. Interactive presentation, native scene-config assembly, texture resources, original materials and simulation remain separate work.
+The native binary directly opens one KN5 through a bounded buffered Rust reader; it does not call Python or the browser. Source node transforms are composed in double precision, validated and flattened into float32 world positions with original indices rebased into shared GPU buffers. UVs are retained and normals use inverse-transpose transforms, with geometric fallback for singular transforms. The renderer resolves unique active embedded txDiffuse references, decodes supported DDS pixels within budgets, and uploads authored mip chains as sRGB RGBA resources. Six compatible WGSL pipelines cover approximate blend/depth combinations. Transparent meshes are sorted by camera depth. A padded GPU copy is mapped back, unpacked row by row and encoded into an explicitly requested new PNG. Camera framing uses active near-level ROAD bounds when present, otherwise visible scene bounds. Interactive presentation, native scene-config assembly, original material fidelity and simulation remain separate work.
 
 The local viewer receives a metadata manifest and aligned vertex/index buffers from its loopback server. Static vertices retain their original interleaved format. Node transforms are composed on the CPU and applied per draw on the GPU. The binary importer indexes texture offsets without extracting assets. The preview then validates and loads referenced embedded diffuse textures into separate bounded memory buffers. Only numeric texture IDs are exposed by same-origin local routes; no disk path or resource export endpoint is exposed. The browser uses S3TC uploads when possible, with an independent RGBA software fallback. Authored compressed mip chains are retained; raw texture base levels use GPU-generated mipmaps. The public documentation site and local viewer are separate applications.
 

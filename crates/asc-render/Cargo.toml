@@ -1,0 +1,21 @@
+[package]
+name = "asc-render"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+asc-kn5.workspace = true
+asc-texture.workspace = true
+bytemuck.workspace = true
+glam.workspace = true
+png.workspace = true
+serde.workspace = true
+wgpu.workspace = true
+
+[dev-dependencies]
+asc-test-support.workspace = true
+pollster.workspace = true
+serde_json.workspace = true

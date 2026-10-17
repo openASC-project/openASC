@@ -1,0 +1,18 @@
+[package]
+name = "asc-app"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+default-run = "openasc"
+
+[[bin]]
+name = "openasc"
+path = "src/main.rs"
+
+[dependencies]
+asc-kn5.workspace = true
+asc-render.workspace = true
+pollster.workspace = true
+serde_json.workspace = true

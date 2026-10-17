@@ -1,9 +1,6 @@
-mod support;
+use asc_kn5::{Scene, parse};
+use asc_test_support as support;
 use glam::{Mat4, Vec3};
-use openasc_native::{
-    kn5::{Scene, parse},
-    render::camera,
-};
 use std::io::Cursor;
 use support::*;
 
@@ -17,6 +14,38 @@ fn triangle() -> Vec<u8> {
         0.,
         0,
     )
+}
+
+#[test]
+fn uv_and_inverse_transpose_normals_survive_shear_and_singular_fallback_is_explicit() {
+    let mut node = triangle();
+    let vertex_start = 4 + 4 + "original_mesh".len() + 4 + 4 + 4;
+    node[vertex_start + 24..vertex_start + 28].copy_from_slice(&0.25_f32.to_le_bytes());
+    node[vertex_start + 28..vertex_start + 32].copy_from_slice(&0.75_f32.to_le_bytes());
+    let mut shear = Mat4::IDENTITY.to_cols_array();
+    shear[1] = 1.;
+    shear[5] = 2.;
+    let scene = read(file(base(&[node], shear, 1), 6));
+    assert_eq!(scene.vertices[0].uv, [0.25, 0.75]);
+    let n = Vec3::from_array(scene.vertices[0].normal);
+    assert!(n.dot(Vec3::new(1., 1., 0.)).abs() < 1e-6);
+    assert!((n - Vec3::new(-1., 1., 0.).normalize()).length() < 1e-6);
+    let scene = read(file(
+        base(
+            &[triangle()],
+            Mat4::from_scale(Vec3::new(1., 0., 1.)).to_cols_array(),
+            1,
+        ),
+        6,
+    ));
+    assert!(scene.vertices.iter().all(|v| v.normal == [0.; 3]));
+    assert!(
+        scene
+            .summary
+            .diagnostics
+            .iter()
+            .any(|d| d.contains("singular normal"))
+    );
 }
 
 #[test]
@@ -201,26 +230,4 @@ fn rebases_indices_between_meshes_and_preserves_winding() {
         6,
     ));
     assert_eq!(scene.indices, [0, 2, 1, 3, 5, 4]);
-}
-#[test]
-fn camera_fits_all_corners_in_webgpu_clip_space_including_portrait() {
-    let bounds = [[-123., -12., -23.], [25., 4., 100.]];
-    for (w, h) in [(1240, 900), (319, 177), (177, 319)] {
-        let m = Mat4::from_cols_array(&camera(bounds, w, h).unwrap());
-        for i in 0..8 {
-            let p = Vec3::new(
-                bounds[i & 1][0],
-                bounds[(i >> 1) & 1][1],
-                bounds[(i >> 2) & 1][2],
-            );
-            let clip = m * p.extend(1.);
-            assert!(
-                clip.x.abs() < 1. && clip.y.abs() < 1. && clip.z > 0. && clip.z < 1.,
-                "{clip:?}"
-            );
-        }
-    }
-    assert!(camera(bounds, 0, 1).is_err());
-    assert!(camera(bounds, 4097, 1).is_err());
-    assert!(camera([[1.; 3], [0.; 3]], 100, 100).is_err());
 }

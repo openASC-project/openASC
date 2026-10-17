@@ -213,7 +213,7 @@ def make_server(preview, port=4180, session=None):
                     return
                 data, mime = preview.textures[index].data, 'application/octet-stream'
             elif path == '/brand.svg':
-                data = (ASSETS.parent / 'site/brand/openasc-dark.svg').read_bytes()
+                data = (Path(__file__).resolve().parents[3] / 'site/brand/openasc-dark.svg').read_bytes()
                 mime = 'image/svg+xml'
             elif path in routes:
                 file, mime = routes[path]

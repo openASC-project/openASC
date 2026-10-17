@@ -1,7 +1,7 @@
 // Original pixel expectations exercise the portable decoder without a GPU or game files.
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {decodeLevel} = require('../viewer/dds.js');
+const {decodeLevel} = require('../tools/prototype/viewer/dds.js');
 function decode(format, bytes, width=4, height=4, extra={}) {
   const buffer = Uint8Array.from(bytes).buffer;
   return decodeLevel({format, levels:[{width,height,offset:0,length:bytes.length,...extra.level}], ...extra}, buffer);

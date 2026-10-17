@@ -1,5 +1,6 @@
 [workspace]
-members = ["native/openasc-native"]
+members = ["crates/*", "tools/test-support"]
+default-members = ["crates/asc-app"]
 resolver = "3"
 
 [workspace.package]
@@ -7,3 +8,16 @@ edition = "2024"
 rust-version = "1.87"
 license = "MIT"
 repository = "https://github.com/openASC-project/openASC"
+
+[workspace.dependencies]
+asc-kn5 = { path = "crates/asc-kn5" }
+asc-texture = { path = "crates/asc-texture" }
+asc-render = { path = "crates/asc-render" }
+asc-test-support = { path = "tools/test-support" }
+bytemuck = { version = "1.25", features = ["derive"] }
+glam = "0.34"
+png = "0.18"
+pollster = "1.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+wgpu = "30.0.1"

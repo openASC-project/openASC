@@ -26,20 +26,24 @@ Keep your installation outside the repository, or use the ignored `assettocorsa/
 The native path works independently of Python and the browser. From the repository root, inspect a single KN5:
 
 ```sh
-cargo run --locked -p openasc-native -- inspect ./assettocorsa/content/tracks/drift/drift.kn5
+cargo run --locked -p asc-app -- inspect ./assettocorsa/content/tracks/drift/drift.kn5
 ```
 
 For a 1240 by 900 offscreen PNG, create the output directory first if it does not already exist, then run:
 
 ```sh
-cargo run --locked -p openasc-native -- render ./assettocorsa/content/tracks/drift/drift.kn5 reports/native-drift.png
+cargo run --locked -p asc-app -- render ./assettocorsa/content/tracks/drift/drift.kn5 reports/native-drift.png
 ```
 
 Cargo downloads/builds locked dependencies on first use. Windows also needs the MSVC C++ build tools and Windows SDK for linking Rust dependencies. No C++ engine implementation is included. The PNG path must be new; no existing image is overwritten. Only a flattened frame is saved, with no model or texture extraction. Stdout reports structural counts, diagnostics, adapter/backend, camera focus and non-background pixel count.
 
 The renderer uses native Vulkan/DirectX 12/Metal adapter selection through wgpu. Only the platforms/backends recorded in the compatibility record are verified. Append `--fallback` to explicitly request a software/fallback adapter if one is installed; absence of one is an error. No silent no-op renderer is used.
 
-The current native scope is one static KN5, active visible renderable near-level meshes, composed node transforms and depth-tested diagnostic colours. Camera framing favours active ROAD bounds, otherwise visible scene bounds. Textures, original shaders and material depth/alpha states are not rendered; coplanar surfaces can show interference and vegetation appears as opaque cards. Skinned meshes are structurally read and omitted. Track scene/layout configuration, dynamic LOD, interactive windows/cameras, native vehicle simulation and FFB are not implemented. Use the existing browser path below for its broader approximate texture and driving features.
+The current native scope is one static KN5, active visible renderable near-level meshes, composed node transforms, source UVs/normals and supported embedded txDiffuse textures. BC1/2/3 and bounded mask-defined RGB/luminance textures are decoded in Rust and uploaded as RGBA; authored compressed and raw mip chains are retained. Raw textures with only a base level receive approximate generated mips. Camera framing favours active ROAD bounds, otherwise visible scene bounds.
+
+Rendering includes approximate opaque, alpha-test and straight-alpha blend states, material opacity, basic lighting and depth modes. Add `--diagnostic` to skip texture loading for comparison; it can be combined with `--fallback`. Stdout includes uploaded texture and draw-state counts, resource diagnostics and decoded texture metadata. Invalid/missing/ambiguous resources use diagnostic colours with an explanation. Inspect both scene and render diagnostics.
+
+Original shaders, multilayer/detail/normal maps, alpha-to-coverage and shadows are not reproduced. In Drift, grass remains visibly white/stippled because its original material behavior is unsupported. Transparent intersections, colour/lighting and coplanar surfaces remain approximate. Skinned meshes are structurally read and omitted. Track scene/layout configuration, dynamic LOD, interactive windows/cameras, native vehicle simulation and FFB are not implemented. Use the existing browser path below for keyboard-driving features.
 
 ## Inspect your installation
 

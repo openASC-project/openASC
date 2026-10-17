@@ -1,6 +1,6 @@
 //! Bounded, independent KN5 v5/v6 structural reader and static render geometry.
 //! Texture payloads are skipped in place; no source assets are extracted.
-use glam::{DMat4, DVec3};
+use glam::{DMat3, DMat4, DVec3};
 use serde::Serialize;
 use std::{
     collections::HashSet,
@@ -33,7 +33,35 @@ impl std::error::Error for Error {}
 #[derive(Clone, Copy, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
     pub position: [f32; 3],
+    pub normal: [f32; 3],
+    pub uv: [f32; 2],
     pub colour: [f32; 3],
+}
+
+#[derive(Debug, Serialize)]
+pub struct Embedded {
+    pub name: String,
+    pub active: bool,
+    pub offset: u64,
+    pub length: usize,
+}
+#[derive(Clone, Debug, Serialize)]
+pub struct Material {
+    pub name: String,
+    pub shader: String,
+    pub blend: u8,
+    pub alpha_test: bool,
+    pub depth: u32,
+    pub opacity: f32,
+    pub diffuse: f32,
+    pub diffuse_refs: Vec<String>,
+}
+#[derive(Clone, Debug)]
+pub struct Draw {
+    pub start: u32,
+    pub count: u32,
+    pub material: usize,
+    pub center: [f32; 3],
 }
 
 #[derive(Debug, Serialize)]
@@ -56,6 +84,9 @@ pub struct Scene {
     pub summary: Summary,
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
+    pub materials: Vec<Material>,
+    pub textures: Vec<Embedded>,
+    pub draws: Vec<Draw>,
 }
 
 struct Reader<R> {
@@ -190,26 +221,35 @@ pub fn parse<R: Read + Seek>(stream: R) -> Result<Scene, Error> {
     if version != 5 && version != 6 {
         return r.fail("kn5_version", "Only KN5 v5/v6 are supported.");
     }
-    let mut diagnostics = vec!["Diagnostic opaque material colours only: textures, original shaders, alpha/depth modes, shadows, skinning and distance LOD are not implemented.".into()];
+    let mut diagnostics = vec!["Structural inspection indexes embedded textures without decoding. Native rendering separately loads supported txDiffuse, basic lighting and approximate alpha/depth modes; original shaders, multilayer/detail/normal maps, shadows, skinning and distance LOD remain unsupported.".into()];
     if version == 6 && r.u32()? != 0 {
         diagnostics.push("Nonzero v6 header field is unsupported.".into());
     }
     let textures = r.count(100_000)?;
+    let mut embedded = Vec::with_capacity(textures);
     for _ in 0..textures {
-        r.u32()?;
-        r.string()?;
+        let active = r.u32()? == 1;
+        let name = r.string()?;
         let length = r.u32()? as usize;
+        embedded.push(Embedded {
+            name,
+            active,
+            offset: r.offset,
+            length,
+        });
         r.skip(length)?;
     }
     let materials = r.count(10_000)?;
     let mut colours = Vec::with_capacity(materials);
+    let mut material_records = Vec::with_capacity(materials);
     let (mut properties, mut mappings) = (0, 0);
     for _ in 0..materials {
         let name = r.string()?;
-        r.string()?;
-        r.bytes::<1>()?;
-        r.flag()?;
-        r.u32()?;
+        let shader = r.string()?;
+        let blend = r.bytes::<1>()?[0];
+        let alpha_test = r.flag()?;
+        let depth = r.u32()?;
+        let (mut opacity, mut diffuse) = (1_f32, 0.7_f32);
         let count = r.count(10_000)?;
         properties += count;
         if properties > 100_000 {
@@ -217,20 +257,31 @@ pub fn parse<R: Read + Seek>(stream: R) -> Result<Scene, Error> {
         }
         let mut names = HashSet::new();
         for _ in 0..count {
-            if !names.insert(r.string()?) {
+            let property = r.string()?;
+            if !names.insert(property.clone()) {
                 return r.fail("kn5_property", "Duplicate shader property.");
             }
-            r.floats::<10>()?;
+            let values = r.floats::<10>()?;
+            if property == "alpha" {
+                opacity = values[0].clamp(0., 1.);
+            }
+            if property == "ksDiffuse" {
+                diffuse = values[0].clamp(0., 2.);
+            }
         }
         let count = r.count(10_000)?;
         mappings += count;
         if mappings > 100_000 {
             return r.fail("kn5_limit", "Combined texture mappings exceed 100000.");
         }
+        let mut diffuse_refs = Vec::new();
         for _ in 0..count {
-            r.string()?;
+            let sampler = r.string()?;
             r.u32()?;
-            r.string()?;
+            let texture = r.string()?;
+            if sampler == "txDiffuse" {
+                diffuse_refs.push(texture);
+            }
         }
         // Original diagnostic palette, deliberately unrelated to source shader execution.
         let hash = name
@@ -246,6 +297,21 @@ pub fn parse<R: Read + Seek>(stream: R) -> Result<Scene, Error> {
                 [0.44, 0.43, 0.30],
             ][hash as usize % 6],
         );
+        if blend > 2 || depth > 2 {
+            diagnostics.push(format!(
+                "Material {name}: unsupported blend/depth state uses opaque depth-writing fallback."
+            ));
+        }
+        material_records.push(Material {
+            name,
+            shader,
+            blend,
+            alpha_test,
+            depth,
+            opacity,
+            diffuse,
+            diffuse_refs,
+        });
     }
     let mut scene = Scene {
         summary: Summary {
@@ -264,6 +330,9 @@ pub fn parse<R: Read + Seek>(stream: R) -> Result<Scene, Error> {
         },
         vertices: Vec::new(),
         indices: Vec::new(),
+        materials: material_records,
+        textures: embedded,
+        draws: Vec::new(),
     };
     node(&mut r, &mut scene, &colours, DMat4::IDENTITY, true, 0)?;
     if r.offset != r.size {
@@ -327,6 +396,25 @@ fn node<R: Read + Seek>(
             let stride = if kind == 2 { 44 } else { 76 };
             r.geometry(count * stride)?;
             let mut positions = Vec::with_capacity(if kind == 2 { count } else { 0 });
+            let mut attributes = Vec::with_capacity(if kind == 2 { count } else { 0 });
+            let linear = DMat3::from_cols(
+                world.x_axis.truncate(),
+                world.y_axis.truncate(),
+                world.z_axis.truncate(),
+            );
+            let determinant = linear.determinant();
+            let invertible = determinant.is_finite() && determinant != 0.;
+            let normal_matrix = if invertible {
+                linear.inverse().transpose()
+            } else {
+                DMat3::ZERO
+            };
+            let normals_valid = invertible && normal_matrix.is_finite();
+            if kind == 2 && !normals_valid {
+                scene.summary.diagnostics.push(format!(
+                    "Mesh {name}: singular normal transform uses geometric lighting."
+                ));
+            }
             for _ in 0..count {
                 let v = r.floats::<11>()?;
                 if kind == 3 {
@@ -339,6 +427,13 @@ fn node<R: Read + Seek>(
                             .fail("kn5_transform", "Transformed vertex exceeds float32 range.");
                     }
                     positions.push(p.as_vec3().to_array());
+                    let normal = if normals_valid {
+                        (normal_matrix * DVec3::new(v[3].into(), v[4].into(), v[5].into()))
+                            .normalize_or_zero()
+                    } else {
+                        DVec3::ZERO
+                    };
+                    attributes.push((normal.as_vec3().to_array(), [v[6], v[7]]));
                 }
             }
             let index_count = r.count(12_000_000)?;
@@ -390,15 +485,28 @@ fn node<R: Read + Seek>(
                     return r.fail("kn5_limit", "Native render buffers exceed 256 MiB.");
                 }
                 let base = scene.vertices.len() as u32;
-                for position in positions {
+                let mut bounds = None;
+                for (position, (normal, uv)) in positions.into_iter().zip(attributes) {
                     grow_bounds(&mut scene.summary.bounds, position);
+                    grow_bounds(&mut bounds, position);
                     scene.vertices.push(Vertex {
                         position,
+                        normal,
+                        uv,
                         colour: colours[material],
                     });
                 }
                 scene.summary.drawn_meshes += 1;
                 scene.summary.drawn_triangles += indices.len() / 3;
+                let b = bounds.unwrap();
+                scene.draws.push(Draw {
+                    start: scene.indices.len() as u32,
+                    count: indices.len() as u32,
+                    material,
+                    center: std::array::from_fn(|a| {
+                        ((b[0][a] as f64 + b[1][a] as f64) * 0.5) as f32
+                    }),
+                });
                 scene.indices.extend(indices.into_iter().map(|i| base + i));
             }
         }

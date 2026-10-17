@@ -30,6 +30,56 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d3fb67a6e08acf24fdeccbac2cb6ac4305825bd1f117462e0e6f2f193345ad56"
 
 [[package]]
+name = "asc-app"
+version = "0.1.0"
+dependencies = [
+ "asc-kn5",
+ "asc-render",
+ "pollster",
+ "serde_json",
+]
+
+[[package]]
+name = "asc-kn5"
+version = "0.1.0"
+dependencies = [
+ "asc-test-support",
+ "bytemuck",
+ "glam",
+ "serde",
+]
+
+[[package]]
+name = "asc-render"
+version = "0.1.0"
+dependencies = [
+ "asc-kn5",
+ "asc-test-support",
+ "asc-texture",
+ "bytemuck",
+ "glam",
+ "png",
+ "pollster",
+ "serde",
+ "serde_json",
+ "wgpu",
+]
+
+[[package]]
+name = "asc-test-support"
+version = "0.1.0"
+dependencies = [
+ "glam",
+]
+
+[[package]]
+name = "asc-texture"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "ash"
 version = "0.38.0+1.3.281"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -595,19 +645,6 @@ name = "once_cell"
 version = "1.21.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
-
-[[package]]
-name = "openasc-native"
-version = "0.1.0"
-dependencies = [
- "bytemuck",
- "glam",
- "png",
- "pollster",
- "serde",
- "serde_json",
- "wgpu",
-]
 
 [[package]]
 name = "ordered-float"
