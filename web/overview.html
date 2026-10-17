@@ -1,0 +1,25 @@
+<section class="hero" aria-labelledby="project-title">
+  <p class="hero-kicker">Assetto Corsa / Independent engine project</p>
+  <h1 id="project-title" class="wordmark hero-wordmark">open<span>ASC</span></h1>
+  <p class="tagline">An independent engine for Assetto Corsa content.<br> From understanding the files to driving the first lap.</p>
+  <div class="hero-actions">
+    <a class="button primary" href="https://github.com/openASC-project/openASC"><span aria-hidden="true">↗</span> Get the source</a>
+    <a class="button secondary" href="./guide.html"><span aria-hidden="true">▤</span> Documentation</a>
+    <a class="button secondary" href="https://github.com/openASC-project/openASC/issues"><span aria-hidden="true">◇</span> Issues</a>
+  </div>
+  <div class="badges"><span class="badge accent"><span aria-hidden="true">⚒</span> Foundation stage</span><span class="badge">No playable release yet</span><span class="badge">MIT licensed</span></div>
+</section>
+<div class="overview-content">
+  <aside class="notice" aria-label="Game installation requirement"><span class="notice-icon" aria-hidden="true">△</span><div><h2>Use your own Assetto Corsa installation</h2><p>openASC includes no cars, tracks, textures, or sounds. The content tools read files from your local copy of Assetto Corsa (2014).</p></div></aside>
+  <aside class="notice neutral" aria-label="Project status"><span class="notice-icon" aria-hidden="true">i</span><div><h2>A project at the beginning</h2><p>The inventory tool, documentation, and website are available. Rendering, vehicle physics, and driving are still ahead. Finding a file does not establish compatibility.</p></div></aside>
+  <section class="intro"><h2>What is openASC?</h2><p>openASC is an open-source effort to build an independent engine for Assetto Corsa content. Inspired by the approach of <a href="https://github.com/openOMSI-org/openOMSI">openOMSI</a>, development starts with understanding file formats and validating one small scene before moving toward a first drive.</p><p>The current tool inventories local car and track directories without changing the installation. There is no playable simulator yet, and full mod compatibility is a long-term research goal.</p></section>
+  <section class="feature-grid" aria-label="Project areas">
+    <article class="feature"><span class="feature-icon" aria-hidden="true">⌕</span><div><h3>Local content tools</h3><p>List car and track folders, identify expected files, and save a JSON inventory.</p><a href="./guide.html">Run the scanner →</a></div></article>
+    <article class="feature"><span class="feature-icon" aria-hidden="true">▤</span><div><h3>Documented formats</h3><p>Track what is verified, what is unsupported, and which readers come next.</p><a href="./formats.html">Compatibility record →</a></div></article>
+    <article class="feature"><span class="feature-icon" aria-hidden="true">⌘</span><div><h3>An independent foundation</h3><p>Separate content loading, scenes, rendering, and simulation into testable systems.</p><a href="./architecture.html">Proposed architecture →</a></div></article>
+    <article class="feature"><span class="feature-icon" aria-hidden="true">↗</span><div><h3>One milestone at a time</h3><p>Configuration readers, a scene viewer, then one car on one track. Each step needs evidence.</p><a href="./roadmap.html">Development roadmap →</a></div></article>
+    <article class="feature"><span class="feature-icon" aria-hidden="true">&lt;/&gt;</span><div><h3>Open development</h3><p>English documentation, original test fixtures, and automated checks alongside the source.</p><a href="./development.html">Development guide →</a></div></article>
+    <article class="feature"><span class="feature-icon" aria-hidden="true">◇</span><div><h3>Measured compatibility</h3><p>Physics, force feedback, AI, audio, networking, and CSP support need separate implementation and validation.</p><a href="./roadmap.html">Scope and limitations →</a></div></article>
+  </section>
+  <section class="quick-start"><h2>Start with your content</h2><p>Python 3.10 or newer. No third-party packages. Run from the repository root.</p><pre><code>python tools/inspect_content.py ./assettocorsa</code></pre><p><a href="./guide.html">Read the user guide →</a></p></section>
+</div>

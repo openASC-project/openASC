@@ -1,25 +1,32 @@
-# Публикация сайта openASC
+# GitHub Pages
 
-Сайт находится в `site/`. Workflow загружает **только этот каталог**, а не локальную установку игры.
+The live site is [openasc-project.github.io/openASC](https://openasc-project.github.io/openASC/). The source repository is [openASC-project/openASC](https://github.com/openASC-project/openASC).
 
-1. Создайте GitHub-репозиторий для проекта, например `openASC`.
-2. Загрузите новые исходные файлы и документацию. Каталог `assettocorsa/` должен остаться локальным: он уже указан в `.gitignore`. Перед первым коммитом проверьте `git status --short`.
-3. Откройте **Settings → Pages → Build and deployment → Source → GitHub Actions**.
-4. Запушьте файлы в `main` или `master`, либо вручную запустите **Deploy GitHub Pages** во вкладке Actions на основной ветке репозитория.
-5. После успешного задания `deploy` откройте URL в его environment `github-pages`.
+## Deployment
 
-Для репозитория `OWNER/openASC` обычный адрес будет `https://OWNER.github.io/openASC/`. Для репозитория `OWNER/OWNER.github.io` — `https://OWNER.github.io/`.
+The `Deploy GitHub Pages` workflow uploads **only `site/`**, never the local installation or reports. It runs on pushes affecting site files or the deployment workflow on `main` or `master`, and only deploys from the repository's default branch. A manual run is also available in GitHub Actions.
 
-Workflow использует `configure-pages@v5`, `upload-pages-artifact@v4` и `deploy-pages@v4`, согласно [документации GitHub](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages).
+1. Edit documentation in `docs/` or overview content in `web/overview.html`.
+2. Run `python tools/build_site.py` to regenerate HTML.
+3. Run `python tools/build_site.py --check` and the checks in the development guide.
+4. Commit the source and generated pages, then push to the default branch.
+5. Check the deployment result and its `github-pages` environment URL in Actions.
 
-## Ссылки на исходники
+## Configure a fork
 
-На github.io сайт автоматически выводит адрес репозитория из имени хоста и первого сегмента пути. Для собственного домена или нестандартного размещения укажите полный HTTPS-адрес репозитория в `site/config.js`. Локально кнопка исходников ведёт к инструкции публикации на странице; вымышленные адреса не используются.
+1. Open Settings → Pages → Build and deployment.
+2. Set Source to GitHub Actions.
+3. Update repository links in `web/layout.html`, `web/overview.html`, `tools/build_site.py`, and documentation for your fork.
+4. Regenerate the site and push to the default branch.
 
-## Локальная проверка
+All page and asset links are relative, so the site works beneath a repository path. A repository called `OWNER/openASC` normally publishes at `https://OWNER.github.io/openASC/`.
 
-```powershell
+The workflow uses `configure-pages@v5`, `upload-pages-artifact@v4`, and `deploy-pages@v4`, following the [GitHub documentation](https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages).
+
+## Preview locally
+
+```sh
 python -m http.server 4173 --directory site --bind 127.0.0.1
 ```
 
-Откройте `http://127.0.0.1:4173`. Статус сайта описывает только реализованное; обновляйте его по мере появления проверенных возможностей.
+Open [localhost](http://127.0.0.1:4173/). Review the overview and documentation at desktop and phone widths before publishing. Site claims must match the currently implemented and tested features.

@@ -1,39 +1,36 @@
-# Возможно ли повторить подход openOMSI для Assetto Corsa?
+# Roadmap and feasibility
 
-Да, как направление инженерной работы: независимо написать движок и постепенно научить его читать контент установленной Assetto Corsa. Но наличие моддинга и SDK не предоставляет исходного кода симулятора и не гарантирует воспроизведение оригинальной физики.
+An independent engine that reads Assetto Corsa content is a technically plausible engineering direction. Access to modding tools and an SDK does not provide the simulator source or guarantee an exact reproduction of its physics.
 
-openOMSI описывает собственную реализацию на Rust, форматы контента и отдельный каталог `site/`. Это пример организации проекта, а не готовая основа для автомобильного симулятора. См. [репозиторий и заявленные цели](https://github.com/openOMSI-org/openOMSI).
+[openOMSI](https://github.com/openOMSI-org/openOMSI) is the inspiration for organizing an independent implementation around documented formats and a public website. It is not an existing engine base for Assetto Corsa.
 
-## Что есть сейчас
+## Current state
 
-В этой основе есть сканер каталогов, сайт, документация и CI. Нет рендера, импорта моделей, игровой физики, управления рулём, аудио или сетевой совместимости. Сканер подтверждает только наличие файлов; их содержимое он не интерпретирует.
+Implemented: a file-presence inventory, tests on original fixtures, English documentation, and a GitHub Pages website. Not implemented: configuration readers, geometry import, rendering, vehicle simulation, wheel input, force feedback, audio, or networking.
 
-В локальной установке обнаружены SDK, примеры UDP-сервера и руководство `sdk/dev/car_pipeline_2.0rev/AC_Pipeline_PUB_Rev2.0.pdf`. Это отправные точки дальнейшего исследования. Ресурсы SDK не копируются в проект.
+The local installation includes SDK documentation and UDP server examples. These are research starting points, not resources distributed by openASC.
 
-## Последовательность разработки
+## Development stages
 
-| Этап | Результат | Критерий приёмки |
+| Stage | Deliverable | Acceptance evidence |
 | --- | --- | --- |
-| 0. Инвентаризация | Каталоги машин и трасс | Детерминированный JSON, тесты на собственных фикстурах |
-| 1. Конфигурации | INI, LUT и ссылки на ресурсы | Документированная схема и тесты на собственных примерах |
-| 2. Просмотрщик | Один подтверждённый набор KN5, материалы, камера | Одна локальная сцена отображается; неподдерживаемое явно отмечено |
-| 3. Заезд | Одна машина, одна трасса, базовый ввод | Повторяемый заезд с собственной моделью физики |
-| 4. Валидация | Шины, подвеска, трансмиссия, FFB | Сравнение измерений с заранее определёнными допусками |
-| 5. Экосистема | Моды, AI, звук и сеть | Отдельная матрица совместимости для каждой подсистемы |
+| 0. Inventory | Car and track folder inventory | Deterministic JSON and tests on original fixtures |
+| 1. Configuration | INI/LUT readers and resource references | Documented subset, typed values, and failure-case tests |
+| 2. Viewer | One supported KN5 scene, materials, and camera | A local scene renders; unsupported features are diagnosed |
+| 3. First drive | One car, one track, and basic input | A repeatable drive using an independently implemented physics model |
+| 4. Validation | Tyres, suspension, drivetrain, and FFB | Measurements compared against explicit tolerances |
+| 5. Ecosystem | Wider content support, AI, audio, and networking | Separate compatibility evidence for each subsystem |
 
-Сроки до проверки форматов и физической модели не оцениваются. Полная совместимость может потребовать многолетней работы и не гарантирована. CSP, Python-приложения и плагины — отдельные цели, не часть первого прототипа.
+## Immediate work
 
-## Предлагаемые границы архитектуры
+Implement the configuration readers and a resource manifest before loading geometry. Keep source locations in diagnostics and identify unsupported syntax explicitly. The first viewer must display real local geometry, rather than a placeholder scene.
 
-- `content`: файловая система, INI/LUT, метаданные, диагностика неподдерживаемых ресурсов.
-- `scene`: независимое представление геометрии, материалов, поверхности и коллизий.
-- `render`: просмотр сцены и графика; потенциально Rust + wgpu после проверки прототипом.
-- `sim`: фиксированный шаг, шины, подвеска, аэродинамика, трансмиссия.
-- `platform`: устройства ввода, FFB, окно и время.
-- `app`: выбор контента и запуск сессии.
+## Long-term scope
 
-Это план, указанных модулей в исходном коде пока нет. Python выбран только для небольшого диагностического инструмента без зависимостей; стек будущего движка пока не зафиксирован.
+Full compatibility may require years of development and is not guaranteed. CSP, Python apps, plugins, and exact original physics need separate investigation. No release date or platform support is promised before a working prototype is tested.
 
-## Публикуемый материал
+Use the [compatibility record](FORMATS.md) for implemented behavior and the [architecture](ARCHITECTURE.md) for proposed module boundaries.
 
-Разрабатывать собственный код и документировать проверенное поведение. Использовать собственные тестовые примеры; не переносить исполняемые файлы, модели, текстуры, звуки и платные моды в репозиторий. Техническая возможность не является юридической оценкой: условия использования контента нужно проверять отдельно, если планируется его распространение.
+## Content handling
+
+Write original code and document verified behavior. Use original minimal fixtures in tests. Do not commit game executables, models, textures, sounds, SDK archives, or third-party mods. Distribution rights for any future third-party material must be considered separately.
