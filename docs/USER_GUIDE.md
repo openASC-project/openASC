@@ -43,7 +43,19 @@ The current native scope is one static KN5, active visible renderable near-level
 
 Rendering includes approximate opaque, alpha-test and straight-alpha blend states, material opacity, basic lighting and depth modes. Add `--diagnostic` to skip texture loading for comparison; it can be combined with `--fallback`. Stdout includes uploaded texture and draw-state counts, resource diagnostics and decoded texture metadata. Invalid/missing/ambiguous resources use diagnostic colours with an explanation. Inspect both scene and render diagnostics.
 
-Original shaders, multilayer/detail/normal maps, alpha-to-coverage and shadows are not reproduced. In Drift, grass remains visibly white/stippled because its original material behavior is unsupported. Transparent intersections, colour/lighting and coplanar surfaces remain approximate. Skinned meshes are structurally read and omitted. Track scene/layout configuration, dynamic LOD, interactive windows/cameras, native vehicle simulation and FFB are not implemented. Use the existing browser path below for keyboard-driving features.
+Original shaders, multilayer/detail/normal maps, alpha-to-coverage and shadows are not reproduced. In Drift, grass remains visibly white/stippled because its original material behavior is unsupported. Transparent intersections, colour/lighting and coplanar surfaces remain approximate. Skinned meshes are structurally read and omitted. Track scene/layout configuration, dynamic LOD, native vehicle simulation and FFB are not implemented. Use the existing browser path below for keyboard-driving features.
+
+## Native desktop window
+
+```sh
+cargo run --locked -p asc-app -- view ./assettocorsa/content/tracks/drift/drift.kn5
+```
+
+Left drag orbits, right drag pans and the wheel zooms. Home resets to the initial ROAD focus; F fits the full visible scene; V selects a near-top orthographic view; P switches perspective/orthographic projection; T switches loaded diffuse RGB to diagnostic colours while retaining texture alpha. Escape closes the window. This window inspects static geometry; it does not run the Python driving prototype or native vehicle physics. Rendering responds to window/input events and waits when idle.
+
+Use `--capture reports/native-window.png` to save the first presented surface frame to a new file; create its parent directory first. The window remains open. Use `--captures reports/window-captures` to enable F12 snapshots with unique PNG names in that directory. Existing images are never overwritten. These are GPU readbacks of the client surface rather than captures of window decorations. Surface readback must be supported by the selected driver, otherwise capture reports an error. The initial client size is 1240 by 900 physical pixels; viewport dimensions are limited to 4096 per axis. Presentation currently requires an SDR RGBA/BGRA surface and a desktop display.
+
+Resize recreates surface configuration and depth resources while retaining geometry/material buffers. Zero-size windows do not render. Transient outdated/suboptimal/lost surfaces have bounded reconfiguration paths; adapter/format changes and device failures are not a validated recovery guarantee. `--smoke` presents five frames (four with readback), programmatically resizes the window, changes cameras and diffuse mode, verifies surface pixels and exits. Normal desktop input still needs platform-specific UI validation; consult the compatibility record for tested scope.
 
 ## Inspect your installation
 

@@ -24,6 +24,14 @@ cargo test -p asc-render --locked --test gpu -- --ignored --nocapture
 
 The five GPU tests check non-background geometry, occlusion independent of triangle order, non-aligned row readback, PNG pixels/overwrite refusal, UV orientation, opaque versus cutout alpha, opacity and linear-light blending, read-only/disabled depth and back-to-front transparency ordering. Set `OPENASC_TEST_FALLBACK=1` to request a software adapter; Linux CI installs Mesa Vulkan and runs these tests explicitly. GPU adapter absence fails the explicit tests. Structural, DDS and resource-resolution tests remain GPU-independent. Cargo build outputs under `target/` are ignored; commit `Cargo.lock` with dependency changes.
 
+The explicit desktop test opens a real window and therefore requires a display:
+
+```sh
+cargo test -p asc-app --locked --test window -- --ignored --nocapture
+```
+
+Linux CI runs it under Xvfb with software Vulkan. It verifies one uncaptured presentation and four presented/read-back frames, real window resize to 640 by 480, changed camera matrices, BGRA-to-RGBA PNG output and changed pixels from a diffuse toggle at a fixed camera. Camera math and camera-dependent transparency order also have GPU-independent tests. This diagnostic automation does not establish real mouse/keyboard, DPI, monitor migration or device-loss recovery behavior.
+
 Source is organised as a subsystem workspace under `crates/`, following the openOMSI project layout. Build the executable with `cargo build -p asc-app`; it is named `openasc` (`openasc.exe` on Windows). The former `native/openasc-native` package has been replaced by the four native crates. Python/WebGL research source is under `tools/prototype/`; the root Python package is only a compatibility entry point. See the [architecture](ARCHITECTURE.md) for dependency boundaries.
 
 Python 3.10+ is enough for the tools, tests, and documentation builder. No game installation is needed for tests.

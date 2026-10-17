@@ -1,11 +1,12 @@
 //! Approximate native diffuse/alpha/depth preview; not original AC shader execution.
 use crate::resources::texture::Resources;
-use asc_kn5::{Material, Scene, Vertex};
+use asc_kn5::{Draw, Material, Scene, Vertex};
 use asc_texture as dds;
 use wgpu::util::DeviceExt;
 
 pub struct GpuMaterial {
     pub bind: wgpu::BindGroup,
+    pub diagnostic_bind: wgpu::BindGroup,
     pub pipeline: usize,
     pub textured: bool,
     pub cutout: bool,
@@ -77,6 +78,7 @@ pub fn prepare(
     shader: &wgpu::ShaderModule,
     scene: &Scene,
     resources: Option<&Resources>,
+    format: wgpu::TextureFormat,
 ) -> Result<Prepared, Box<dyn std::error::Error>> {
     let camera_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("Camera layout"),
@@ -175,7 +177,7 @@ pub fn prepare(
                         entry_point: Some("fragment"),
                         compilation_options: Default::default(),
                         targets: &[Some(wgpu::ColorTargetState {
-                            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                            format,
                             blend: if blend {
                                 Some(wgpu::BlendState::ALPHA_BLENDING)
                             } else {
@@ -258,31 +260,38 @@ pub fn prepare(
             0.,
             0.,
         ];
-        let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Material parameters"),
-            contents: bytemuck::cast_slice(&params),
-            usage: wgpu::BufferUsages::UNIFORM,
-        });
-        let bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Diffuse material"),
-            layout: &material_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&views[slot.unwrap_or(0)]),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: buffer.as_entire_binding(),
-                },
-            ],
-        });
+        let make_bind = |params: &[f32; 8]| {
+            let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("Material parameters"),
+                contents: bytemuck::cast_slice(params),
+                usage: wgpu::BufferUsages::UNIFORM,
+            });
+            device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Diffuse material"),
+                layout: &material_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&views[slot.unwrap_or(0)]),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&sampler),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: buffer.as_entire_binding(),
+                    },
+                ],
+            })
+        };
+        let bind = make_bind(&params);
+        let mut diagnostic_params = params;
+        diagnostic_params[0] = 0.;
+        let diagnostic_bind = make_bind(&diagnostic_params);
         materials.push(GpuMaterial {
             bind,
+            diagnostic_bind,
             pipeline: depth as usize * 2 + usize::from(blend),
             textured: slot.is_some(),
             cutout,
@@ -298,24 +307,90 @@ pub fn prepare(
     })
 }
 
-pub fn draw_order(scene: &Scene, prepared: &Prepared) -> Vec<usize> {
-    let mut order: Vec<_> = (0..scene.draws.len()).collect();
+pub fn draw_order(draws: &[Draw], prepared: &Prepared, direction: [f64; 3]) -> Vec<usize> {
+    order_with(
+        draws,
+        |i| {
+            let m = &prepared.materials[i];
+            (m.blend, m.pipeline / 2)
+        },
+        direction,
+    )
+}
+
+fn order_with(
+    draws: &[Draw],
+    state: impl Fn(usize) -> (bool, usize),
+    direction: [f64; 3],
+) -> Vec<usize> {
+    let mut order: Vec<_> = (0..draws.len()).collect();
     order.sort_by(|&a, &b| {
-        let da = &scene.draws[a];
-        let db = &scene.draws[b];
-        let ma = &prepared.materials[da.material];
-        let mb = &prepared.materials[db.material];
-        ma.blend
-            .cmp(&mb.blend)
+        let da = &draws[a];
+        let db = &draws[b];
+        let ma = state(da.material);
+        let mb = state(db.material);
+        ma.0.cmp(&mb.0)
             .then_with(|| {
-                if ma.blend && mb.blend {
-                    let depth = |p: [f32; 3]| p[0] as f64 * 0.7 + p[1] as f64 + p[2] as f64 * 0.8;
+                if ma.0 && mb.0 {
+                    let depth = |p: [f32; 3]| {
+                        p[0] as f64 * direction[0]
+                            + p[1] as f64 * direction[1]
+                            + p[2] as f64 * direction[2]
+                    };
                     depth(da.center).total_cmp(&depth(db.center))
                 } else {
-                    (ma.pipeline / 2).cmp(&(mb.pipeline / 2))
+                    ma.1.cmp(&mb.1)
                 }
             })
             .then(a.cmp(&b))
     });
     order
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn transparency_order_tracks_camera_direction_and_retains_opaque_depth_groups() {
+        let mut draws = vec![
+            Draw {
+                start: 0,
+                count: 3,
+                material: 1,
+                center: [-2., 0., 0.],
+            },
+            Draw {
+                start: 3,
+                count: 3,
+                material: 1,
+                center: [2., 0., 0.],
+            },
+            Draw {
+                start: 6,
+                count: 3,
+                material: 0,
+                center: [0.; 3],
+            },
+            Draw {
+                start: 9,
+                count: 3,
+                material: 2,
+                center: [0.; 3],
+            },
+        ];
+        let states = [(false, 0), (true, 0), (false, 1)];
+        assert_eq!(
+            order_with(&draws, |i| states[i], [1., 0., 0.]),
+            [2, 3, 0, 1]
+        );
+        assert_eq!(
+            order_with(&draws, |i| states[i], [-1., 0., 0.]),
+            [2, 3, 1, 0]
+        );
+        draws[1].center = draws[0].center;
+        assert_eq!(
+            order_with(&draws, |i| states[i], [-1., 0., 0.]),
+            [2, 3, 0, 1]
+        );
+    }
 }

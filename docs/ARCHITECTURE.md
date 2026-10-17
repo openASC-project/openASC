@@ -1,6 +1,6 @@
 # Architecture
 
-The implemented project contains a first native Rust KN5 reader and wgpu offscreen renderer, Python content readers, a WebGL 2 preview, an independent fixed-step Python driving prototype and a documentation website. Production rendering and validated full vehicle simulation remain incomplete.
+The implemented project contains a first native Rust KN5 reader and wgpu offscreen renderer and desktop inspection window, Python content readers, a WebGL 2 preview, an independent fixed-step Python driving prototype and a documentation website. Production rendering and validated full vehicle simulation remain incomplete.
 
 ## Implemented components
 
@@ -30,7 +30,12 @@ The implemented project contains a first native Rust KN5 reader and wgpu offscre
 | `site/` | Generated HTML, shared CSS/JS, and public static assets |
 | `.github/workflows/` | Source checks and GitHub Pages deployment |
 | `crates/asc-kn5/src/lib.rs` | Independent bounded Rust KN5 structural reader and static world geometry |
-| `crates/asc-render/src/gpu/capture.rs` | Native wgpu depth-tested diagnostic rendering and padded GPU readback |
+| `crates/asc-render/src/gpu/capture.rs` | Native offscreen capture and frame metadata |
+| `crates/asc-render/src/gpu/scene.rs` | Persistent buffers, shared render pass and scene statistics |
+| `crates/asc-render/src/gpu/presenter.rs` | SDR surface presentation, reconfiguration and capture |
+| `crates/asc-render/src/gpu/readback.rs` | Shared aligned RGBA/BGRA readback |
+| `crates/asc-render/src/scene/orbit.rs` | Bounded camera orbit, pan, zoom and projections |
+| `crates/asc-app/src/app/viewer.rs` | winit lifecycle, desktop controls and diagnostic smoke mode |
 | `crates/asc-texture/src/lib.rs` | Bounded DDS decoding and authored mip preservation |
 | `crates/asc-render/src/resources/texture.rs` | Unique active embedded diffuse resolution and scene budgets |
 | `crates/asc-render/src/pipelines/material.rs` | Approximate diffuse, alpha and depth pipelines |
@@ -65,9 +70,9 @@ Keep file-format readers separate from rendering and physics so each can be test
 
 ## Technology choices
 
-The selected production stack is Rust for the engine core, including simulation, device input and force feedback, and wgpu for rendering. The first native content/render slice is implemented; native simulation, device input and FFB are not. Python currently keeps the broader research content loading and local HTTP server dependency-free. The browser inspection renderer uses WebGL 2 with original JavaScript and remains available alongside the native diagnostic renderer.
+The selected production stack is Rust for the engine core, including simulation, device input and force feedback, and wgpu for rendering. The first native content/render slice is implemented; native simulation, driving-device input and FFB are not. Python currently keeps the broader research content loading and local HTTP server dependency-free. The browser inspection renderer uses WebGL 2 with original JavaScript and remains available alongside the native diagnostic renderer.
 
-The native binary directly opens one KN5 through a bounded buffered Rust reader; it does not call Python or the browser. Source node transforms are composed in double precision, validated and flattened into float32 world positions with original indices rebased into shared GPU buffers. UVs are retained and normals use inverse-transpose transforms, with geometric fallback for singular transforms. The renderer resolves unique active embedded txDiffuse references, decodes supported DDS pixels within budgets, and uploads authored mip chains as sRGB RGBA resources. Six compatible WGSL pipelines cover approximate blend/depth combinations. Transparent meshes are sorted by camera depth. A padded GPU copy is mapped back, unpacked row by row and encoded into an explicitly requested new PNG. Camera framing uses active near-level ROAD bounds when present, otherwise visible scene bounds. Interactive presentation, native scene-config assembly, original material fidelity and simulation remain separate work.
+The native binary directly opens one KN5 through a bounded buffered Rust reader; it does not call Python or the browser. Source node transforms are composed in double precision, validated and flattened into float32 world positions with original indices rebased into shared GPU buffers. UVs are retained and normals use inverse-transpose transforms, with geometric fallback for singular transforms. The renderer resolves unique active embedded txDiffuse references, decodes supported DDS pixels within budgets, and uploads authored mip chains as sRGB RGBA resources. Six compatible WGSL pipelines cover approximate blend/depth combinations. Transparent meshes are sorted by camera depth. A padded GPU copy is mapped back, unpacked row by row and encoded into an explicitly requested new PNG. Camera framing uses active near-level ROAD bounds when present, otherwise visible scene bounds. Native scene-config assembly, original material fidelity and simulation remain separate work. The desktop window uses winit lifecycle events and a persistent GpuScene shared with offscreen capture. Orbit camera changes update a uniform buffer and transparency sort direction without rebuilding geometry or textures. Idle windows wait for events. SDR surface reconfiguration and optional readback are isolated in the presenter.
 
 The local viewer receives a metadata manifest and aligned vertex/index buffers from its loopback server. Static vertices retain their original interleaved format. Node transforms are composed on the CPU and applied per draw on the GPU. The binary importer indexes texture offsets without extracting assets. The preview then validates and loads referenced embedded diffuse textures into separate bounded memory buffers. Only numeric texture IDs are exposed by same-origin local routes; no disk path or resource export endpoint is exposed. The browser uses S3TC uploads when possible, with an independent RGBA software fallback. Authored compressed mip chains are retained; raw texture base levels use GPU-generated mipmaps. The public documentation site and local viewer are separate applications.
 

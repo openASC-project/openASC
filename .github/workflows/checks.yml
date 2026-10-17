@@ -43,10 +43,16 @@ jobs:
           fi
       - name: Install software Vulkan for headless GPU verification
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers xvfb
       - name: Verify rasterization, depth, readback and PNG on software Vulkan
         if: runner.os == 'Linux'
         env:
           OPENASC_TEST_FALLBACK: '1'
           XDG_RUNTIME_DIR: /tmp
         run: cargo +stable test -p asc-render --locked --test gpu -- --ignored --nocapture
+      - name: Verify native surface presentation, resize and readback under Xvfb
+        if: runner.os == 'Linux'
+        env:
+          OPENASC_TEST_FALLBACK: '1'
+          XDG_RUNTIME_DIR: /tmp
+        run: xvfb-run -a cargo +stable test -p asc-app --locked --test window -- --ignored --nocapture

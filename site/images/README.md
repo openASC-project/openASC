@@ -7,9 +7,10 @@ Assetto Corsa installation, approved for the public project website.
 - `first-drive-moving.jpg`: the keyboard prototype moving with four ROAD contacts.
 - `first-drive-wall.jpg`: stopped after static WALL contact, shown from an orbit view.
 - `native-drift.png`: first Rust/wgpu diagnostic geometry frame, Vulkan/RTX 2080, without textures or original material states.
+- `native-window-drift.png`: 2026-10-18 perspective GPU readback from the native Windows/Vulkan surface, without window decorations.
 - `native-drift-textured.png`: subsequent native diffuse frame with 25 embedded textures and approximate alpha/depth states. White/stippled grass reflects unsupported original material behavior.
 
-Captured on 2026-10-17. No source models, textures or other installation files are
+Captured on 2026-10-17 and 2026-10-18. No source models, textures or other installation files are
 distributed with these images. They document the approximate prototype rather
 than original-simulator visual or physics parity.
 

@@ -11,7 +11,7 @@ An independent open-source engine project for **Assetto Corsa (2014)** content, 
 
 **Target: 1:1 behavioral compatibility with Assetto Corsa (2014).** This includes vehicle physics, controls and force feedback, visuals, audio, AI, session rules, networking and original content behavior. This is the project objective, not an achieved compatibility claim. The production stack is Rust with wgpu. A first native KN5 reader and offscreen diffuse renderer now run independently of Python and the browser; production simulation remains unimplemented. The Python implementation remains a research prototype and tooling foundation.
 
-**Status: native diffuse preview and first local keyboard-driving prototype. Original physics parity is not established.** The repository contains local inventory, INI/LUT readers, a bounded KN5 static geometry importer, an interactive local WebGL viewer, original tests, and a documentation website. Supported embedded diffuse textures, alpha test, approximate transparency, typed track surfaces, vertical ground support queries, ordinary ACD car-data reading and geometric spawn placement checks are available. An independent 120 Hz driving model now moves a locally loaded car with keyboard input. Static WALL triangles now contact an upright box derived from collider.kn5. Full convex/6DOF collision, suspension dynamics, original tyre/drivetrain behavior, audio and FFB are not implemented.
+**Status: native window/diffuse preview and first local keyboard-driving prototype. Original physics parity is not established.** The repository contains local inventory, INI/LUT readers, a bounded KN5 static geometry importer, an interactive local WebGL viewer, original tests, and a documentation website. Supported embedded diffuse textures, alpha test, approximate transparency, typed track surfaces, vertical ground support queries, ordinary ACD car-data reading and geometric spawn placement checks are available. An independent 120 Hz driving model now moves a locally loaded car with keyboard input. Static WALL triangles now contact an upright box derived from collider.kn5. Full convex/6DOF collision, suspension dynamics, original tyre/drivetrain behavior, audio and FFB are not implemented.
 
 [Website](https://openasc-project.github.io/openASC/) · [User guide](docs/USER_GUIDE.md) · [Compatibility record](docs/FORMATS.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/FEASIBILITY.md)
 
@@ -21,10 +21,11 @@ For the native path, install Rust with Cargo and the platform's native build too
 
 ```sh
 cargo run --locked -p asc-app -- inspect ./assettocorsa/content/tracks/drift/drift.kn5
+cargo run --locked -p asc-app -- view ./assettocorsa/content/tracks/drift/drift.kn5
 cargo run --locked -p asc-app -- render ./assettocorsa/content/tracks/drift/drift.kn5 reports/native-drift.png
 ```
 
-This native path renders one KN5 with embedded diffuse DDS textures and approximate alpha/depth states. Add `--diagnostic` to render material colours without loading textures. It does not yet assemble a track layout, open an interactive window or simulate driving. See the [native guide](docs/USER_GUIDE.md#native-rust-and-wgpu-preview).
+The native view command opens a desktop window with orbit, pan, zoom and perspective/orthographic cameras. It reuses persistent wgpu resources and the same material pipeline as the PNG path. Both read one KN5 with embedded diffuse DDS textures and approximate alpha/depth states. Add `--diagnostic` to skip texture loading. Native scene-config assembly and driving are not implemented. See the [native guide](docs/USER_GUIDE.md#native-rust-and-wgpu-preview).
 
 The existing content tools, browser viewer and keyboard-driving prototype require Python 3.10+. No third-party Python packages are needed.
 
@@ -90,7 +91,7 @@ Typed surface definitions and BVH-accelerated vertical ground queries are availa
 
 BMW M3 E30/Drift now runs in an independently implemented local keyboard-driving prototype with tested acceleration, steering, braking, reverse, pause and reset. Static wall contact now uses continuous translation/yaw queries and inelastic planar impulses, with verified nonpenetration on the tested traces. Next, add wheel animation and better vehicle/skin materials, then replace geometric attachment with validated suspension/tyre dynamics and full convex/6DOF contact. Supported DDS diffuse textures are now available in the first viewer. Static KN5 geometry, hierarchy, and material definitions are read; unsupported features are diagnosed. Physics validation, force feedback, AI, audio, and networking remain later stages. Full mod compatibility, CSP support, and exact original behavior are not established.
 
-The native Rust/wgpu path now renders real Drift geometry with 25 embedded diffuse textures, approximate alpha/depth states and source normals/UVs. It agrees with the Python reader on tested structural counts, visible selection and bounds. The workspace follows openOMSI's subsystem-crate organisation. Next, add native interactive scene presentation, original material behavior and a fixed-step simulation/platform foundation. Native physics and FFB must be validated against the original game rather than inferred from the approximate prototype.
+The native Rust/wgpu path now renders real Drift geometry with 25 embedded diffuse textures, approximate alpha/depth states and source normals/UVs. It agrees with the Python reader on tested structural counts, visible selection and bounds. The workspace follows openOMSI's subsystem-crate organisation. Next, add native scene/layout assembly, original material behavior and a fixed-step simulation/platform foundation. Native physics and FFB must be validated against the original game rather than inferred from the approximate prototype.
 
 ## License and independence
 
