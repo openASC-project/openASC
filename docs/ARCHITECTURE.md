@@ -9,9 +9,10 @@ The implemented project contains Python content readers, a local static geometry
 | `tools/inspect_content.py` | Read-only content inventory and JSON CLI |
 | `openasc/config.py` | Source-aware INI and LUT parsing, numeric validation, and interpolation |
 | `openasc/scene.py` | Confined static model references, transforms, and KN5 header inspection |
-| `openasc/kn5.py` | Bounded KN5 parsing, static meshes, node transforms, and material definitions |
+| `openasc/kn5.py` | Bounded KN5 parsing, static meshes, node transforms, material definitions, and embedded texture offsets |
+| `openasc/dds.py` | DDS validation, mip descriptors, and bounded embedded texture reads |
 | `openasc/viewer.py` | Local scene assembly and loopback-only preview server |
-| `viewer/` | WebGL 2 diagnostic shading, camera controls, mesh/material inspection |
+| `viewer/` | WebGL 2 diffuse preview, portable DDS pixel decoding, camera controls, and mesh/material inspection |
 | `openasc/__main__.py` | JSON diagnostics through `python -m openasc` |
 | `tests/` | Tests using original, temporary fixtures |
 | `docs/` | English documentation and current compatibility record |
@@ -35,7 +36,7 @@ Keep file-format readers separate from rendering and physics so each can be test
 
 Python keeps content loading and the local HTTP server dependency-free. The first inspection renderer uses browser-native WebGL 2 with original JavaScript. This does not select a production simulation stack; Rust with wgpu remains one candidate. No Rust engine currently exists in this repository.
 
-The local viewer receives a metadata manifest and aligned vertex/index buffers from its loopback server. Static vertices retain their original interleaved format. Node transforms are composed on the CPU and applied per draw on the GPU. Textures are skipped during loading, so their payloads are neither held in the preview buffer nor exported. The public documentation site and local viewer are separate applications.
+The local viewer receives a metadata manifest and aligned vertex/index buffers from its loopback server. Static vertices retain their original interleaved format. Node transforms are composed on the CPU and applied per draw on the GPU. The binary importer indexes texture offsets without extracting assets. The preview then validates and loads referenced embedded diffuse textures into separate bounded memory buffers. Only numeric texture IDs are exposed by same-origin local routes; no disk path or resource export endpoint is exposed. The browser uses S3TC uploads when possible, with an independent RGBA software fallback. Authored compressed mip chains are retained; raw texture base levels use GPU-generated mipmaps. The public documentation site and local viewer are separate applications.
 
 ## Website
 

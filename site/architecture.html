@@ -54,9 +54,10 @@
 <tr><td><code>tools/inspect_content.py</code></td><td>Read-only content inventory and JSON CLI</td></tr>
 <tr><td><code>openasc/config.py</code></td><td>Source-aware INI and LUT parsing, numeric validation, and interpolation</td></tr>
 <tr><td><code>openasc/scene.py</code></td><td>Confined static model references, transforms, and KN5 header inspection</td></tr>
-<tr><td><code>openasc/kn5.py</code></td><td>Bounded KN5 parsing, static meshes, node transforms, and material definitions</td></tr>
+<tr><td><code>openasc/kn5.py</code></td><td>Bounded KN5 parsing, static meshes, node transforms, material definitions, and embedded texture offsets</td></tr>
+<tr><td><code>openasc/dds.py</code></td><td>DDS validation, mip descriptors, and bounded embedded texture reads</td></tr>
 <tr><td><code>openasc/viewer.py</code></td><td>Local scene assembly and loopback-only preview server</td></tr>
-<tr><td><code>viewer/</code></td><td>WebGL 2 diagnostic shading, camera controls, mesh/material inspection</td></tr>
+<tr><td><code>viewer/</code></td><td>WebGL 2 diffuse preview, portable DDS pixel decoding, camera controls, and mesh/material inspection</td></tr>
 <tr><td><code>openasc/__main__.py</code></td><td>JSON diagnostics through <code>python -m openasc</code></td></tr>
 <tr><td><code>tests/</code></td><td>Tests using original, temporary fixtures</td></tr>
 <tr><td><code>docs/</code></td><td>English documentation and current compatibility record</td></tr>
@@ -70,7 +71,7 @@
 <p>Keep file-format readers separate from rendering and physics so each can be tested without opening a window. Unsupported resources should produce diagnostics rather than silently appearing compatible.</p>
 <h2>Technology choices</h2>
 <p>Python keeps content loading and the local HTTP server dependency-free. The first inspection renderer uses browser-native WebGL 2 with original JavaScript. This does not select a production simulation stack; Rust with wgpu remains one candidate. No Rust engine currently exists in this repository.</p>
-<p>The local viewer receives a metadata manifest and aligned vertex/index buffers from its loopback server. Static vertices retain their original interleaved format. Node transforms are composed on the CPU and applied per draw on the GPU. Textures are skipped during loading, so their payloads are neither held in the preview buffer nor exported. The public documentation site and local viewer are separate applications.</p>
+<p>The local viewer receives a metadata manifest and aligned vertex/index buffers from its loopback server. Static vertices retain their original interleaved format. Node transforms are composed on the CPU and applied per draw on the GPU. The binary importer indexes texture offsets without extracting assets. The preview then validates and loads referenced embedded diffuse textures into separate bounded memory buffers. Only numeric texture IDs are exposed by same-origin local routes; no disk path or resource export endpoint is exposed. The browser uses S3TC uploads when possible, with an independent RGBA software fallback. Authored compressed mip chains are retained; raw texture base levels use GPU-generated mipmaps. The public documentation site and local viewer are separate applications.</p>
 <h2>Website</h2>
 <p>The website uses a shared documentation layout inspired by <a href="https://openomsi.org/">openomsi.org</a>: persistent navigation, a project overview, and dedicated documentation pages. Its original visual styling uses a charcoal, red, and white motorsport palette, italic branding, and a dark default theme. The implementation and content are original to openASC.</p>
 <p>Documentation pages are generated from the same Markdown files that appear on GitHub. Run <code>python tools/build_site.py</code> after editing documentation or the shared template, then commit the generated HTML. Relative assets work beneath <code>/openASC/</code> on GitHub Pages.</p><a class="edit-link" href="https://github.com/openASC-project/openASC/blob/main/docs/ARCHITECTURE.md">View this document on GitHub ↗</a></article>

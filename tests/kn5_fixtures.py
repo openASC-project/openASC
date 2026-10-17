@@ -30,13 +30,13 @@ def mesh(name='fixture_mesh', material=0, indices=(0, 2, 1), renderable=True, sk
     return result
 
 
-def file_bytes(node=None, version=6, texture=b'original fixture bytes'):
+def file_bytes(node=None, version=6, texture=b'original fixture bytes', blend=0, alpha_tested=False, depth=0):
     header = b'sc6969' + struct.pack('<I', version)
     if version == 6:
         header += struct.pack('<I', 0)
     textures = struct.pack('<II', 1, 1) + string('fixture.dds') + struct.pack('<I', len(texture)) + texture
     materials = (struct.pack('<I', 1) + string('fixture_material') + string('fixture_shader')
-                 + struct.pack('<BBII', 0, 0, 0, 1) + string('ksDiffuse')
+                 + struct.pack('<BBII', blend, alpha_tested, depth, 1) + string('ksDiffuse')
                  + struct.pack('<10f', .7, *([0.] * 9)) + struct.pack('<I', 1)
                  + string('txDiffuse') + struct.pack('<I', 0) + string('fixture.dds'))
     return header + textures + materials + (node if node is not None else base([mesh()]))

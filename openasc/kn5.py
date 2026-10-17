@@ -155,7 +155,7 @@ def _load(r):
     textures = []
     for _ in range(r.count('Texture')):
         active, name, length = r.u32(), r.string(), r.u32()
-        textures.append({'name': name, 'active': active == 1, 'size_bytes': length})
+        textures.append({'name': name, 'active': active == 1, 'size_bytes': length, 'offset': r.offset})
         r.skip(length)
     materials = []
     properties_total = mappings_total = 0
@@ -179,9 +179,9 @@ def _load(r):
             material['textures'].append({'sampler': r.string(), 'slot': r.u32(), 'texture': r.string()})
         materials.append(material)
     if textures:
-        warning('textures_not_rendered', f'{len(textures)} embedded textures are indexed but not decoded or displayed.')
+        warning('textures_not_rendered', f'This structural inspection indexes {len(textures)} embedded textures without decoding them. The local viewer separately loads supported diffuse resources.')
     if materials:
-        warning('material_preview', 'Original shaders and alpha compositing are not implemented; the viewer uses opaque diagnostic material colours and basic lighting.')
+        warning('material_preview', 'This structural inspection records material definitions without executing original shaders. See the local viewer diagnostics for supported preview behavior.')
     meshes = []
     nodes = 0
     geometry_bytes = 0

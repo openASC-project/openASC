@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Local scene viewer — openASC</title>
   <link rel="stylesheet" href="./viewer.css">
+  <script src="./dds.js" defer></script>
   <script src="./viewer.js" defer></script>
 </head>
 <body>
@@ -12,13 +13,13 @@
   <main>
     <section class="viewport" aria-label="Scene preview">
       <canvas id="scene" aria-label="Interactive local track geometry preview. Drag to orbit, right-drag to pan, scroll to zoom." tabindex="0"></canvas>
-      <div class="toolbar"><button id="fit-road" type="button" disabled>Fit road names</button><button id="fit-all" type="button" disabled>Fit all</button><button id="top" type="button" disabled>Top view</button></div>
+      <div class="toolbar"><button id="fit-road" type="button" disabled>Fit road names</button><button id="fit-all" type="button" disabled>Fit all</button><button id="top" type="button" disabled>Top view</button><button id="texture-toggle" type="button" aria-pressed="true" disabled>Textures on</button></div>
       <div id="status" role="status">Loading local scene…</div>
       <div class="hint">Left drag: orbit · Right drag: pan · Scroll: zoom · Select a mesh to focus</div>
     </section>
     <aside class="inspector" aria-label="Scene details">
-      <h1>Geometry preview</h1>
-      <p class="notice">Diagnostic material colours. Textures, original shaders, driving, and physics are not implemented.</p>
+      <h1>Scene preview</h1>
+      <p class="notice">Approximate diffuse textures, alpha, and basic lighting. Original shaders, detail/normal layers, shadows, driving, and physics are not implemented.</p>
       <dl id="stats"></dl>
       <details open><summary id="diagnostic-title">Diagnostics</summary><ul id="diagnostics"></ul></details>
       <section><h2>Meshes</h2><label for="filter">Filter by mesh or material name</label><input id="filter" type="search" placeholder="e.g. ROAD"><p id="selection">No mesh selected.</p><div id="mesh-list"></div></section>

@@ -4,9 +4,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import math
 from pathlib import Path
+import re
 from urllib.parse import urlsplit
 
 from .config import ContentError, Diagnostic
+from .dds import read_embedded
 from .kn5 import IDENTITY, load_kn5, multiply
 from .scene import confined, inspect_scene
 
@@ -17,6 +19,55 @@ ASSETS = Path(__file__).resolve().parents[1] / 'viewer'
 class Preview:
     metadata: dict
     geometry: bytes
+    textures: tuple = ()
+
+
+def prepare_materials(path, parsed, textures, cache, diagnostics):
+    """Resolve only embedded txDiffuse resources; advanced samplers remain explicit gaps."""
+    available = {}
+    ambiguous = set()
+    for descriptor in parsed.textures:
+        key = descriptor['name'].casefold()
+        if key in available:
+            ambiguous.add(key)
+        available[key] = descriptor
+    for material in parsed.materials:
+        material['preview_texture'] = None
+        material['preview_blend'] = 1 if material['blend'] == 1 else 0
+        material['preview_alpha_test'] = material['alpha_tested'] or material['blend'] == 2
+        material['preview_depth'] = material['depth_mode'] if material['depth_mode'] in (0, 1, 2) else 0
+        if material['blend'] not in (0, 1, 2) or material['depth_mode'] not in (0, 1, 2):
+            diagnostics.append(Diagnostic('material_state_unsupported', f'{material["name"]}: unknown blend/depth state falls back to a known preview state.', parsed.source, severity='warning').as_dict())
+        references = [mapping['texture'] for mapping in material['textures'] if mapping['sampler'] == 'txDiffuse']
+        name = references[0] if len(references) == 1 else None
+        descriptor = available.get(name.casefold()) if name else None
+        if not descriptor or not descriptor['active'] or name.casefold() in ambiguous:
+            diagnostics.append(Diagnostic('diffuse_texture_missing', f'{material["name"]}: a unique active embedded txDiffuse resource is unavailable; diagnostic colour will be used.', parsed.source, severity='warning').as_dict())
+            continue
+        key = (str(path), descriptor['offset'], descriptor['size_bytes'])
+        if key not in cache:
+            try:
+                texture = read_embedded(path, descriptor)
+                decoded = sum(level['width'] * level['height'] * 4 for level in texture.info['levels'])
+                if texture.info['generate_mips']:
+                    decoded = 0
+                    width, height = texture.info['width'], texture.info['height']
+                    while True:
+                        decoded += width * height * 4
+                        if width == height == 1:
+                            break
+                        width, height = max(1, width // 2), max(1, height // 2)
+                used = sum(item.info['decoded_budget'] for item in textures)
+                if used + decoded > 256 * 1024 ** 2 or sum(len(item.data) for item in textures) + len(texture.data) > 128 * 1024 ** 2:
+                    raise ContentError('texture_budget', 'Scene texture data exceeds the 128 MiB source / 256 MiB decoded preview budget.', name)
+                texture.info.update(id=len(textures), name=name, decoded_budget=decoded)
+                cache[key] = len(textures)
+                textures.append(texture)
+            except (ContentError, OSError) as error:
+                reason = error.diagnostic.code + ': ' + error.diagnostic.message if isinstance(error, ContentError) else 'Cannot read embedded texture.'
+                diagnostics.append(Diagnostic('texture_unsupported', f'{name}: {reason} Diagnostic colour will be used.', parsed.source, severity='warning', byte_offset=descriptor['offset']).as_dict())
+                cache[key] = None
+        material['preview_texture'] = cache[key]
 
 
 class PreviewError(ContentError):
@@ -30,6 +81,7 @@ def load_preview(installation, track, layout=None, encoding='utf-8-sig'):
     content = confined(Path(installation).resolve(), f'content/tracks/{track}', '<scene>')
     diagnostics = list(manifest['diagnostics'])
     draws, materials, blob, road_bounds = [], [], bytearray(), []
+    textures, texture_cache = [], {}
     hidden, later_lod = 0, 0
     for model in manifest['models']:
         if any(abs(value) > 3.4028235e38 for value in model['position']):
@@ -46,7 +98,8 @@ def load_preview(installation, track, layout=None, encoding='utf-8-sig'):
         except OSError:
             diagnostics.append(Diagnostic('resource_io', f'Cannot read {model["file"]!r}.', manifest['config']).as_dict())
             continue
-        diagnostics.extend(parsed.diagnostics)
+        diagnostics.extend(item for item in parsed.diagnostics if item['code'] not in ('textures_not_rendered', 'material_preview'))
+        prepare_materials(confined(content, model['file'], manifest['config']), parsed, textures, texture_cache, diagnostics)
         material_offset = len(materials)
         materials.extend(parsed.materials)
         root = list(IDENTITY)
@@ -78,18 +131,20 @@ def load_preview(installation, track, layout=None, encoding='utf-8-sig'):
                           'index_offset': index_offset, 'index_count': len(mesh.indices) // 2})
     if hidden or later_lod:
         diagnostics.append(Diagnostic('preview_visibility', f'{hidden} inactive/hidden/non-renderable/empty meshes and {later_lod} later-LOD meshes are omitted. Camera-distance LOD switching is not implemented.', manifest['config'], severity='warning').as_dict())
+    diagnostics.append(Diagnostic('material_approximation', 'Preview uses embedded txDiffuse, basic lighting, a 0.5 alpha cutoff, mesh-sorted straight-alpha blending, and recorded depth modes with a small read-only overlay bias. Original shaders, multilayer/detail/normal maps, alpha-to-coverage, and shadows are not reproduced.', manifest['config'], severity='warning').as_dict())
     if not draws:
         raise PreviewError(diagnostics, manifest['config'])
     minimum = [min(draw['bounds'][0][axis] for draw in draws) for axis in range(3)]
     maximum = [max(draw['bounds'][1][axis] for draw in draws) for axis in range(3)]
     metadata = {'track': track, 'layout': layout, 'scope': 'static_geometry_preview', 'geometry_loaded': True,
-                'textures_rendered': False, 'original_shaders': False, 'bounds': [minimum, maximum],
+                'texture_preview_available': bool(textures), 'original_shaders': False, 'bounds': [minimum, maximum],
+                'textures': [texture.info for texture in textures],
                 'meshes': draws, 'materials': materials, 'diagnostics': diagnostics,
                 'has_errors': any(item['severity'] == 'error' for item in diagnostics),
                 'triangles': sum(draw['index_count'] // 3 for draw in draws), 'geometry_bytes': len(blob)}
     metadata['road_focus_bounds'] = [[min(bounds[0][axis] for bounds in road_bounds) for axis in range(3)],
                                      [max(bounds[1][axis] for bounds in road_bounds) for axis in range(3)]] if road_bounds else None
-    return Preview(metadata, bytes(blob))
+    return Preview(metadata, bytes(blob), tuple(textures))
 
 
 def make_server(preview, port=4180):
@@ -107,11 +162,18 @@ def make_server(preview, port=4180):
             routes = {'/': ('index.html', 'text/html; charset=utf-8'),
                       '/index.html': ('index.html', 'text/html; charset=utf-8'),
                       '/viewer.js': ('viewer.js', 'text/javascript; charset=utf-8'),
+                      '/dds.js': ('dds.js', 'text/javascript; charset=utf-8'),
                       '/viewer.css': ('viewer.css', 'text/css; charset=utf-8')}
             if path == '/api/scene':
                 data, mime = metadata, 'application/json'
             elif path == '/geometry.bin':
                 data, mime = preview.geometry, 'application/octet-stream'
+            elif match := re.fullmatch(r'/textures/(\d{1,6})\.bin', path):
+                index = int(match[1])
+                if index >= len(preview.textures):
+                    self.send_error(404)
+                    return
+                data, mime = preview.textures[index].data, 'application/octet-stream'
             elif path in routes:
                 file, mime = routes[path]
                 data = (ASSETS / file).read_bytes()
@@ -137,7 +199,7 @@ def make_server(preview, port=4180):
 
 
 def serve_preview(installation, track, layout=None, encoding='utf-8-sig', port=4180):
-    print('Loading local static geometry; embedded textures are skipped...', flush=True)
+    print('Loading local geometry and supported embedded diffuse textures...', flush=True)
     preview = load_preview(installation, track, layout, encoding)
     with make_server(preview, port) as server:
         print(f'Local viewer: http://127.0.0.1:{server.server_port}/', flush=True)

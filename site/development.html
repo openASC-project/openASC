@@ -51,8 +51,10 @@
 <pre><code>python -m unittest discover -s tests -v
 python tools/build_site.py --check
 node --check site/app.js
-node --check viewer/viewer.js</code></pre>
-<p>Node.js is only used for JavaScript syntax checks. The website itself has no npm dependencies or build-time JavaScript framework.</p>
+node --check viewer/viewer.js
+node --check viewer/dds.js
+node --test tests/test_dds.cjs</code></pre>
+<p>Node.js 18+ is used for JavaScript syntax checks and original DDS pixel tests. The website itself has no npm dependencies or build-time JavaScript framework.</p>
 <p>The local geometry viewer also has no npm dependencies. Its JavaScript is in <code>viewer/</code>, served only by <code>python -m openasc view</code>. Tests construct original complete KN5 fixtures and exercise the loopback server, including foreign-host/origin rejection. Binary fixtures are not copied from the game.</p>
 <h2>Update the website</h2>
 <pre><code>python tools/build_site.py

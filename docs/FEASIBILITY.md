@@ -6,7 +6,7 @@ An independent engine that reads Assetto Corsa content is a technically plausibl
 
 ## Current state
 
-Implemented: inventory, INI/LUT readers, static model diagnostics, supported KN5 geometry/hierarchy/material definitions, and a first local WebGL viewer with camera and mesh inspection. Original fixtures, English documentation, and the GitHub Pages site accompany the implementation. Not implemented: texture rendering, original shaders, vehicle simulation, wheel input, force feedback, audio, or networking.
+Implemented: inventory, INI/LUT readers, static model diagnostics, supported KN5 geometry/hierarchy/material definitions, and a first local WebGL viewer with camera and mesh inspection. Original fixtures, English documentation, and the GitHub Pages site accompany the implementation. Supported diffuse DDS textures and approximate alpha/depth behavior are also implemented. Not implemented: original shaders, full multilayer/detail/normal rendering, vehicle simulation, wheel input, force feedback, audio, or networking.
 
 The local installation includes SDK documentation and UDP server examples. These are research starting points, not resources distributed by openASC.
 
@@ -23,7 +23,7 @@ The local installation includes SDK documentation and UDP server examples. These
 
 ## Immediate work
 
-The initial configuration subset, resource manifest, and first geometry viewer are implemented and verified with the local Drift track. Next, decode textures, improve material behavior, validate model-level rotation conventions, and expand scene validation before building a first drive. Keep unsupported features visible in diagnostics and preserve source locations in errors.
+The initial configuration subset, resource manifest, and first geometry viewer are implemented and verified with the local Drift track. Supported embedded diffuse textures now render through tested compressed and software paths. Next, validate road/surface data, vehicle configuration, and model-level rotation conventions toward a first drive; multilayer/detail/normal material behavior remains separate ongoing renderer work. Keep unsupported features visible in diagnostics and preserve source locations in errors.
 
 ## Long-term scope
 

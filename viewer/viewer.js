@@ -57,31 +57,45 @@
     gl.attachShader(program, shader(gl.VERTEX_SHADER, `#version 300 es
       layout(location=0) in vec3 position;
       layout(location=1) in vec3 normal;
+      layout(location=2) in vec2 uv;
       uniform mat4 world;
       uniform mat4 camera;
       out vec3 surfaceNormal;
+      out vec2 surfaceUV;
       void main() {
         gl_Position = camera * world * vec4(position, 1.0);
         mat3 basis = mat3(world);
         surfaceNormal = abs(determinant(basis)) > 0.000001 ? transpose(inverse(basis)) * normal : normal;
+        surfaceUV = uv;
       }`));
     gl.attachShader(program, shader(gl.FRAGMENT_SHADER, `#version 300 es
       precision highp float;
       in vec3 surfaceNormal;
+      in vec2 surfaceUV;
       uniform vec3 colour;
       uniform bool selected;
+      uniform sampler2D diffuseTexture;
+      uniform bool useTexture;
+      uniform bool textureEnabled;
+      uniform float alphaCutoff;
+      uniform float materialOpacity;
+      uniform bool alphaEnabled;
       out vec4 pixel;
       void main() {
         vec3 n = length(surfaceNormal) > 0.00001 ? normalize(surfaceNormal) : vec3(0.0, 1.0, 0.0);
         if (!gl_FrontFacing) n = -n;
         float light = 0.48 + 0.52 * max(0.0, dot(n, normalize(vec3(0.4, 0.85, 0.3))));
-        vec3 base = selected ? mix(colour, vec3(1.0, 0.15, 0.22), 0.65) : colour;
-        pixel = vec4(base * light, 1.0);
+        vec4 texel = useTexture && textureEnabled ? texture(diffuseTexture, surfaceUV) : vec4(colour, 1.0);
+        float alpha = alphaEnabled ? texel.a * materialOpacity : 1.0;
+        if (alpha < alphaCutoff || alpha < 0.001) discard;
+        vec3 base = selected ? mix(texel.rgb, vec3(1.0, 0.15, 0.22), 0.65) : texel.rgb;
+        pixel = vec4(base * light, alpha);
       }`));
     gl.linkProgram(program);
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(program));
     gl.useProgram(program);
-    const uniforms = Object.fromEntries(['world', 'camera', 'colour', 'selected'].map(name => [name, gl.getUniformLocation(program, name)]));
+    const uniforms = Object.fromEntries(['world', 'camera', 'colour', 'selected', 'diffuseTexture', 'useTexture', 'textureEnabled', 'alphaCutoff', 'materialOpacity', 'alphaEnabled'].map(name => [name, gl.getUniformLocation(program, name)]));
+    gl.uniform1i(uniforms.diffuseTexture, 0);
     const scene = await (await response('/api/scene')).json();
     document.querySelector('#track').textContent = `${scene.track}${scene.layout ? ' / ' + scene.layout : ''}`;
     const stats = document.querySelector('#stats');
@@ -101,23 +115,48 @@
       details.append(el('summary', `${material.name} · ${material.shader}`), el('pre', JSON.stringify(material, null, 2)));
       materials.append(details);
     }
+    const uploaded = new Map(), decoders = new Set();
+    const forceSoftware = new URLSearchParams(location.search).has('software-textures');
+    for (const info of scene.textures) {
+      setStatus(`Loading local diffuse textures: ${uploaded.size}/${scene.textures.length}…`);
+      try {
+        const data = await (await response(`/textures/${info.id}.bin`)).arrayBuffer();
+        const result = OPENASC_DDS.upload(gl, info, data, forceSoftware);
+        uploaded.set(info.id, result.texture); decoders.add(result.decoder);
+      } catch (error) {
+        const li = el('li', undefined, 'error');
+        li.append(el('span', 'texture_upload_failed', 'diagnostic-code'), document.createTextNode(`${info.name}: ${error.message} Diagnostic colour will be used.`));
+        diagnostics.append(li);
+      }
+      await new Promise(requestAnimationFrame);
+    }
+    document.querySelector('#diagnostic-title').textContent = `Diagnostics (${diagnostics.children.length})${scene.has_errors ? ' — partial scene with errors' : ''}`;
+    stats.append(el('dt', 'Diffuse textures'), el('dd', `${uploaded.size}/${scene.textures.length}`), el('dt', 'Texture path'), el('dd', [...decoders].join(', ') || 'Fallback colours'));
+    canvas.dataset.textureCount = String(uploaded.size);
+    canvas.dataset.textureDecoders = [...decoders].join(', ');
+    const white = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, white);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([255, 255, 255, 255]));
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     setStatus('Loading local geometry into WebGL…');
     const bytes = await (await response('/geometry.bin')).arrayBuffer();
     if (bytes.byteLength !== scene.geometry_bytes) throw new Error('Geometry byte length does not match the scene manifest.');
-    const meshes = scene.meshes.map(mesh => {
+    const meshes = scene.meshes.map((mesh, index) => {
       const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
       const vertices = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, vertices);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(bytes, mesh.vertex_offset, mesh.vertex_bytes / 4), gl.STATIC_DRAW);
       gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 44, 0);
       gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 44, 12);
+      gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 44, 24);
       const indices = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, indices);
       gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(bytes, mesh.index_offset, mesh.index_count), gl.STATIC_DRAW);
-      return {...mesh, vao, colour: materialColour(scene.materials[mesh.material]), world: new Float32Array(mesh.world)};
+      const material = scene.materials[mesh.material];
+      return {...mesh, index, vao, colour: materialColour(material), world: new Float32Array(mesh.world),
+        texture: uploaded.get(material.preview_texture), materialDefinition: material};
     });
     if (gl.getError() !== gl.NO_ERROR) throw new Error('WebGL could not allocate the scene buffers.');
     gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
     gl.disable(gl.CULL_FACE); // Diagnostic preview is deliberately double-sided.
-    let target = [0, 0, 0], distance = 100, yaw = .6, pitch = .85, selected = -1, pending = false;
+    let target = [0, 0, 0], distance = 100, yaw = .6, pitch = .85, selected = -1, pending = false, textureEnabled = true;
     const fullRadius = Math.max(1, length(scene.bounds[1].map((value, i) => value - scene.bounds[0][i])) / 2);
     const roads = scene.road_focus_bounds ? [{bounds: scene.road_focus_bounds}] : [];
     function fit(values) {
@@ -146,18 +185,38 @@
       const eye = [target[0] + distance * Math.cos(pitch) * Math.sin(yaw), target[1] + distance * Math.sin(pitch), target[2] + distance * Math.cos(pitch) * Math.cos(yaw)];
       const camera = multiply(perspective(canvas.width / canvas.height, Math.max(.02, distance / 5000), Math.max(fullRadius * 12, distance * 4)), view(eye, target));
       gl.uniformMatrix4fv(uniforms.camera, false, camera);
-      meshes.forEach((mesh, index) => {
+      gl.uniform1i(uniforms.textureEnabled, textureEnabled);
+      const opaque = meshes.filter(mesh => mesh.materialDefinition.preview_blend !== 1);
+      const transparent = meshes.filter(mesh => mesh.materialDefinition.preview_blend === 1);
+      const meshDistance = mesh => length(mesh.bounds[0].map((value, axis) => (value + mesh.bounds[1][axis]) / 2 - eye[axis]));
+      transparent.sort((a, b) => meshDistance(b) - meshDistance(a));
+      [...opaque, ...transparent].forEach(mesh => {
+        const material = mesh.materialDefinition;
+        if (material.preview_blend === 1) { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); }
+        else gl.disable(gl.BLEND);
+        if (material.preview_depth === 2) gl.disable(gl.DEPTH_TEST);
+        else gl.enable(gl.DEPTH_TEST);
+        gl.depthMask(material.preview_depth === 0);
+        if (material.preview_depth === 1) { gl.enable(gl.POLYGON_OFFSET_FILL); gl.polygonOffset(-1, -1); }
+        else gl.disable(gl.POLYGON_OFFSET_FILL);
+        gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, mesh.texture || white);
+        gl.uniform1i(uniforms.useTexture, Boolean(mesh.texture));
+        gl.uniform1f(uniforms.alphaCutoff, material.preview_alpha_test ? .5 : 0);
+        gl.uniform1i(uniforms.alphaEnabled, material.preview_alpha_test || material.preview_blend === 1);
+        gl.uniform1f(uniforms.materialOpacity, Math.max(0, Math.min(1, material.properties.alpha?.[0] ?? 1)));
         gl.bindVertexArray(mesh.vao);
         gl.uniformMatrix4fv(uniforms.world, false, mesh.world);
         gl.uniform3fv(uniforms.colour, mesh.colour);
-        gl.uniform1i(uniforms.selected, index === selected);
+        gl.uniform1i(uniforms.selected, mesh.index === selected);
         gl.drawElements(gl.TRIANGLES, mesh.index_count, gl.UNSIGNED_SHORT, 0);
       });
+      gl.depthMask(true); gl.disable(gl.BLEND); gl.disable(gl.POLYGON_OFFSET_FILL);
       if (gl.getError() !== gl.NO_ERROR) {
         canvas.dataset.error = 'true'; setStatus('WebGL reported a drawing error.'); return;
       }
       canvas.dataset.ready = 'true'; canvas.dataset.drawCalls = String(meshes.length);
-      setStatus(`${scene.has_errors ? 'Partial scene · ' : ''}${meshes.length} meshes · ${scene.triangles.toLocaleString()} triangles · diagnostic shading`);
+      canvas.dataset.textureMode = textureEnabled ? 'textured' : 'colours';
+      setStatus(`${scene.has_errors ? 'Partial scene · ' : ''}${meshes.length} meshes · ${scene.triangles.toLocaleString()} triangles · ${textureEnabled ? uploaded.size + ' diffuse textures · approximate materials' : 'diagnostic colours'}`);
     }
     document.querySelector('#fit-all').addEventListener('click', () => fit(meshes));
     const roadButton = document.querySelector('#fit-road');
@@ -166,6 +225,19 @@
     document.querySelector('#top').addEventListener('click', () => { pitch = Math.PI / 2 - .001; invalidate(); });
     for (const button of document.querySelectorAll('.toolbar button')) button.disabled = false;
     roadButton.disabled = !roads.length;
+    const textureToggle = document.querySelector('#texture-toggle');
+    textureToggle.disabled = !uploaded.size;
+    if (!uploaded.size) {
+      textureEnabled = false;
+      textureToggle.textContent = 'No textures';
+      textureToggle.setAttribute('aria-pressed', 'false');
+    }
+    textureToggle.addEventListener('click', () => {
+      textureEnabled = !textureEnabled;
+      textureToggle.setAttribute('aria-pressed', String(textureEnabled));
+      textureToggle.textContent = textureEnabled ? 'Textures on' : 'Textures off';
+      invalidate();
+    });
     function updateList() {
       const filter = document.querySelector('#filter').value.toLowerCase();
       const list = document.querySelector('#mesh-list'); list.replaceChildren();

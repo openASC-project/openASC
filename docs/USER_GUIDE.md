@@ -98,9 +98,12 @@ Open [the local viewer](http://127.0.0.1:4180/) in a browser with WebGL 2. Loadi
 - Fit road names uses bounds of active meshes containing ROAD, including non-renderable meshes. This is a naming heuristic, not verified surface classification.
 - Fit all includes the full visible scene, which can contain a large background landscape.
 - Top view changes camera elevation. Filter the mesh list and select an entry to focus and highlight it.
-- The inspector shows material definitions, shader parameters, resource mappings, and diagnostics.
+- The inspector shows material definitions, shader parameters, resource mappings, texture upload counts, and diagnostics.
+- Textures on/off switches between diffuse texture preview and diagnostic material colours.
 
-The viewer uses opaque diagnostic colours and basic lighting. Embedded textures are indexed but not decoded; alpha compositing, original shaders, shadows, and exact LOD behavior are not reproduced. Coplanar overlays may flicker or show depth artifacts. This is a geometry inspection tool, not a screenshot of the original rendering.
+The viewer resolves active embedded txDiffuse resources and supports a documented DDS subset. It uses basic lighting, a fixed 0.5 alpha cutoff for alpha-tested materials, approximate mesh-sorted straight-alpha blending, and recorded depth modes. Alpha-to-coverage is approximated by a cutoff. A small depth bias is used for read-only overlays. Original shaders, multilayer/detail/normal maps, shadows, and exact LOD behavior are not reproduced. Coplanar overlays may still show artifacts, and materials that rely on additional maps can have incorrect colours. This is an inspection tool, not visual parity with Assetto Corsa.
+
+The browser uses S3TC compressed uploads when supported and an original software RGBA decoder otherwise. Both paths were tested on local Drift. Raw RGB/luminance textures use software unpacking and GPU-generated mipmaps. For troubleshooting, open `http://127.0.0.1:4180/?software-textures=1` to force the software path. Unsupported DDS variants, missing embedded resources, budget failures, or GPU upload failures remain visible in diagnostics and use fallback colours.
 
 Inactive, hidden, non-renderable, empty, and later-LOD meshes are omitted from drawing. Nonzero model-level ROTATION values are diagnosed and skipped until their convention is validated. Node hierarchy transforms and model translations are applied. Skinned meshes are diagnosed and skipped.
 
