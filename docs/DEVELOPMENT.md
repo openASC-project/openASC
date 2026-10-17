@@ -4,6 +4,26 @@ All repository documentation, code comments, diagnostics, commit messages, and w
 
 ## Run checks
 
+The native workspace uses Rust with wgpu. CI checks both Windows and Linux with the stable Rust toolchain. Native fixtures require no game content:
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --locked -- -D warnings
+cargo test --workspace --locked
+cargo build --workspace --locked
+python tools/check_native_parity.py --native target/debug/openasc-native
+```
+
+Use `target/debug/openasc-native.exe` on Windows. Native/Python contract checks compare original KN5 fixtures, selection, transforms/bounds and rejection codes. Optional repeated `--model PATH` arguments compare locally installed models without copying them. Agreement between two openASC implementations does not establish original-simulator parity.
+
+The separate GPU test is explicitly opt-in on a machine with a native adapter:
+
+```sh
+cargo test --locked --test gpu -- --ignored --nocapture
+```
+
+It checks non-background geometry, occlusion independent of triangle order, non-aligned row readback, PNG pixels and overwrite refusal. Set `OPENASC_TEST_FALLBACK=1` to request a software adapter; Linux CI installs Mesa Vulkan and runs this test explicitly. GPU adapter absence fails the explicit test. Structural tests remain GPU-independent. Cargo build outputs under `target/` are ignored; commit `Cargo.lock` with dependency changes.
+
 Python 3.10+ is enough for the tools, tests, and documentation builder. No game installation is needed for tests.
 
 ```sh

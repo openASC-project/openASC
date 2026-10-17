@@ -12,6 +12,7 @@ This is the compatibility record for the current implementation. Planned work is
 | LUT | Numeric pairs, validation, linear interpolation, endpoint clamping | Inline LUT expressions and higher-dimensional tables |
 | Track scene configs | Static MODEL_n references, explicit transforms, resource confinement | Dynamic objects and validated nonzero model rotations |
 | KN5 | v5/v6 static meshes, hierarchy, material definitions, and embedded texture offsets | Original shaders, skeletal rendering, protected variants |
+| Native Rust/wgpu | Direct v5/v6 structural reading, static transformed geometry and offscreen depth-tested diagnostic PNG | Native textures/material execution, scene-config assembly, interactive presentation and simulation |
 | DDS textures | Embedded diffuse BC1/2/3 and mask-defined RGB/luminance subset | DX10, BC4-7, cubes, volume/array, premultiplied formats, external files |
 | Track surfaces | Explicit system/selected-track definitions, typed coefficients and flags, supported numeric-prefix mesh matching | Original matching precedence, implicit defaults, procedural bumps, audio and FFB effects |
 | Ground support | Transformed static triangles, BVH, nearest downward support probe and optional separate WALL index | Ground/body response, suspension and tyre forces in the standalone probe |
@@ -23,6 +24,12 @@ This is the compatibility record for the current implementation. Planned work is
 | CSP and plugins | No compatibility claimed | Extension configs, scripts, and runtime behavior |
 
 The inventory scope is `file_presence_only`. Lightweight scene resource inspection remains `configuration_and_header_only`, with `geometry_loaded: false`. The separate KN5 reader and local viewer use `static_geometry_preview`; the viewer reports `geometry_loaded: true` and whether validated texture resources are available via `texture_preview_available`. Actual successful texture uploads are counted in the browser inspector. `original_shaders` remains false; server metadata alone does not prove GPU rendering.
+
+## Native KN5 and GPU path
+
+The native Rust reader directly consumes one KN5 v5/v6 with no Python runtime. It validates UTF-8, finite numeric fields, boolean fields, affine/composed transforms, material/index references and unexplained trailing data. Structural budgets are 2 GiB per file, 1 MiB per string/32 MiB combined strings, 100000 textures, 10000 materials, 100000 combined properties/mappings each, 200000 nodes and 128 hierarchy depth. Per mesh, at most 2000000 vertices and 12000000 triangle indices are accepted; source geometry and flattened render buffers each have a separate 256 MiB budget. Texture bodies are skipped in place. Skinned geometry is structurally validated but not drawn.
+
+The native renderer draws active visible renderable static indexed meshes with near LOD start at or below zero. World transforms use the same independently tested flat column-major convention as the Python path. An upright isometric orthographic camera fits active near-level ROAD geometry when present, otherwise visible geometry. Original indices keep their winding, but diagnostic rendering is double-sided and opaque, with per-material-name colours and geometric flat lighting. It writes a depth-tested sRGB frame and unpads a bounded 256-byte-aligned GPU readback. Library capture dimensions are limited to 1..4096 per axis; the CLI uses 1240 by 900. An explicitly requested new PNG is the only content-derived output file. There is no texture extraction, interactive window, native driving loop or original shader/physics claim.
 
 ## INI subset
 
@@ -149,6 +156,10 @@ Contact generation clips triangles against the skin-expanded box and retains pla
 A fixed step processes at most eight contact events. When that cap is reached, remaining motion is dropped at the last nonpenetrating pose and `wall_motion_clamps` increments; simulation time still advances by the fixed step. `wall_contacts` counts contact-resolution events, not distinct crashes, and `last_wall_contact` identifies the triangle, mesh, point, normal and resolved normal impulse. Spawn overlaps fail startup. A terrain attachment that would put the box inside a wall, an almost vertical response normal, or a numeric/query limit pauses with a diagnostic. Final proxy overlap checks use a 0.000001 metre tolerance. This is bounded planar contact against static triangles, not a complete 3D rigid-body engine or guaranteed contact for all assets.
 
 ## Local validation record
+
+On 2026-10-17, the Rust reader agreed with Python on eight original valid fixtures and four original rejection cases, then on local Drift and BMW M3 E30 structural counts, visible mesh/triangle selection and bounds. Drift had 350 nodes, 308 static meshes, 27 materials and 56 texture entries, with 254 selected meshes and 1150970 triangles. The BMW selected 166 static meshes/117597 triangles and explicitly omitted one structurally read skinned mesh. Agreement verifies openASC reader contracts, not original game behavior.
+
+The native wgpu 30.0.1 path rendered Drift at 1240 by 900 through Vulkan on an NVIDIA GeForce RTX 2080, with ROAD camera focus and 1115911 pixels different from the known clear colour (with one-unit channel tolerance). An original two-layer GPU fixture verified depth occlusion independently of submission order, 319-pixel unaligned row readback, exact PNG round-trip and overwrite refusal. Ten GPU-independent Rust tests cover structure, truncated prefixes, nested transforms, visibility/LOD/skinning selection, malformed fields, bounded counts/depth, rebased indices, road focus and camera clip coordinates. These counts and pixel checks establish a real native diagnostic render, not textures, material fidelity, performance guarantees or 1:1 visuals. Only verified CI/backend results should extend the platform record.
 
 On 2026-10-17, the current readers inspected 42 model configurations referencing 295 static model headers in the development installation with no model errors. There were 22 unsupported-section warnings. These are model references, not a count of unique files or fully supported scenes.
 

@@ -1,6 +1,6 @@
 # Architecture
 
-The implemented project contains Python content readers, a WebGL 2 preview, an independent fixed-step driving prototype and a documentation website. A production renderer and validated full vehicle simulation remain proposed work.
+The implemented project contains a first native Rust KN5 reader and wgpu offscreen renderer, Python content readers, a WebGL 2 preview, an independent fixed-step Python driving prototype and a documentation website. Production rendering and validated full vehicle simulation remain incomplete.
 
 ## Implemented components
 
@@ -29,6 +29,10 @@ The implemented project contains Python content readers, a WebGL 2 preview, an i
 | `tools/build_site.py` | Build documentation pages using Python's standard library |
 | `site/` | Generated HTML, shared CSS/JS, and public static assets |
 | `.github/workflows/` | Source checks and GitHub Pages deployment |
+| `native/openasc-native/src/kn5.rs` | Independent bounded Rust KN5 structural reader and static world geometry |
+| `native/openasc-native/src/render.rs` | Native wgpu depth-tested diagnostic rendering and padded GPU readback |
+| `native/openasc-native/tests/` | Original structural, camera, depth and PNG fixtures |
+| `tools/check_native_parity.py` | Native/Python reader contract comparisons; not original-game physics validation |
 
 ## Proposed engine boundaries
 
@@ -43,7 +47,9 @@ Keep file-format readers separate from rendering and physics so each can be test
 
 ## Technology choices
 
-The selected production stack is Rust for the engine core, including simulation, device input and force feedback, and wgpu for rendering. This native core and renderer are not implemented yet. Python currently keeps content loading and the local HTTP server dependency-free. The first inspection renderer uses browser-native WebGL 2 with original JavaScript; it is a prototype renderer that precedes the planned native wgpu renderer.
+The selected production stack is Rust for the engine core, including simulation, device input and force feedback, and wgpu for rendering. The first native content/render slice is implemented; native simulation, device input and FFB are not. Python currently keeps the broader research content loading and local HTTP server dependency-free. The browser inspection renderer uses WebGL 2 with original JavaScript and remains available alongside the native diagnostic renderer.
+
+The native binary directly opens one KN5 through a bounded buffered Rust reader; it does not call Python or the browser. Source node transforms are composed in double precision, validated and flattened into float32 world positions with original indices rebased into shared GPU buffers. Material names select diagnostic colours. A native WGSL pipeline applies a camera uniform, opaque flat lighting and depth testing to an offscreen sRGB target. A padded GPU copy is mapped back, unpacked row by row and encoded into an explicitly requested new PNG. Camera framing uses active near-level ROAD bounds when present, otherwise visible scene bounds. Interactive presentation, native scene-config assembly, texture resources, original materials and simulation remain separate work.
 
 The local viewer receives a metadata manifest and aligned vertex/index buffers from its loopback server. Static vertices retain their original interleaved format. Node transforms are composed on the CPU and applied per draw on the GPU. The binary importer indexes texture offsets without extracting assets. The preview then validates and loads referenced embedded diffuse textures into separate bounded memory buffers. Only numeric texture IDs are exposed by same-origin local routes; no disk path or resource export endpoint is exposed. The browser uses S3TC uploads when possible, with an independent RGBA software fallback. Authored compressed mip chains are retained; raw texture base levels use GPU-generated mipmaps. The public documentation site and local viewer are separate applications.
 

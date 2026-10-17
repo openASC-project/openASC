@@ -17,3 +17,36 @@ jobs:
       - run: node --check viewer/dds.js
       - run: node --check viewer/drive.js
       - run: node --test tests/test_dds.cjs
+  native:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - name: Install Rust with formatting and lint tools
+        run: rustup toolchain install stable --profile minimal --component rustfmt --component clippy
+      - run: cargo +stable fmt --all -- --check
+      - run: cargo +stable clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo +stable test --workspace --locked
+      - run: cargo +stable build --workspace --locked
+      - name: Compare native and Python contracts on original fixtures
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            python tools/check_native_parity.py --native target/debug/openasc-native.exe
+          else
+            python tools/check_native_parity.py --native target/debug/openasc-native
+          fi
+      - name: Install software Vulkan for headless GPU verification
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers
+      - name: Verify rasterization, depth, readback and PNG on software Vulkan
+        if: runner.os == 'Linux'
+        env:
+          OPENASC_TEST_FALLBACK: '1'
+          XDG_RUNTIME_DIR: /tmp
+        run: cargo +stable test --locked --test gpu -- --ignored --nocapture

@@ -9,15 +9,24 @@
 
 An independent open-source engine project for **Assetto Corsa (2014)** content, inspired by [openOMSI](https://github.com/openOMSI-org/openOMSI).
 
-**Target: 1:1 behavioral compatibility with Assetto Corsa (2014).** This includes vehicle physics, controls and force feedback, visuals, audio, AI, session rules, networking and original content behavior. This is the project objective, not an achieved compatibility claim. The planned production stack is Rust with wgpu; the existing Python implementation is a research prototype and tooling foundation.
+**Target: 1:1 behavioral compatibility with Assetto Corsa (2014).** This includes vehicle physics, controls and force feedback, visuals, audio, AI, session rules, networking and original content behavior. This is the project objective, not an achieved compatibility claim. The production stack is Rust with wgpu. A first native KN5 reader and offscreen diagnostic renderer now run independently of Python and the browser; production simulation remains unimplemented. The Python implementation remains a research prototype and tooling foundation.
 
-**Status: first local keyboard-driving prototype. Original physics parity is not established.** The repository contains local inventory, INI/LUT readers, a bounded KN5 static geometry importer, an interactive local WebGL viewer, original tests, and a documentation website. Supported embedded diffuse textures, alpha test, approximate transparency, typed track surfaces, vertical ground support queries, ordinary ACD car-data reading and geometric spawn placement checks are available. An independent 120 Hz driving model now moves a locally loaded car with keyboard input. Static WALL triangles now contact an upright box derived from collider.kn5. Full convex/6DOF collision, suspension dynamics, original tyre/drivetrain behavior, audio and FFB are not implemented.
+**Status: native geometry preview and first local keyboard-driving prototype. Original physics parity is not established.** The repository contains local inventory, INI/LUT readers, a bounded KN5 static geometry importer, an interactive local WebGL viewer, original tests, and a documentation website. Supported embedded diffuse textures, alpha test, approximate transparency, typed track surfaces, vertical ground support queries, ordinary ACD car-data reading and geometric spawn placement checks are available. An independent 120 Hz driving model now moves a locally loaded car with keyboard input. Static WALL triangles now contact an upright box derived from collider.kn5. Full convex/6DOF collision, suspension dynamics, original tyre/drivetrain behavior, audio and FFB are not implemented.
 
 [Website](https://openasc-project.github.io/openASC/) · [User guide](docs/USER_GUIDE.md) · [Compatibility record](docs/FORMATS.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/FEASIBILITY.md)
 
 ## Quick start
 
-Python 3.10+ is required. No third-party packages are needed.
+For the native path, install Rust with Cargo and the platform's native build tools. Rust 1.96 is tested locally. Rendering needs a wgpu-compatible native GPU/driver. Create `reports/` before saving a capture; existing outputs are never overwritten.
+
+```sh
+cargo run --locked -p openasc-native -- inspect ./assettocorsa/content/tracks/drift/drift.kn5
+cargo run --locked -p openasc-native -- render ./assettocorsa/content/tracks/drift/drift.kn5 reports/native-drift.png
+```
+
+This native path renders one KN5 with diagnostic colours and no textures. It does not yet assemble a track layout, open an interactive window or simulate driving. See the [native guide](docs/USER_GUIDE.md#native-rust-and-wgpu-preview).
+
+The existing content tools, browser viewer and keyboard-driving prototype require Python 3.10+. No third-party Python packages are needed.
 
 ```sh
 python tools/inspect_content.py ./assettocorsa
@@ -64,6 +73,8 @@ openasc/                  INI/LUT readers and scene resource diagnostics
 viewer/                   Local WebGL geometry preview interface
 tools/build_site.py       Documentation site builder
 tests/                    Original, game-independent test fixtures
+native/openasc-native/    Rust KN5 reader and wgpu offscreen renderer
+Cargo.toml / Cargo.lock   Native workspace and locked dependencies
 .github/workflows/        CI and GitHub Pages
 assettocorsa/             Local game installation, ignored by Git
 ```
@@ -73,6 +84,8 @@ assettocorsa/             Local game installation, ignored by Git
 Typed surface definitions and BVH-accelerated vertical ground queries are available through `ground`. This includes supported hidden road meshes and returns geometric height, an upward normal and source surface metadata. The path is tested on original fixtures and local Drift. Ordinary packed car data, typed vehicle parameters, spawn transforms and four-wheel support preflights are also available. The separate drive command adds independent planar motion with geometric road attachment; it does not reproduce original tyre, suspension or wall behavior.
 
 BMW M3 E30/Drift now runs in an independently implemented local keyboard-driving prototype with tested acceleration, steering, braking, reverse, pause and reset. Static wall contact now uses continuous translation/yaw queries and inelastic planar impulses, with verified nonpenetration on the tested traces. Next, add wheel animation and better vehicle/skin materials, then replace geometric attachment with validated suspension/tyre dynamics and full convex/6DOF contact. Supported DDS diffuse textures are now available in the first viewer. Static KN5 geometry, hierarchy, and material definitions are read; unsupported features are diagnosed. Physics validation, force feedback, AI, audio, and networking remain later stages. Full mod compatibility, CSP support, and exact original behavior are not established.
+
+The native Rust/wgpu path now renders real Drift geometry and agrees with the Python reader on tested structural counts, visible selection and bounds. Next, add native interactive scene presentation and resource/material loading, alongside a fixed-step simulation/platform foundation. Native physics and FFB must be validated against the original game rather than inferred from the approximate prototype.
 
 ## License and independence
 
