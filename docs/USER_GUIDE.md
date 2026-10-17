@@ -1,6 +1,6 @@
 # User guide
 
-openASC currently provides a local content inventory tool. There is no playable engine or scene viewer yet.
+openASC provides local content inventory, configuration readers, and static scene resource diagnostics. There is no playable engine or scene viewer yet.
 
 ## Requirements
 
@@ -56,3 +56,31 @@ The output contains content-relative paths rather than the absolute installation
 An invalid installation path exits with code 2. Check that you passed the game root, rather than `content/` or the repository root. Permission errors are reported without changing the installation.
 
 For bugs, open an [issue](https://github.com/openASC-project/openASC/issues) with the command, Python version, and error. Review reports before sharing them; do not attach game assets or third-party mods.
+
+## Inspect INI and LUT files
+
+Run these commands from the repository root, passing the file you want to inspect:
+
+```sh
+python -m openasc ini ./assettocorsa/content/tracks/drift/data/surfaces.ini
+python -m openasc lut ./assettocorsa/sdk/dev/content/cars/formula_k/data/power.lut --sample 1750
+```
+
+The INI command returns normalized section/key identifiers and string values. The LUT command returns numeric points and, optionally, a linearly interpolated sample. Samples outside the table are clamped to its endpoints. File paths vary by installation; the SDK example is optional.
+
+Text defaults to UTF-8 with optional BOM. For a legacy text file, pass an explicit encoding such as `--encoding cp1252`. The reader does not guess an encoding. Malformed or ambiguous input reports a diagnostic with a code, source, and line number.
+
+## Inspect a static track scene
+
+```sh
+python -m openasc scene ./assettocorsa --track drift
+python -m openasc scene ./assettocorsa --track ks_barcelona --layout layout_gp
+```
+
+The track is a folder name beneath `content/tracks`. A layout selects `models_LAYOUT.ini`; without it, the command requires `models.ini`. If a choice is required, the error lists available layout identifiers rather than picking one automatically.
+
+Each `MODEL_n` declaration needs an explicit `FILE`, `POSITION`, and `ROTATION`. Resource references must stay within the selected track directory. The tool checks file presence and a KN5 version 5/6 header. It preserves transform values but does not apply them or decode geometry.
+
+The JSON report labels this scope `configuration_and_header_only` and sets `geometry_loaded` to false. Dynamic objects, other sections, and unknown model keys produce warnings. Invalid transforms, missing files, and unsupported headers produce errors. A report can contain valid models alongside errors, so always inspect `has_errors` and `diagnostics`.
+
+Successful inspections exit with code 0. Error diagnostics exit with code 2; warnings alone do not change the exit status. These commands write JSON to standard output and never modify the installation. Parse failures are written as JSON to standard error.

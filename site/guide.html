@@ -45,7 +45,7 @@
   <div class="page-shell">
     <main id="main" tabindex="-1" class="documentation">
       <article class="document"><h1>User guide</h1>
-<p>openASC currently provides a local content inventory tool. There is no playable engine or scene viewer yet.</p>
+<p>openASC provides local content inventory, configuration readers, and static scene resource diagnostics. There is no playable engine or scene viewer yet.</p>
 <h2>Requirements</h2>
 <ul><li>Python 3.10 or newer.</li><li>Your own installed copy of Assetto Corsa (2014) to inspect game content.</li><li>No third-party Python packages.</li></ul>
 <p>The website and automated tests work without an installation of the game.</p>
@@ -66,7 +66,20 @@ cd openASC</code></pre>
 <ul><li><code>scope: file_presence_only</code> means the report only records file presence.</li><li><code>counts</code> counts content directories, not verified playable cars or track layouts.</li><li><code>kn5_present</code> checks for KN5 files directly inside a content directory.</li><li><code>ui_metadata_present</code> checks the default UI metadata path; individual track-layout metadata is not inspected.</li><li>Data archive presence does not imply ACD decoding support.</li></ul>
 <h2>Troubleshooting</h2>
 <p>An invalid installation path exits with code 2. Check that you passed the game root, rather than <code>content/</code> or the repository root. Permission errors are reported without changing the installation.</p>
-<p>For bugs, open an <a href="https://github.com/openASC-project/openASC/issues">issue</a> with the command, Python version, and error. Review reports before sharing them; do not attach game assets or third-party mods.</p><a class="edit-link" href="https://github.com/openASC-project/openASC/blob/main/docs/USER_GUIDE.md">View this document on GitHub ↗</a></article>
+<p>For bugs, open an <a href="https://github.com/openASC-project/openASC/issues">issue</a> with the command, Python version, and error. Review reports before sharing them; do not attach game assets or third-party mods.</p>
+<h2>Inspect INI and LUT files</h2>
+<p>Run these commands from the repository root, passing the file you want to inspect:</p>
+<pre><code>python -m openasc ini ./assettocorsa/content/tracks/drift/data/surfaces.ini
+python -m openasc lut ./assettocorsa/sdk/dev/content/cars/formula_k/data/power.lut --sample 1750</code></pre>
+<p>The INI command returns normalized section/key identifiers and string values. The LUT command returns numeric points and, optionally, a linearly interpolated sample. Samples outside the table are clamped to its endpoints. File paths vary by installation; the SDK example is optional.</p>
+<p>Text defaults to UTF-8 with optional BOM. For a legacy text file, pass an explicit encoding such as <code>--encoding cp1252</code>. The reader does not guess an encoding. Malformed or ambiguous input reports a diagnostic with a code, source, and line number.</p>
+<h2>Inspect a static track scene</h2>
+<pre><code>python -m openasc scene ./assettocorsa --track drift
+python -m openasc scene ./assettocorsa --track ks_barcelona --layout layout_gp</code></pre>
+<p>The track is a folder name beneath <code>content/tracks</code>. A layout selects <code>models_LAYOUT.ini</code>; without it, the command requires <code>models.ini</code>. If a choice is required, the error lists available layout identifiers rather than picking one automatically.</p>
+<p>Each <code>MODEL_n</code> declaration needs an explicit <code>FILE</code>, <code>POSITION</code>, and <code>ROTATION</code>. Resource references must stay within the selected track directory. The tool checks file presence and a KN5 version 5/6 header. It preserves transform values but does not apply them or decode geometry.</p>
+<p>The JSON report labels this scope <code>configuration_and_header_only</code> and sets <code>geometry_loaded</code> to false. Dynamic objects, other sections, and unknown model keys produce warnings. Invalid transforms, missing files, and unsupported headers produce errors. A report can contain valid models alongside errors, so always inspect <code>has_errors</code> and <code>diagnostics</code>.</p>
+<p>Successful inspections exit with code 0. Error diagnostics exit with code 2; warnings alone do not change the exit status. These commands write JSON to standard output and never modify the installation. Parse failures are written as JSON to standard error.</p><a class="edit-link" href="https://github.com/openASC-project/openASC/blob/main/docs/USER_GUIDE.md">View this document on GitHub ↗</a></article>
     </main>
     <footer class="footer">openASC is an independent project, not affiliated with Kunos Simulazioni. Game content is not included.<br><a href="https://github.com/openASC-project/openASC/blob/main/LICENSE">MIT license</a><span aria-hidden="true"> · </span><a href="https://openomsi.org/">Inspired by openOMSI</a></footer>
   </div>

@@ -45,29 +45,43 @@
   <div class="page-shell">
     <main id="main" tabindex="-1" class="documentation">
       <article class="document"><h1>Content formats</h1>
-<p>This is the compatibility record for the current implementation. Planned work is listed separately from verified behavior.</p>
+<p>This is the compatibility record for the current implementation. Planned work is separate from verified behavior. No gameplay compatibility is established.</p>
 <h2>Current support</h2>
 <div class="table-scroll" tabindex="0" role="region" aria-label="Documentation table"><table><thead><tr>
 <th scope="col">Area</th>
 <th scope="col">Current behavior</th>
 <th scope="col">Not implemented</th>
 </tr></thead><tbody>
-<tr><td>Content directories</td><td>Enumerates immediate car and track folders</td><td>Track-layout discovery and semantic validation</td></tr>
+<tr><td>Content directories</td><td>Enumerates immediate car and track folders</td><td>Full layout discovery and semantic validation</td></tr>
 <tr><td>UI metadata</td><td>Checks whether default JSON files exist</td><td>JSON field interpretation</td></tr>
-<tr><td>INI</td><td>Checks model configuration filenames</td><td>Section/key parsing and typed values</td></tr>
-<tr><td>LUT</td><td>No reader yet</td><td>Table parsing, interpolation, and validation</td></tr>
-<tr><td>KN5</td><td>Checks top-level file presence</td><td>Header validation, geometry, materials, textures, hierarchy</td></tr>
+<tr><td>INI</td><td>Strict section/key/value subset with source-aware errors</td><td>Duplicate merging, includes, expressions, and CSP extensions</td></tr>
+<tr><td>LUT</td><td>Numeric pairs, validation, linear interpolation, endpoint clamping</td><td>Inline LUT expressions and higher-dimensional tables</td></tr>
+<tr><td>Track scene configs</td><td>Static MODEL_n references, explicit transforms, resource confinement</td><td>Dynamic objects and geometry loading</td></tr>
+<tr><td>KN5</td><td>Signature/version checks for v5/v6 headers</td><td>Geometry, materials, textures, hierarchy, animation</td></tr>
 <tr><td>ACD</td><td>Checks whether a car archive exists</td><td>Archive decoding</td></tr>
 <tr><td>CSP and plugins</td><td>No compatibility claimed</td><td>Extension configs, scripts, and runtime behavior</td></tr>
 </tbody></table></div>
-<p>The inventory tool must not be used as a compatibility test. Its output deliberately uses <code>file_presence_only</code> as the scope.</p>
-<h2>Next: configuration readers</h2>
-<p>The next implementation will define a tested INI/LUT subset, preserve source locations in errors, and diagnose ambiguous or unsupported syntax. Track model references will be resolved within the selected content root before geometry loading is attempted.</p>
-<p>Local research has identified model references in <code>models*.ini</code>, configuration sections in <code>data/surfaces.ini</code>, and numeric <code>x|y</code> tables in SDK car examples. These observations are starting points, not a complete format specification.</p>
+<p>The inventory scope is <code>file_presence_only</code>. Scene resource inspection is <code>configuration_and_header_only</code>; even a successful result has <code>geometry_loaded: false</code>.</p>
+<h2>INI subset</h2>
+<ul><li>UTF-8 with optional BOM by default; legacy encodings require an explicit selection.</li><li>Section headers and keys are normalized to uppercase; values remain strings.</li><li>Keys are split from values at the first equals sign. Empty values are supported.</li><li>Blank lines and full-line semicolon, hash, or double-slash comments are ignored.</li><li>Semicolons begin inline comments outside double-quoted values.</li><li>Whole values may be double-quoted. Backslashes remain literal, without escape processing.</li><li>Duplicate sections and duplicate keys, including case variants, are errors rather than silently merged values.</li><li>Keys before a section, malformed headers, bare lines, and malformed quotes are errors.</li></ul>
+<p>This strict subset deliberately rejects ambiguous input. It does not claim the original game&#x27;s complete parser behavior. Section and key source lines are retained in the Python API and diagnostics.</p>
+<h2>LUT subset</h2>
+<p>Rows contain exactly two finite numeric values separated by a vertical bar. The following is an original example:</p>
+<pre><code>0|10
+10|30</code></pre>
+<p>The x coordinates must be strictly increasing. Duplicate or descending coordinates, empty tables, extra columns, NaN, and infinity are errors. Scientific notation and a single-point constant table are supported. Comments follow the same rules as the INI reader.</p>
+<p>Sampling uses piecewise linear interpolation. The example returns 20 at x=5. Samples outside the domain return the nearest endpoint value. This interpolation policy belongs to openASC&#x27;s current reader; equivalence to every original game subsystem is not claimed. Extreme numeric ranges that cannot be interpolated reliably are diagnosed.</p>
+<h2>Static track configuration</h2>
+<p>The scene inspector selects <code>content/tracks/TRACK/models.ini</code>, or <code>models_LAYOUT.ini</code> when a layout is provided. It requires explicit file, position, and rotation fields in each numbered MODEL section.</p>
+<p>Model paths may use forward or backslashes, but must resolve within the selected track folder. Absolute paths, Windows drive-relative paths, parent escapes, and resolved links outside that root are rejected. Vectors require three finite numbers. Values are recorded without interpreting rotation units or applying transforms yet.</p>
+<p>Unknown sections and model keys are warnings. Missing resources, invalid transforms, and unsupported KN5 headers are errors. Errors in one model do not suppress diagnostics for the other model declarations. If no model passes inspection, the report also includes <code>no_models</code>.</p>
+<h2>KN5 headers</h2>
+<p>Local observations confirm the six-byte <code>sc6969</code> signature followed by a little-endian 32-bit version. Version 6 includes another 32-bit header field. The current inspector accepts versions 5 and 6, checks header length, and records file size. It does not validate the remaining file structure; a header-only fixture can pass this limited inspection.</p>
+<h2>Local validation record</h2>
+<p>On 2026-10-17, the current readers inspected 42 model configurations referencing 295 static model headers in the development installation with no model errors. There were 22 unsupported-section warnings. These are model references, not a count of unique files or fully supported scenes.</p>
+<p>All 27 LUT files found under that installation&#x27;s SDK content examples parsed with the current subset. This is local evidence, not a claim about all original or community content. Validation reports remain under ignored <code>reports/</code>; no game data is published.</p>
 <h2>Reproducible examples</h2>
-<p>Tests use small original fixtures generated in temporary directories. Do not add copied cars, tracks, textures, audio, or SDK archives to the repository. A parser change should include a minimal example that proves the new behavior and a clear failure case for invalid input.</p>
-<h2>Evidence and references</h2>
-<ul><li><a href="https://github.com/openOMSI-org/openOMSI">openOMSI</a> is the organizational inspiration for documenting formats alongside an independent implementation.</li><li>The local Assetto Corsa SDK contains car pipeline documentation and server examples. It is not distributed here.</li><li>Future binary format notes will cite the specific primary references and local observations used to validate them.</li></ul><a class="edit-link" href="https://github.com/openASC-project/openASC/blob/main/docs/FORMATS.md">View this document on GitHub ↗</a></article>
+<p>Tests use small original fixtures generated in temporary directories, including explicitly header-only KN5 fixtures. Do not add copied cars, tracks, textures, audio, or SDK archives to the repository. A parser change should include a minimal example proving the new behavior and invalid input that must be diagnosed.</p><a class="edit-link" href="https://github.com/openASC-project/openASC/blob/main/docs/FORMATS.md">View this document on GitHub ↗</a></article>
     </main>
     <footer class="footer">openASC is an independent project, not affiliated with Kunos Simulazioni. Game content is not included.<br><a href="https://github.com/openASC-project/openASC/blob/main/LICENSE">MIT license</a><span aria-hidden="true"> · </span><a href="https://openomsi.org/">Inspired by openOMSI</a></footer>
   </div>

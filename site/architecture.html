@@ -45,13 +45,16 @@
   <div class="page-shell">
     <main id="main" tabindex="-1" class="documentation">
       <article class="document"><h1>Architecture</h1>
-<p>The implemented project is currently a Python inventory tool and a static documentation website. The engine modules below are a proposed design, not existing runtime features.</p>
+<p>The implemented project contains Python content tools and a static documentation website. Rendering and simulation modules below are a proposed design, not existing runtime features.</p>
 <h2>Implemented components</h2>
 <div class="table-scroll" tabindex="0" role="region" aria-label="Documentation table"><table><thead><tr>
 <th scope="col">Location</th>
 <th scope="col">Responsibility</th>
 </tr></thead><tbody>
 <tr><td><code>tools/inspect_content.py</code></td><td>Read-only content inventory and JSON CLI</td></tr>
+<tr><td><code>openasc/config.py</code></td><td>Source-aware INI and LUT parsing, numeric validation, and interpolation</td></tr>
+<tr><td><code>openasc/scene.py</code></td><td>Confined static model references, transforms, and KN5 header inspection</td></tr>
+<tr><td><code>openasc/__main__.py</code></td><td>JSON diagnostics through <code>python -m openasc</code></td></tr>
 <tr><td><code>tests/</code></td><td>Tests using original, temporary fixtures</td></tr>
 <tr><td><code>docs/</code></td><td>English documentation and current compatibility record</td></tr>
 <tr><td><code>web/</code></td><td>Shared website template and overview source</td></tr>

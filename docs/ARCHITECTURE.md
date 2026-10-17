@@ -1,12 +1,15 @@
 # Architecture
 
-The implemented project is currently a Python inventory tool and a static documentation website. The engine modules below are a proposed design, not existing runtime features.
+The implemented project contains Python content tools and a static documentation website. Rendering and simulation modules below are a proposed design, not existing runtime features.
 
 ## Implemented components
 
 | Location | Responsibility |
 | --- | --- |
 | `tools/inspect_content.py` | Read-only content inventory and JSON CLI |
+| `openasc/config.py` | Source-aware INI and LUT parsing, numeric validation, and interpolation |
+| `openasc/scene.py` | Confined static model references, transforms, and KN5 header inspection |
+| `openasc/__main__.py` | JSON diagnostics through `python -m openasc` |
 | `tests/` | Tests using original, temporary fixtures |
 | `docs/` | English documentation and current compatibility record |
 | `web/` | Shared website template and overview source |
