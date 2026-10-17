@@ -153,18 +153,39 @@
       return {...mesh, index, vao, colour: materialColour(material), world: new Float32Array(mesh.world),
         texture: uploaded.get(material.preview_texture), materialDefinition: material};
     });
+    let driveState = scene.drive ? {world: scene.drive.initial_world} : null;
+    let followCar = Boolean(scene.drive);
+    for (const mesh of meshes) if (mesh.dynamic === 'car') mesh.localWorld = mesh.world;
     if (gl.getError() !== gl.NO_ERROR) throw new Error('WebGL could not allocate the scene buffers.');
     gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LEQUAL);
     gl.disable(gl.CULL_FACE); // Diagnostic preview is deliberately double-sided.
     let target = [0, 0, 0], distance = 100, yaw = .6, pitch = .85, selected = -1, pending = false, textureEnabled = true;
     const fullRadius = Math.max(1, length(scene.bounds[1].map((value, i) => value - scene.bounds[0][i])) / 2);
     const roads = scene.road_focus_bounds ? [{bounds: scene.road_focus_bounds}] : [];
+    function releaseFollow() {
+      if (followCar && driveState) {
+        target = [...driveState.world.slice(12, 15)]; distance = 10;
+        yaw = Math.atan2(driveState.world[8], driveState.world[10]) + Math.PI; pitch = .4;
+      }
+      followCar = false;
+      document.querySelector('#drive-follow').setAttribute('aria-pressed', 'false');
+    }
     function fit(values) {
+      if (scene.drive && !document.querySelector('#drive-panel').hidden) releaseFollow();
       const low = [Infinity, Infinity, Infinity], high = [-Infinity, -Infinity, -Infinity];
       for (const mesh of values) {
+        let bounds = mesh.bounds;
+        if (mesh.dynamic === 'car' && driveState) {
+          const p = driveState.world, points = [];
+          for (const x of [0, 1]) for (const y of [0, 1]) for (const z of [0, 1]) {
+            const point = [bounds[x][0], bounds[y][1], bounds[z][2]];
+            points.push([0, 1, 2].map(i => p[i] * point[0] + p[4 + i] * point[1] + p[8 + i] * point[2] + p[12 + i]));
+          }
+          bounds = [0, 1].map(side => [0, 1, 2].map(i => (side ? Math.max : Math.min)(...points.map(point => point[i]))));
+        }
         for (let axis = 0; axis < 3; axis++) {
-          low[axis] = Math.min(low[axis], mesh.bounds[0][axis]);
-          high[axis] = Math.max(high[axis], mesh.bounds[1][axis]);
+          low[axis] = Math.min(low[axis], bounds[0][axis]);
+          high[axis] = Math.max(high[axis], bounds[1][axis]);
         }
       }
       target = low.map((value, i) => (value + high[i]) / 2);
@@ -182,13 +203,26 @@
       gl.viewport(0, 0, canvas.width, canvas.height);
       gl.clearColor(.065, .078, .10, 1); gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
       gl.useProgram(program);
-      const eye = [target[0] + distance * Math.cos(pitch) * Math.sin(yaw), target[1] + distance * Math.sin(pitch), target[2] + distance * Math.cos(pitch) * Math.cos(yaw)];
-      const camera = multiply(perspective(canvas.width / canvas.height, Math.max(.02, distance / 5000), Math.max(fullRadius * 12, distance * 4)), view(eye, target));
+      let eye = [target[0] + distance * Math.cos(pitch) * Math.sin(yaw), target[1] + distance * Math.sin(pitch), target[2] + distance * Math.cos(pitch) * Math.cos(yaw)];
+      let cameraTarget = target;
+      if (driveState) {
+        const pose = driveState.world;
+        if (followCar) {
+          cameraTarget = [pose[12], pose[13] + .5, pose[14]];
+          eye = [0, 1, 2].map(i => pose[12 + i] - pose[8 + i] * 8 + pose[4 + i] * 3);
+        }
+        for (const mesh of meshes) if (mesh.dynamic === 'car') {
+          mesh.world = multiply(pose, mesh.localWorld);
+          const center = mesh.bounds[0].map((v, i) => (v + mesh.bounds[1][i]) / 2);
+          mesh.dynamicCenter = [0, 1, 2].map(i => pose[i] * center[0] + pose[4 + i] * center[1] + pose[8 + i] * center[2] + pose[12 + i]);
+        }
+      }
+      const camera = multiply(perspective(canvas.width / canvas.height, Math.max(.02, (followCar ? 8 : distance) / 5000), Math.max(fullRadius * 12, distance * 4)), view(eye, cameraTarget));
       gl.uniformMatrix4fv(uniforms.camera, false, camera);
       gl.uniform1i(uniforms.textureEnabled, textureEnabled);
       const opaque = meshes.filter(mesh => mesh.materialDefinition.preview_blend !== 1);
       const transparent = meshes.filter(mesh => mesh.materialDefinition.preview_blend === 1);
-      const meshDistance = mesh => length(mesh.bounds[0].map((value, axis) => (value + mesh.bounds[1][axis]) / 2 - eye[axis]));
+      const meshDistance = mesh => length(mesh.bounds[0].map((value, axis) => (mesh.dynamicCenter?.[axis] ?? (value + mesh.bounds[1][axis]) / 2) - eye[axis]));
       transparent.sort((a, b) => meshDistance(b) - meshDistance(a));
       [...opaque, ...transparent].forEach(mesh => {
         const material = mesh.materialDefinition;
@@ -215,6 +249,7 @@
         canvas.dataset.error = 'true'; setStatus('WebGL reported a drawing error.'); return;
       }
       canvas.dataset.ready = 'true'; canvas.dataset.drawCalls = String(meshes.length);
+      canvas.dataset.carDrawCalls = String(meshes.filter(mesh => mesh.dynamic === 'car').length);
       canvas.dataset.textureMode = textureEnabled ? 'textured' : 'colours';
       setStatus(`${scene.has_errors ? 'Partial scene · ' : ''}${meshes.length} meshes · ${scene.triangles.toLocaleString()} triangles · ${textureEnabled ? uploaded.size + ' diffuse textures · approximate materials' : 'diagnostic colours'}`);
     }
@@ -222,7 +257,7 @@
     const roadButton = document.querySelector('#fit-road');
     roadButton.title = 'Focus bounds of active ROAD-named meshes, including non-renderable meshes. This is a name heuristic, not surface validation.';
     roadButton.addEventListener('click', () => fit(roads));
-    document.querySelector('#top').addEventListener('click', () => { pitch = Math.PI / 2 - .001; invalidate(); });
+    document.querySelector('#top').addEventListener('click', () => { if (scene.drive) releaseFollow(); pitch = Math.PI / 2 - .001; invalidate(); });
     for (const button of document.querySelectorAll('.toolbar button')) button.disabled = false;
     roadButton.disabled = !roads.length;
     const textureToggle = document.querySelector('#texture-toggle');
@@ -258,6 +293,7 @@
     let drag;
     canvas.addEventListener('contextmenu', event => event.preventDefault());
     canvas.addEventListener('pointerdown', event => {
+      if (scene.drive) releaseFollow();
       drag = {x: event.clientX, y: event.clientY, pan: event.button !== 0 || event.shiftKey};
       canvas.setPointerCapture(event.pointerId); canvas.focus();
     });
@@ -276,9 +312,11 @@
     canvas.addEventListener('pointercancel', () => { drag = null; });
     canvas.addEventListener('lostpointercapture', () => { drag = null; });
     canvas.addEventListener('wheel', event => {
+      if (scene.drive) releaseFollow();
       event.preventDefault(); distance = Math.max(.05, Math.min(fullRadius * 30, distance * Math.exp(event.deltaY * .001))); invalidate();
     }, {passive: false});
     canvas.addEventListener('keydown', event => {
+      if (scene.drive && event.key.startsWith('Arrow')) return;
       if (event.key === 'ArrowLeft') yaw -= .1;
       else if (event.key === 'ArrowRight') yaw += .1;
       else if (event.key === 'ArrowUp') pitch = Math.min(1.56, pitch + .1);
@@ -291,6 +329,9 @@
     canvas.addEventListener('webglcontextlost', event => { event.preventDefault(); canvas.dataset.error = 'true'; setStatus('WebGL context lost. Reload the page to restore the preview.'); });
     new ResizeObserver(invalidate).observe(canvas);
     fit(roads.length ? roads : meshes);
+    if (scene.drive) await OPENASC_DRIVE.attach({canvas,
+      onState: value => { driveState = value; invalidate(); },
+      onFollow: value => { followCar = value; invalidate(); }});
   }
   start().catch(error => { canvas.dataset.error = 'true'; setStatus(`Cannot display scene: ${error.message}`); console.error(error); });
 })();

@@ -9,7 +9,7 @@
 
 An independent open-source engine project for **Assetto Corsa (2014)** content, inspired by [openOMSI](https://github.com/openOMSI-org/openOMSI).
 
-**Status: first static geometry viewer. There is no playable driving engine yet.** The repository contains local inventory, INI/LUT readers, a bounded KN5 static geometry importer, an interactive local WebGL viewer, original tests, and a documentation website. Supported embedded diffuse textures, alpha test, approximate transparency, typed track surfaces, vertical ground support queries, ordinary ACD car-data reading and geometric spawn placement checks are available. Original shaders and vehicle simulation are not implemented.
+**Status: first local keyboard-driving prototype. Original physics parity is not established.** The repository contains local inventory, INI/LUT readers, a bounded KN5 static geometry importer, an interactive local WebGL viewer, original tests, and a documentation website. Supported embedded diffuse textures, alpha test, approximate transparency, typed track surfaces, vertical ground support queries, ordinary ACD car-data reading and geometric spawn placement checks are available. An independent 120 Hz driving model now moves a locally loaded car with keyboard input. Wall response, suspension dynamics, original tyre/drivetrain behavior, audio and FFB are not implemented.
 
 [Website](https://openasc-project.github.io/openASC/) · [User guide](docs/USER_GUIDE.md) · [Compatibility record](docs/FORMATS.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/FEASIBILITY.md)
 
@@ -23,6 +23,7 @@ python tools/inspect_content.py ./assettocorsa --output reports/content.json
 python -m openasc scene ./assettocorsa --track drift
 python -m openasc scene ./assettocorsa --track ks_barcelona --layout layout_gp
 python -m openasc view ./assettocorsa --track drift
+python -m openasc drive ./assettocorsa --car bmw_m3_e30 --track drift
 python -m openasc ground ./assettocorsa --track drift --at 0 100 0 --distance 150
 python -m openasc car ./assettocorsa --car bmw_m3_e30
 python -m openasc place ./assettocorsa --car bmw_m3_e30 --track drift --spawn AC_PIT_0
@@ -67,12 +68,12 @@ assettocorsa/             Local game installation, ignored by Git
 
 ## Next milestone
 
-Typed surface definitions and BVH-accelerated vertical ground queries are available through `ground`. This includes supported hidden road meshes and returns geometric height, an upward normal and source surface metadata. The path is tested on original fixtures and local Drift. Ordinary packed car data, typed vehicle parameters, spawn transforms and four-wheel support preflights are also available. These tools do not yet simulate tyres, suspension, walls or vehicle motion.
+Typed surface definitions and BVH-accelerated vertical ground queries are available through `ground`. This includes supported hidden road meshes and returns geometric height, an upward normal and source surface metadata. The path is tested on original fixtures and local Drift. Ordinary packed car data, typed vehicle parameters, spawn transforms and four-wheel support preflights are also available. The separate drive command adds independent planar motion with geometric road attachment; it does not reproduce original tyre, suspension or wall behavior.
 
-A supported vehicle configuration and spawn footprint now load from local BMW M3 E30/Drift content. Next, connect these inputs to independently implemented vehicle motion and validate chassis placement, steering and collision response, while improving multilayer/detail/normal material fidelity. Supported DDS diffuse textures are now available in the first viewer. Static KN5 geometry, hierarchy, and material definitions are read; unsupported features are diagnosed. Vehicle physics, force feedback, AI, audio, and networking are separate later stages. Full mod compatibility, CSP support, and exact original behavior are not established.
+BMW M3 E30/Drift now runs in an independently implemented local keyboard-driving prototype with tested acceleration, steering, braking, reverse, pause and reset. Next, add wall/body response, wheel animation and better vehicle/skin materials, then replace geometric attachment with validated suspension and tyre dynamics. Supported DDS diffuse textures are now available in the first viewer. Static KN5 geometry, hierarchy, and material definitions are read; unsupported features are diagnosed. Physics validation, force feedback, AI, audio, and networking remain later stages. Full mod compatibility, CSP support, and exact original behavior are not established.
 
 ## License and independence
 
-New source code and website files use the [MIT license](LICENSE). This does not grant rights to Assetto Corsa or third-party content. Game binaries, cars, tracks, textures, and audio are not distributed here. Use your own installed copy for local research.
+New source code, original branding and website code use the [MIT license](LICENSE). Progress screenshots depict locally loaded game content; MIT does not relicense that underlying content. This does not grant rights to Assetto Corsa or third-party content. Game binaries, cars, tracks, textures, and audio are not distributed here. Use your own installed copy for local research.
 
 Assetto Corsa is a Kunos Simulazioni product. openASC is independent and unaffiliated. No openOMSI code or branding assets are used.

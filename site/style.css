@@ -104,6 +104,15 @@ h2 { font-size: 25px; font-weight: 650; line-height: 1.4; letter-spacing: -.4px;
 .feature a { font-size: 13px; }
 .quick-start { margin-top: 40px; border-top: 1px solid var(--line); padding-top: 8px; }
 .quick-start p { font-size: 14px; color: var(--muted); }
+.screenshots { margin-top: 38px; padding-top: 10px; border-top: 1px solid var(--line); }
+.screenshots > p { color: var(--muted); font-size: 14px; }
+.screenshot-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; margin-top: 24px; }
+.screenshot-grid figure { margin: 0; min-width: 0; }
+.screenshot-grid a { display: block; border: 1px solid var(--line); }
+.screenshot-grid img { display: block; width: 100%; height: auto; }
+.screenshot-grid figcaption { padding-top: 12px; color: var(--muted); font-size: 12px; line-height: 1.7; }
+.screenshot-grid figcaption strong { color: var(--text); }
+.screenshots .screenshot-note { font-size: 12px; }
 .document { max-width: 1000px; margin: 0 auto; padding: 44px 54px 64px; }
 .document h1 { font-size: 35px; line-height: 1.25; font-weight: 750; font-style: italic; text-transform: uppercase; margin: 0 0 26px; letter-spacing: -.6px; }
 .document h2 { margin: 34px 0 12px; border-bottom: 1px solid var(--line); padding-bottom: 9px; }
@@ -163,6 +172,7 @@ th, td { border: 1px solid var(--line); padding: 12px 14px; vertical-align: top;
   .notice p { font-size: 13px; }
   .intro p { font-size: 15px; }
   .feature-grid { grid-template-columns: 1fr; gap: 28px; margin-top: 30px; }
+  .screenshot-grid { grid-template-columns: 1fr; gap: 26px; }
   .document { padding: 30px 22px 45px; }
   .document h1 { font-size: 29px; }
   .document h2 { font-size: 23px; }

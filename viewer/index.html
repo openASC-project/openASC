@@ -6,6 +6,7 @@
   <title>Local scene viewer — openASC</title>
   <link rel="stylesheet" href="./viewer.css">
   <script src="./dds.js" defer></script>
+  <script src="./drive.js" defer></script>
   <script src="./viewer.js" defer></script>
 </head>
 <body>
@@ -15,12 +16,21 @@
       <canvas id="scene" aria-label="Interactive local track geometry preview. Drag to orbit, right-drag to pan, scroll to zoom." tabindex="0"></canvas>
       <div class="toolbar"><button id="fit-road" type="button" disabled>Fit road names</button><button id="fit-all" type="button" disabled>Fit all</button><button id="top" type="button" disabled>Top view</button><button id="texture-toggle" type="button" aria-pressed="true" disabled>Textures on</button></div>
       <div id="status" role="status">Loading local scene…</div>
+      <output id="drive-hud" hidden aria-label="Driving speed and gear">openASC · prototype</output>
       <div class="hint">Left drag: orbit · Right drag: pan · Scroll: zoom · Select a mesh to focus</div>
     </section>
     <aside class="inspector" aria-label="Scene details">
       <h1>Scene preview</h1>
       <p class="notice">Approximate diffuse textures, alpha, and basic lighting. Original shaders, detail/normal layers, shadows, driving, and physics are not implemented.</p>
       <dl id="stats"></dl>
+      <section id="drive-panel" hidden aria-label="First-drive controls">
+        <h2 id="drive-car">First-drive prototype</h2>
+        <p class="notice">Independent prototype. No wall response, suspension dynamics, wheel animation, audio or FFB. Ground loss stops the car.</p>
+        <div class="drive-readout"><output id="drive-speed">0 km/h</output><output id="drive-gear">1</output><output id="drive-rpm">0 rpm</output></div>
+        <div class="drive-buttons"><button id="drive-toggle" type="button">Resume</button><button id="drive-reset" type="button">Reset</button><button id="drive-follow" type="button" aria-pressed="true">Follow car</button></div>
+        <p id="drive-status" role="status">Ready</p>
+        <p class="local-note">Focus the scene to drive. W/S: throttle/brake · A/D: steer · Space: handbrake · E/Q: gears (R, N, 1…) · P: pause · R: reset. Tab switches and missing input heartbeats pause the simulation.</p>
+      </section>
       <details open><summary id="diagnostic-title">Diagnostics</summary><ul id="diagnostics"></ul></details>
       <section><h2>Meshes</h2><label for="filter">Filter by mesh or material name</label><input id="filter" type="search" placeholder="e.g. ROAD"><p id="selection">No mesh selected.</p><div id="mesh-list"></div></section>
       <details><summary>Material definitions</summary><div id="materials"></div></details>

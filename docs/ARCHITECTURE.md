@@ -1,6 +1,6 @@
 # Architecture
 
-The implemented project contains Python content readers, a local static geometry preview in WebGL 2, and a documentation website. Vehicle simulation and a production renderer remain proposed work.
+The implemented project contains Python content readers, a WebGL 2 preview, an independent fixed-step driving prototype and a documentation website. A production renderer and validated full vehicle simulation remain proposed work.
 
 ## Implemented components
 
@@ -16,6 +16,8 @@ The implemented project contains Python content readers, a local static geometry
 | `openasc/acd.py` | Bounded in-memory indexing and reading of ordinary folder-keyed ACD records |
 | `openasc/vehicle.py` | Explicit packed/unpacked car-data selection and typed vehicle configuration subset |
 | `openasc/placement.py` | Rigid spawn transforms and a four-wheel geometric support preflight |
+| `openasc/dynamics.py` | Independent fixed-step planar force model with four ground contact patches |
+| `openasc/driving.py` | Car/track preview assembly, a sequenced local controller and simulation clock |
 | `openasc/viewer.py` | Local scene assembly and loopback-only preview server |
 | `viewer/` | WebGL 2 diffuse preview, portable DDS pixel decoding, camera controls, and mesh/material inspection |
 | `openasc/__main__.py` | JSON diagnostics through `python -m openasc` |
@@ -50,6 +52,10 @@ The first contact preparation path is separate from rendering. `ground` loads sy
 ## Vehicle configuration and placement
 
 The vehicle configuration reader uses a single selected data source, without mixing files from an archive and a directory. It retains source locations for consumed INI fields and loads the referenced torque LUT without extraction. Inertia dimensions, steering and axle geometry are separate recorded inputs; the configuration reader does not execute vehicle dynamics. The KN5 reader also retains node parent links, active state and composed transforms, so invisible spawn markers survive independently of drawing visibility. The placement preflight maps the car's wheel footprint through a selected source basis, then queries static support. It does not solve chassis height, spring equilibrium or collision response.
+
+## First-drive runtime
+
+The first-drive prototype has a separate Python simulation state, stepped at 120 Hz by a clock thread. HTTP telemetry and WebGL redraws do not advance physics. A locked session applies complete, validated, sequenced controls; missing heartbeat input pauses and clears controls. Clock catch-up is capped at eight steps per wake, with discarded backlog counted in telemetry. A browser tab polls telemetry and sends keyboard input, while the existing WebGL buffers draw the car beneath its current world transform. Track and car texture/geometry budgets are shared. The simulation currently constrains vertical pose to supported static ground; it is not a six-degree-of-freedom suspension or collision solver.
 
 ## Website
 

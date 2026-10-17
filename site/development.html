@@ -53,6 +53,7 @@ python tools/build_site.py --check
 node --check site/app.js
 node --check viewer/viewer.js
 node --check viewer/dds.js
+node --check viewer/drive.js
 node --test tests/test_dds.cjs</code></pre>
 <p>Node.js 18+ is used for JavaScript syntax checks and original DDS pixel tests. The website itself has no npm dependencies or build-time JavaScript framework.</p>
 <p>The local geometry viewer also has no npm dependencies. Its JavaScript is in <code>viewer/</code>, served only by <code>python -m openasc view</code>. Tests construct original complete KN5 fixtures and exercise the loopback server, including foreign-host/origin rejection. Binary fixtures are not copied from the game.</p>
@@ -62,6 +63,8 @@ python -m http.server 4173 --directory site --bind 127.0.0.1</code></pre>
 <p>Open <a href="http://127.0.0.1:4173/">localhost</a>. The document builder supports the Markdown subset used here: headings, paragraphs, links, inline code, bold text, lists, fenced code, and tables. Raw HTML in documentation is escaped.</p>
 <p>Edit <code>docs/</code> for documentation, <code>web/overview.html</code> for the overview body, and <code>web/layout.html</code> for the shared shell. Edit <code>site/style.css</code> and <code>site/app.js</code> for styling and browser behavior. Generated HTML files contain a notice identifying their source.</p>
 <h2>Contribute</h2>
+<p>The independent driving model is in <code>openasc/dynamics.py</code>; its tests use original flat/sloped geometry and original car configurations. Keep rendering and HTTP telemetry reads out of the fixed-step solver. Controller tests can advance exact steps with an injected clock instead of sleeping. Real-content/browser validation remains local; record the scope and limitations before changing compatibility claims.</p>
+<p>Website progress screenshots are selected flattened captures under <code>site/images/</code>, with captions in <code>web/overview.html</code>. Update them after meaningful visual milestones. Do not add raw game assets or temporary browser reports. The project&#x27;s MIT license does not relicense the underlying game content depicted in screenshots.</p>
 <p>Start with an <a href="https://github.com/openASC-project/openASC/issues">issue</a> describing a reproducible problem or bounded feature. Keep parser fixtures original and small. A green test suite does not establish compatibility with all Assetto Corsa content.</p>
 <p>Before committing, check that neither <code>assettocorsa/</code> nor <code>reports/</code> is tracked. These directories are ignored intentionally. Do not include original executable files, copyrighted game content, or third-party mods.</p>
 <p>New source code and website files use the MIT license. Dependencies and any future third-party additions must retain their own license notices.</p><a class="edit-link" href="https://github.com/openASC-project/openASC/blob/main/docs/DEVELOPMENT.md">View this document on GitHub ↗</a></article>

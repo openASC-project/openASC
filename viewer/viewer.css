@@ -39,6 +39,14 @@ input { width: 100%; background: #111419; border: 1px solid #505663; padding: 10
 #materials p { font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; }
 #materials pre { font-size: 10px; max-height: 260px; overflow: auto; background: #101216; padding: 10px; }
 .local-note { font-size: 10px; line-height: 1.7; color: #969eae; }
+[hidden] { display: none !important; }
+.drive-readout { display: flex; align-items: baseline; gap: 16px; font-variant-numeric: tabular-nums; }
+#drive-speed { font-size: 24px; font-weight: 700; }
+#drive-gear { color: #ff6371; font-size: 24px; font-weight: 700; }
+#drive-rpm { font-size: 12px; color: #b8bfcd; }
+.drive-buttons { display: flex; flex-wrap: wrap; gap: 7px; margin-top: 12px; }
+#drive-status { font-size: 12px; color: #c4cbd8; }
+#drive-hud { position: absolute; right: 16px; bottom: 82px; padding: 10px 14px; background: #14161ee8; border-left: 3px solid #ee2534; color: #f3f4f7; font-size: 13px; font-variant-numeric: tabular-nums; }
 @media(max-width: 800px) {
   header { padding: 0 12px; gap: 15px; }
   .header-label { display: none; }

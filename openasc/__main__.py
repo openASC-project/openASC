@@ -51,6 +51,16 @@ def main(argv=None):
     placement.add_argument('--compound', type=int)
     placement.add_argument('--data-source', choices=('auto', 'packed', 'unpacked'), default='auto')
     placement.add_argument('--encoding', default='utf-8-sig')
+    drive = commands.add_parser('drive', help='Start the independent local first-drive prototype')
+    drive.add_argument('installation')
+    drive.add_argument('--car', required=True)
+    drive.add_argument('--track', required=True)
+    drive.add_argument('--spawn', default='AC_PIT_0')
+    drive.add_argument('--layout')
+    drive.add_argument('--compound', type=int)
+    drive.add_argument('--data-source', choices=('auto', 'packed', 'unpacked'), default='auto')
+    drive.add_argument('--encoding', default='utf-8-sig')
+    drive.add_argument('--port', type=int, default=4180)
     viewer = commands.add_parser('view', help='Start a local-only static geometry viewer')
     viewer.add_argument('installation')
     viewer.add_argument('--track', required=True)
@@ -70,6 +80,12 @@ def main(argv=None):
                 result['sample'] = {'x': args.sample, 'y': table.sample(args.sample), 'boundary': 'clamp'}
         elif args.command == 'kn5':
             result = load_kn5(args.file).summary()
+        elif args.command == 'drive':
+            from .driving import serve_drive
+            if not 0 <= args.port <= 65535:
+                parser.error('--port must be between 0 and 65535.')
+            return serve_drive(args.installation, args.car, args.track, args.spawn, args.layout,
+                               args.compound, args.data_source, args.encoding, args.port)
         elif args.command == 'spawns':
             from .placement import inspect_spawns
             result = inspect_spawns(args.installation, args.track, args.layout, args.encoding)

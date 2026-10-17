@@ -15,4 +15,5 @@ jobs:
       - run: node --check site/app.js
       - run: node --check viewer/viewer.js
       - run: node --check viewer/dds.js
+      - run: node --check viewer/drive.js
       - run: node --test tests/test_dds.cjs

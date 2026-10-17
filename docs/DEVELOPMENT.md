@@ -12,6 +12,7 @@ python tools/build_site.py --check
 node --check site/app.js
 node --check viewer/viewer.js
 node --check viewer/dds.js
+node --check viewer/drive.js
 node --test tests/test_dds.cjs
 ```
 
@@ -31,6 +32,10 @@ Open [localhost](http://127.0.0.1:4173/). The document builder supports the Mark
 Edit `docs/` for documentation, `web/overview.html` for the overview body, and `web/layout.html` for the shared shell. Edit `site/style.css` and `site/app.js` for styling and browser behavior. Generated HTML files contain a notice identifying their source.
 
 ## Contribute
+
+The independent driving model is in `openasc/dynamics.py`; its tests use original flat/sloped geometry and original car configurations. Keep rendering and HTTP telemetry reads out of the fixed-step solver. Controller tests can advance exact steps with an injected clock instead of sleeping. Real-content/browser validation remains local; record the scope and limitations before changing compatibility claims.
+
+Website progress screenshots are selected flattened captures under `site/images/`, with captions in `web/overview.html`. Update them after meaningful visual milestones. Do not add raw game assets or temporary browser reports. The project's MIT license does not relicense the underlying game content depicted in screenshots.
 
 Start with an [issue](https://github.com/openASC-project/openASC/issues) describing a reproducible problem or bounded feature. Keep parser fixtures original and small. A green test suite does not establish compatibility with all Assetto Corsa content.
 

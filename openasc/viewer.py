@@ -76,13 +76,13 @@ class PreviewError(ContentError):
         self.diagnostics = diagnostics + [self.diagnostic.as_dict()]
 
 
-def load_preview(installation, track, layout=None, encoding='utf-8-sig'):
+def load_preview(installation, track, layout=None, encoding='utf-8-sig', hide_markers=False):
     manifest = inspect_scene(installation, track, layout, encoding)
     content = confined(Path(installation).resolve(), f'content/tracks/{track}', '<scene>')
     diagnostics = list(manifest['diagnostics'])
     draws, materials, blob, road_bounds = [], [], bytearray(), []
     textures, texture_cache = [], {}
-    hidden, later_lod = 0, 0
+    hidden, later_lod, markers = 0, 0, 0
     for model in manifest['models']:
         if any(abs(value) > 3.4028235e38 for value in model['position']):
             diagnostics.append(Diagnostic('preview_transform', f'{model["section"]} position exceeds the float32 preview range.', manifest['config']).as_dict())
@@ -105,6 +105,9 @@ def load_preview(installation, track, layout=None, encoding='utf-8-sig'):
         root = list(IDENTITY)
         root[12:15] = model['position']
         for mesh in parsed.meshes:
+            if hide_markers and mesh.name.upper().startswith(('AC_PIT_', 'AC_START_', 'AC_HOTLAP_START_', 'AC_TIME_')):
+                markers += 1
+                continue
             if mesh.active and mesh.bounds and 'ROAD' in mesh.name.upper():
                 road_bounds.append([[mesh.bounds[side][axis] + model['position'][axis] for axis in range(3)] for side in range(2)])
             if not (mesh.active and mesh.visible and mesh.renderable and mesh.indices and mesh.bounds):
@@ -131,6 +134,8 @@ def load_preview(installation, track, layout=None, encoding='utf-8-sig'):
                           'index_offset': index_offset, 'index_count': len(mesh.indices) // 2})
     if hidden or later_lod:
         diagnostics.append(Diagnostic('preview_visibility', f'{hidden} inactive/hidden/non-renderable/empty meshes and {later_lod} later-LOD meshes are omitted. Camera-distance LOD switching is not implemented.', manifest['config'], severity='warning').as_dict())
+    if markers:
+        diagnostics.append(Diagnostic('drive_markers_hidden', f'{markers} start/pit/timing helper meshes are omitted from the driving renderer; node transforms remain available to the placement reader.', manifest['config'], severity='warning').as_dict())
     diagnostics.append(Diagnostic('material_approximation', 'Preview uses embedded txDiffuse, basic lighting, a 0.5 alpha cutoff, mesh-sorted straight-alpha blending, and recorded depth modes with a small read-only overlay bias. Original shaders, multilayer/detail/normal maps, alpha-to-coverage, and shadows are not reproduced.', manifest['config'], severity='warning').as_dict())
     if not draws:
         raise PreviewError(diagnostics, manifest['config'])
@@ -147,10 +152,40 @@ def load_preview(installation, track, layout=None, encoding='utf-8-sig'):
     return Preview(metadata, bytes(blob), tuple(textures))
 
 
-def make_server(preview, port=4180):
+def make_server(preview, port=4180, session=None):
     metadata = json.dumps(preview.metadata, ensure_ascii=True, allow_nan=False).encode('utf-8')
 
     class Handler(BaseHTTPRequestHandler):
+        def do_POST(self):
+            expected = {f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}'}
+            host, origin = self.headers.get('Host', ''), self.headers.get('Origin', '')
+            if host not in expected or origin != f'http://{host}':
+                self.send_error(403, 'Same-origin local controller requests only.')
+                return
+            if self.path != '/api/drive' or session is None:
+                self.send_error(404)
+                return
+            length = self.headers.get('Content-Length', '')
+            if (self.headers.get('Transfer-Encoding') or len(length) > 4 or not length.isascii() or not length.isdigit()
+                    or not 0 < int(length) <= 2048 or self.headers.get('Content-Type') != 'application/json'):
+                self.send_error(400, 'A bounded JSON command body is required.')
+                return
+            self.connection.settimeout(2)
+            try:
+                body = self.rfile.read(int(length))
+                if len(body) != int(length):
+                    raise ValueError('Truncated command')
+                payload = json.loads(body)
+                result = session.command(payload)
+            except ContentError as error:
+                self.reply(json.dumps({'diagnostics': [error.diagnostic.as_dict()]}).encode(), 'application/json',
+                           403 if error.diagnostic.code == 'drive_token' else 409 if error.diagnostic.code == 'drive_stale' else 400)
+                return
+            except (ValueError, UnicodeError, OSError, RecursionError):
+                self.send_error(400, 'Invalid or incomplete JSON command.')
+                return
+            self.reply(json.dumps(result, allow_nan=False).encode(), 'application/json')
+
         def do_GET(self):
             expected = {f'127.0.0.1:{self.server.server_port}', f'localhost:{self.server.server_port}'}
             host = self.headers.get('Host', '')
@@ -163,8 +198,11 @@ def make_server(preview, port=4180):
                       '/index.html': ('index.html', 'text/html; charset=utf-8'),
                       '/viewer.js': ('viewer.js', 'text/javascript; charset=utf-8'),
                       '/dds.js': ('dds.js', 'text/javascript; charset=utf-8'),
+                      '/drive.js': ('drive.js', 'text/javascript; charset=utf-8'),
                       '/viewer.css': ('viewer.css', 'text/css; charset=utf-8')}
-            if path == '/api/scene':
+            if path == '/api/drive' and session is not None:
+                data, mime = json.dumps(session.state(include_token=True), allow_nan=False).encode(), 'application/json'
+            elif path == '/api/scene':
                 data, mime = metadata, 'application/json'
             elif path == '/geometry.bin':
                 data, mime = preview.geometry, 'application/octet-stream'
@@ -183,7 +221,10 @@ def make_server(preview, port=4180):
             else:
                 self.send_error(404)
                 return
-            self.send_response(200)
+            self.reply(data, mime)
+
+        def reply(self, data, mime, status=200):
+            self.send_response(status)
             self.send_header('Content-Type', mime)
             self.send_header('Content-Length', str(len(data)))
             self.send_header('Cache-Control', 'no-store')
