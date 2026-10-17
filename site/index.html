@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#ef4a24">
+  <meta name="description" content="openASC — начало независимого открытого проекта для контента Assetto Corsa. Текущий статус, архитектура и путь к первому заезду.">
+  <title>openASC — новый старт для знакомых трасс</title>
+  <link rel="icon" href="./favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="./style.css">
+  <script src="./config.js" defer></script>
+  <script src="./app.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">К содержимому</a>
+<header class="header wrap">
+  <a class="brand" href="#" aria-label="openASC — главная"><span class="brand-icon">↗</span>open<span>ASC</span><span class="brand-note">INDEPENDENT RACING PROJECT</span></a>
+  <nav aria-label="Основная навигация"><a href="#approach">Идея</a><a href="#roadmap">План</a><a href="#start">Начать</a></nav>
+  <a class="source-link" data-repo href="#publish">GitHub <span aria-hidden="true">↗</span></a>
+</header>
+<main id="main">
+  <section class="hero wrap" aria-labelledby="hero-title">
+    <div class="hero-copy">
+      <p class="eyebrow"><span class="dot"></span> ПРОЕКТ НА СТАРТОВОЙ РЕШЁТКЕ</p>
+      <h1 id="hero-title">Знакомые трассы.<br>Новый <em>старт.</em></h1>
+      <p class="hero-description">Открытый путь к собственному движку для контента Assetto Corsa. Изучаем форматы, строим инструменты и движемся к первому заезду.</p>
+      <div class="actions"><a class="button primary" href="#roadmap">План разработки <span aria-hidden="true">↗</span></a><a class="text-link" data-repo href="#publish">Открыть исходники <span aria-hidden="true">↗</span></a></div>
+      <p class="hero-footnote">Вдохновлено openOMSI. Создаётся с нуля.</p>
+    </div>
+    <div class="track-panel">
+      <div class="panel-top"><span>openASC / ENGINE STUDY</span><span class="outline-tag">PRE-ALPHA</span></div>
+      <svg class="circuit" viewBox="0 0 620 480" role="img" aria-labelledby="circuit-title circuit-description">
+        <title id="circuit-title">Путь к первому заезду</title><desc id="circuit-description">Концептуальная схема трассы с выделенным первым участком. Иллюстрация, не изображение работающего движка.</desc>
+        <defs><pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse"><path d="M28 0H0V28" fill="none" stroke="#ffffff" stroke-opacity=".07"/></pattern><linearGradient id="track-shade" x1="0" x2="1"><stop stop-color="#4a514e"/><stop offset="1" stop-color="#788078"/></linearGradient></defs>
+        <rect width="620" height="480" fill="url(#grid)"/>
+        <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M135 335 93 285Q72 259 96 226L164 137Q176 120 202 126L275 147Q295 151 310 133L357 76Q369 60 385 76L406 100Q414 110 405 125L368 189Q358 211 378 224L486 277Q518 294 497 322L449 386Q435 406 413 389L357 345Q339 331 318 343L246 385Q226 396 210 381L168 342Q153 327 135 335Z" stroke="#080d0b" stroke-width="33"/>
+          <path d="M135 335 93 285Q72 259 96 226L164 137Q176 120 202 126L275 147Q295 151 310 133L357 76Q369 60 385 76L406 100Q414 110 405 125L368 189Q358 211 378 224L486 277Q518 294 497 322L449 386Q435 406 413 389L357 345Q339 331 318 343L246 385Q226 396 210 381L168 342Q153 327 135 335Z" stroke="url(#track-shade)" stroke-width="20"/>
+          <path d="m135 335-42-50q-21-26 3-59l68-89q12-17 38-11" stroke="#ef4a24" stroke-width="20"/>
+          <path d="m135 335-42-50q-21-26 3-59l68-89q12-17 38-11" stroke="#ffac79" stroke-width="2"/>
+          <path d="M204 126h35l25-34h40M483 290h50l20-31M325 341l-8-62h-37" stroke="#778176" stroke-width="1"/>
+        </g>
+        <g font-family="monospace" font-size="11" fill="#aeb6ac"><text x="267" y="83">01 / CONTENT</text><text x="500" y="248">02 / SCENE</text><text x="221" y="267">03 / DRIVE</text></g>
+        <g transform="translate(113 302) rotate(-39)"><rect x="-13" y="-4" width="26" height="8" fill="#f3f3e9"/><path d="M-9-4v4m8-4v4m8-4v4M-13 0v4m8-4v4m8-4v4m8-4v4" stroke="#1a211b" stroke-width="4"/></g>
+        <circle cx="178" cy="128" r="6" fill="#fff8e8"/><circle cx="178" cy="128" r="13" fill="none" stroke="#ef4a24"/>
+        <text x="38" y="444" fill="#879287" font-family="monospace" font-size="10">CONCEPT CIRCUIT — NOT IN-GAME FOOTAGE</text>
+        <path d="M562 43v28m-14-14h28" stroke="#7e897d"/>
+      </svg>
+      <div class="panel-bottom"><div><span class="tiny">CURRENT MILESTONE</span><strong>01 <span>/ Изучение контента</span></strong></div><span class="telemetry" aria-hidden="true">▁ ▂ ▃ ▅ ▂ ▃ ▆ ▄</span></div>
+    </div>
+  </section>
+  <div class="facts wrap" aria-label="Ключевые сведения"><div><span>ОСНОВА</span><strong>Assetto Corsa <small>2014</small></strong></div><div><span>ПОДХОД</span><strong>Собственная реализация</strong></div><div><span>СЕЙЧАС ДОСТУПНО</span><strong>Инвентаризация контента</strong></div><a href="#status">Состояние проекта <span aria-hidden="true">↓</span></a></div>
+
+  <section class="section wrap approach" id="approach">
+    <div class="section-label"><span>01 / ИДЕЯ</span><span class="mini-line"></span></div>
+    <div class="approach-grid"><h2>Сохранить контент.<br>Переосмыслить<br><span class="muted">основу.</span></h2><div class="prose"><p class="lead">Что, если любимые машины и трассы получат независимую открытую основу?</p><p>openOMSI показывает подход: собственный движок, читающий контент оригинальной игры. openASC начинает исследовать такой путь для Assetto Corsa — с небольших проверяемых шагов.</p><p>Первая задача — понять структуру контента. Затем — загрузить одну сцену и построить первый заезд. Точность физики и совместимость потребуют отдельных измерений.</p><a class="underlined" href="https://github.com/openOMSI-org/openOMSI" target="_blank" rel="noopener noreferrer">Познакомиться с openOMSI <span aria-hidden="true">↗</span></a></div></div>
+  </section>
+
+  <section class="status-section" id="status"><div class="wrap status-grid"><div><p class="eyebrow light"><span class="dot"></span> ЧЕСТНО О ТЕКУЩЕМ СОСТОЯНИИ</p><h2>Это начало.<br>Не готовый симулятор.</h2><p>Сайт и инструменты уже есть. Игровой движок предстоит создать. Обнаруженный файл ещё не означает поддержку формата.</p></div><div class="status-list"><div><span class="state ready">ЕСТЬ</span><span>Сканер каталогов машин и трасс</span></div><div><span class="state ready">ЕСТЬ</span><span>Сайт, документация и проверки CI</span></div><div><span class="state planned">ДАЛЕЕ</span><span>Чтение INI / LUT и просмотр сцены</span></div><div><span class="state planned">ПЛАН</span><span>Физика, FFB, звук, AI и сеть</span></div></div></div></section>
+
+  <section class="section wrap" id="roadmap"><div class="section-label"><span>02 / ПЛАН РАЗРАБОТКИ</span><span>ОТ ФАЙЛА ДО ПЕРВОГО КРУГА</span></div><div class="section-heading"><h2>Сначала фундамент.<br>Потом — полный газ.</h2><p>Каждый этап должен закончиться проверяемым результатом. Без обещаний дат и полной совместимости заранее.</p></div>
+  <div class="roadmap">
+    <article class="road-row current"><span class="road-number">00</span><div><h3>Карта контента</h3><p>Найти машины и трассы, отметить файлы данных и сохранить локальный отчёт.</p></div><span class="road-state"><span class="dot"></span> ДОСТУПНО</span></article>
+    <article class="road-row"><span class="road-number">01</span><div><h3>Язык оригинала</h3><p>Разобрать INI и LUT. Описать форматы и проверить их на собственных примерах.</p></div><span class="road-state">СЛЕДУЮЩИЙ ШАГ</span></article>
+    <article class="road-row"><span class="road-number">02</span><div><h3>Первая сцена</h3><p>Прочитать проверенный набор моделей и материалов. Показать одну трассу в просмотрщике.</p></div><span class="road-state">ЗАПЛАНИРОВАНО</span></article>
+    <article class="road-row"><span class="road-number">03</span><div><h3>Первый заезд</h3><p>Одна машина, одна трасса, базовый ввод и собственная модель движения.</p></div><span class="road-state">ЗАПЛАНИРОВАНО</span></article>
+    <article class="road-row"><span class="road-number">04+</span><div><h3>Чувство автомобиля</h3><p>Валидация шин, подвески и FFB. Позже — расширение поддержки контента, AI и сети.</p></div><span class="road-state">ИССЛЕДОВАНИЕ</span></article>
+  </div></section>
+
+  <section class="start-section wrap" id="start"><div class="start-copy"><p class="eyebrow">03 / ПЕРВЫЙ ШАГ</p><h2>Заглянуть<br>под капот.</h2><p>Начните с инвентаризации своей установки Assetto Corsa. Сканер только проверяет наличие файлов и не изменяет игру.</p><div class="requirements"><span>Python 3.10+</span><span>Без зависимостей</span><span>Локально</span></div><a class="underlined" data-repo-path="/blob/main/README.md" href="#publish">Инструкция в README <span aria-hidden="true">↗</span></a></div><div class="terminal"><div class="terminal-header"><span><i></i><i></i><i></i></span><span>QUICK START / POWERSHELL</span></div><div class="terminal-body"><p class="code-comment"># Из корневой папки проекта</p><div class="command"><code id="scan-command">python tools/inspect_content.py ./assettocorsa</code><button class="copy" type="button" aria-label="Скопировать команду сканера" hidden>Копировать</button></div><p class="code-comment"># Сохранить отчёт отдельно от игры</p><pre><code>python tools/inspect_content.py ./assettocorsa --output reports/content.json</code></pre><div class="terminal-rule"></div><p class="terminal-note">Результат: список каталогов и наличие файлов.<br>Это не проверка игровой совместимости.</p><p id="copy-status" role="status" aria-live="polite"></p></div></div></section>
+
+  <section class="section wrap faq"><div class="section-label"><span>04 / ПЕРЕД СТАРТОМ</span><span class="mini-line"></span></div><div class="faq-grid"><h2>Важные<br>вопросы.</h2><div><details open><summary>Нужна оригинальная Assetto Corsa?</summary><p>Для исследования контента — да, собственная установленная копия. Машины, трассы, текстуры и звуки не входят в openASC. Сам сайт и тесты сканера работают без игры.</p></details><details><summary>Это мод или замена игры?</summary><p>Цель — исследование собственного независимого движка. Сейчас это основа проекта и диагностический инструмент; запускать заезды openASC пока не умеет.</p></details><details><summary>Будут работать все моды и CSP?</summary><p>Пока это не подтверждено. Поддержку каждого формата нужно реализовать и проверить. CSP, Python-приложения и плагины требуют отдельной работы.</p></details><details><summary>Как помочь проекту?</summary><p>Начните с документации и воспроизводимых описаний форматов. Для тестов используйте собственные минимальные примеры. План архитектуры доступен в репозитории.</p><a class="underlined" data-repo-path="/blob/main/docs/FEASIBILITY.md" href="#publish">Архитектура и этапы ↗</a></details></div></div></section>
+
+  <section class="publish wrap" id="publish"><div><p class="eyebrow">СОЗДАЁМ ОТКРЫТО</p><h2>Следующий круг — вместе.</h2><p>Исходники, инструменты и план разработки в одном репозитории.</p></div><a class="button dark" data-repo href="https://github.com/openASC-project/openASC">openASC на GitHub <span aria-hidden="true">↗</span></a><details class="publish-help"><summary>Как опубликовать этот сайт на github.io?</summary><p>Загрузите проект в репозиторий. В Settings → Pages выберите Source: GitHub Actions. Workflow Deploy GitHub Pages опубликует каталог site/ после push в основную ветку main или master. Подробная инструкция — docs/GITHUB_PAGES.md в репозитории.</p></details></section>
+</main>
+<footer class="wrap footer"><a class="brand" href="#">open<span>ASC</span></a><p>Независимый проект. Не связан с Kunos Simulazioni.<br>Assetto Corsa и её ресурсы принадлежат соответствующим правообладателям.</p><a href="https://github.com/openOMSI-org/openOMSI">Вдохновлено openOMSI ↗</a><span class="footer-version">FOUNDATION / 2026</span></footer>
+</body>
+</html>

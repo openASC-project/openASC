@@ -1,0 +1,7 @@
+# Local Assetto Corsa installation: never distribute game files.
+/assettocorsa/
+/reports/
+__pycache__/
+*.py[cod]
+.DS_Store
+Thumbs.db
