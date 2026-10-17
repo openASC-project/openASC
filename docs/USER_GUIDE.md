@@ -109,6 +109,32 @@ Inactive, hidden, non-renderable, empty, and later-LOD meshes are omitted from d
 
 The server binds only to 127.0.0.1 and rejects foreign Host/Origin headers. It serves the selected scene from memory without exporting assets to disk. Do not use a proxy or tunnel to expose it publicly. GitHub Pages serves documentation only and cannot access the local game installation.
 
+## Inspect a car configuration
+
+```sh
+python -m openasc car ./assettocorsa --car bmw_m3_e30
+python -m openasc car ./assettocorsa --car bmw_m3_e30 --compound 0
+```
+
+The car is a folder under `content/cars`. The command reads the supported vehicle configuration fields and the referenced engine torque LUT. It reports mass, inertia dimensions, graphics offsets, steering, wheelbase and axle geometry, selected tyre dimensions, gear ratios, brakes and the first visual model reference. Model validation at this step is header-only. The report has `scope: vehicle_configuration_subset` and `simulation_ready: false`; successful parsing does not establish driving or physics compatibility.
+
+By default an existing `data/` directory is selected as a whole; otherwise the ordinary `data.acd` archive is read in memory using the original car folder identifier. Files are never extracted or modified. If both sources exist, the selected source is diagnosed. Use `--data-source packed` or `--data-source unpacked` to choose explicitly. Missing files in the selected directory do not fall back to the archive. Renaming a packed car directory can change its data key. Other protected/archive variants are unsupported.
+
+Without `--compound`, the reader requires the explicit default index in `tyres.ini`. Zero selects FRONT/REAR; another supported index selects FRONT_n/REAR_n. A missing requested compound is an error, not a fallback. Known unimplemented fields and turbo presence are diagnosed; recorded coefficients do not execute original physics.
+
+## Inspect a spawn and wheel footprint
+
+```sh
+python -m openasc spawns ./assettocorsa --track drift
+python -m openasc place ./assettocorsa --car bmw_m3_e30 --track drift --spawn AC_PIT_0
+```
+
+`spawns` lists supported active PIT, START and HOTLAP_START marker transforms with source positions and axes. `place` combines a selected car configuration, that spawn and the physical ground reader, probing vertically beneath the four wheel footprint locations. Both accept `--layout NAME`; `place` also accepts the car's compound and data-source options. The documented source convention is +X left, +Y up and +Z forward, checked against the local BMW wheel-node positions and the track marker basis.
+
+Placement probes start in the marker's footprint plane with a fixed 20 metre downward range. They do not use BASEY or tyre radius to solve a chassis position. Four hits set `all_wheels_supported: true`; the separate `has_errors` field includes problems elsewhere in the inspected scene. In local Drift, AC_PIT_0 has four ROAD contacts, while a duplicate AC_START_3 remains an explicit catalog error. The command therefore exits with code 2 for that inspected scene even though the selected footprint has support. No implicit start-slot choice resolves duplicate names.
+
+This is a geometric preflight, not a playable session. Suspension equilibrium, tyre forces, body clearance, walls, vehicle graphics alignment and motion remain unimplemented.
+
 ## Query physical ground support
 
 ```sh

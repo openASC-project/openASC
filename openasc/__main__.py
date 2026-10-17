@@ -31,6 +31,26 @@ def main(argv=None):
     ground.add_argument('--encoding', default='utf-8-sig')
     ground.add_argument('--at', nargs=3, type=float, metavar=('X', 'Y', 'Z'))
     ground.add_argument('--distance', type=float, default=1000.)
+    car = commands.add_parser('car', help='Inspect the supported vehicle configuration subset')
+    car.add_argument('installation')
+    car.add_argument('--car', required=True)
+    car.add_argument('--compound', type=int)
+    car.add_argument('--data-source', choices=('auto', 'packed', 'unpacked'), default='auto')
+    car.add_argument('--encoding', default='utf-8-sig')
+    spawns = commands.add_parser('spawns', help='Inspect active static track spawn transforms')
+    spawns.add_argument('installation')
+    spawns.add_argument('--track', required=True)
+    spawns.add_argument('--layout')
+    spawns.add_argument('--encoding', default='utf-8-sig')
+    placement = commands.add_parser('place', help='Check four-wheel ground support beneath a selected car spawn')
+    placement.add_argument('installation')
+    placement.add_argument('--car', required=True)
+    placement.add_argument('--track', required=True)
+    placement.add_argument('--spawn', default='AC_PIT_0')
+    placement.add_argument('--layout')
+    placement.add_argument('--compound', type=int)
+    placement.add_argument('--data-source', choices=('auto', 'packed', 'unpacked'), default='auto')
+    placement.add_argument('--encoding', default='utf-8-sig')
     viewer = commands.add_parser('view', help='Start a local-only static geometry viewer')
     viewer.add_argument('installation')
     viewer.add_argument('--track', required=True)
@@ -50,6 +70,16 @@ def main(argv=None):
                 result['sample'] = {'x': args.sample, 'y': table.sample(args.sample), 'boundary': 'clamp'}
         elif args.command == 'kn5':
             result = load_kn5(args.file).summary()
+        elif args.command == 'spawns':
+            from .placement import inspect_spawns
+            result = inspect_spawns(args.installation, args.track, args.layout, args.encoding)
+        elif args.command == 'place':
+            from .placement import inspect_placement
+            result = inspect_placement(args.installation, args.car, args.track, args.spawn, args.layout,
+                                       args.compound, args.data_source, args.encoding)
+        elif args.command == 'car':
+            from .vehicle import load_vehicle
+            result = load_vehicle(args.installation, args.car, args.compound, args.data_source, args.encoding).summary()
         elif args.command == 'ground':
             from .ground import load_ground
             ground = load_ground(args.installation, args.track, args.layout, args.encoding)

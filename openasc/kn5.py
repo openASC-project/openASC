@@ -1,6 +1,6 @@
 """Bounded KN5 v5/v6 static geometry reader. No assets are extracted to disk."""
 from array import array
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 import math
 from pathlib import Path
 import struct
@@ -107,6 +107,15 @@ class Mesh:
 
 
 @dataclass
+class NodeTransform:
+    name: str
+    kind: int
+    world: tuple
+    active: bool
+    parent: int = -1
+
+
+@dataclass
 class Kn5Scene:
     source: str
     version: int
@@ -115,6 +124,7 @@ class Kn5Scene:
     meshes: list
     node_count: int
     diagnostics: list
+    node_transforms: list = field(default_factory=list)
 
     def summary(self):
         return {'source': self.source, 'version': self.version, 'scope': 'static_geometry_preview',
@@ -182,11 +192,11 @@ def _load(r):
         warning('textures_not_rendered', f'This structural inspection indexes {len(textures)} embedded textures without decoding them. The local viewer separately loads supported diffuse resources.')
     if materials:
         warning('material_preview', 'This structural inspection records material definitions without executing original shaders. See the local viewer diagnostics for supported preview behavior.')
-    meshes = []
+    meshes, node_transforms = [], []
     nodes = 0
     geometry_bytes = 0
 
-    def node(parent, ancestor_active, depth):
+    def node(parent, ancestor_active, depth, parent_index=-1):
         nonlocal nodes, geometry_bytes
         nodes += 1
         if nodes > 200_000 or depth > 128:
@@ -248,10 +258,12 @@ def _load(r):
                 meshes.append(Mesh(name, material, world, raw, indices, active, visible, renderable, lod, bounds))
         else:
             r.fail('kn5_node_type', f'Unsupported node type {kind} on {name!r}; parsing stops instead of guessing its length.')
+        node_index = len(node_transforms)
+        node_transforms.append(NodeTransform(name, kind, world, active, parent_index))
         for _ in range(children):
-            node(world, active, depth + 1)
+            node(world, active, depth + 1, node_index)
 
     node(IDENTITY, True, 0)
     if r.offset != r.size:
         r.fail('kn5_trailing_data', f'{r.size - r.offset} unexplained trailing bytes remain.')
-    return Kn5Scene(r.source, version, textures, materials, meshes, nodes, diagnostics)
+    return Kn5Scene(r.source, version, textures, materials, meshes, nodes, diagnostics, node_transforms)

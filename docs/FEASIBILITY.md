@@ -6,7 +6,7 @@ An independent engine that reads Assetto Corsa content is a technically plausibl
 
 ## Current state
 
-Implemented: inventory, INI/LUT readers, static model diagnostics, supported KN5 geometry/hierarchy/material definitions, and a first local WebGL viewer with camera and mesh inspection. Original fixtures, English documentation, and the GitHub Pages site accompany the implementation. Supported diffuse DDS textures, approximate alpha/depth behavior, typed surface definitions and BVH-accelerated vertical ground support queries are also implemented. Not implemented: original shaders, full multilayer/detail/normal rendering, vehicle simulation, wheel input, force feedback, audio, or networking.
+Implemented: inventory, INI/LUT readers, static model diagnostics, supported KN5 geometry/hierarchy/material definitions, and a first local WebGL viewer with camera and mesh inspection. Original fixtures, English documentation, and the GitHub Pages site accompany the implementation. Supported diffuse DDS textures, approximate alpha/depth behavior, typed surface definitions and BVH-accelerated vertical ground support queries, ordinary ACD data reading, a typed vehicle configuration subset and geometric spawn placement preflights are also implemented. Not implemented: original shaders, full multilayer/detail/normal rendering, vehicle simulation, wheel input, force feedback, audio, or networking.
 
 The local installation includes SDK documentation and UDP server examples. These are research starting points, not resources distributed by openASC.
 
@@ -23,7 +23,7 @@ The local installation includes SDK documentation and UDP server examples. These
 
 ## Immediate work
 
-The initial configuration subset, resource manifest, and first geometry viewer are implemented and verified with the local Drift track. Supported embedded diffuse textures now render through tested compressed and software paths. Typed track surface definitions and static downward ground queries are now tested on original fixtures and local Drift, including hidden physical roads. Next, load a supported vehicle configuration, preserve spawn transforms and validate their orientation, and connect ground queries to an independently implemented first driving loop. Wall response and tyre dynamics remain required work; multilayer/detail/normal material behavior remains separate ongoing renderer work. Keep unsupported features visible in diagnostics and preserve source locations in errors.
+The initial configuration subset, resource manifest, and first geometry viewer are implemented and verified with the local Drift track. Supported embedded diffuse textures now render through tested compressed and software paths. Typed track surface definitions and static downward ground queries are now tested on original fixtures and local Drift, including hidden physical roads. A local BMW M3 E30 configuration and Drift AC_PIT_0 footprint now load, with four supported ROAD contacts and an explicit error for a separate duplicate start slot. Source basis/left-right conventions are checked against original synthetic fixtures and the local wheel nodes. Next, connect these inputs to an independently implemented fixed-step first driving loop, solve chassis placement and validate steering/motion against explicit expectations. Wall response and tyre dynamics remain required work; multilayer/detail/normal material behavior remains separate ongoing renderer work. Keep unsupported features visible in diagnostics and preserve source locations in errors.
 
 ## Long-term scope
 
