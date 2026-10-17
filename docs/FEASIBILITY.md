@@ -16,7 +16,7 @@ The project target is 1:1 behavioral compatibility with Assetto Corsa (2014), ra
 
 Use the installed original game as the comparison reference. Record its build, car/track configuration, setup, assists, conditions, device settings and test inputs with each comparison. Compare acceleration and braking traces, steering and yaw response, suspension travel and tyre behavior, contact response, FFB output, matched-camera images, audio events, AI decisions and protocol behavior. Declare per-test tolerances and unexplained differences; passing a simplified model's own fixtures does not establish parity. Exact reproduction remains an unproven objective, without a guaranteed completion date.
 
-The production engine direction is C++. Python remains useful for content tools, experiments and reference comparisons. The next architectural milestone is a native fixed-step simulation and platform foundation, followed by subsystem comparisons against the original. Porting the current approximate force equations alone would not meet the compatibility target.
+The production engine direction is Rust with wgpu rendering. Python remains useful for content tools, experiments and reference comparisons. The next architectural milestone is a native fixed-step simulation and platform foundation, followed by subsystem comparisons against the original. Porting the current approximate force equations alone would not meet the compatibility target.
 
 ## Development stages
 
