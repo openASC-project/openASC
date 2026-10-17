@@ -1,10 +1,7 @@
 use asc_scene::load;
 use asc_test_support as fixture;
 use glam::Mat4;
-use std::{
-    path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::path::PathBuf;
 
 struct Directory(PathBuf);
 impl Drop for Directory {
@@ -13,11 +10,7 @@ impl Drop for Directory {
     }
 }
 fn directory() -> Directory {
-    let serial = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let path = std::env::temp_dir().join(format!("openasc-scene-{}-{serial}", std::process::id()));
+    let path = fixture::temp_path("scene");
     std::fs::create_dir(&path).unwrap();
     let mut mesh = fixture::mesh(
         &[[0., 0., 0.], [1., 0., 0.], [0., 0., 1.]],

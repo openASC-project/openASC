@@ -2,11 +2,7 @@ use asc_kn5 as kn5;
 use asc_render::resources::texture as textures;
 use asc_test_support as support;
 use glam::Mat4;
-use std::{
-    io::Cursor,
-    path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::{io::Cursor, path::PathBuf};
 
 struct Source(PathBuf);
 impl Drop for Source {
@@ -43,14 +39,7 @@ fn source() -> (Source, kn5::Scene) {
         6,
         &dds,
     );
-    let serial = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let path = std::env::temp_dir().join(format!(
-        "openasc-native-textures-{}-{serial}.kn5",
-        std::process::id()
-    ));
+    let path = support::temp_path("native-textures").with_extension("kn5");
     std::fs::write(&path, &bytes).unwrap();
     let scene = kn5::parse(Cursor::new(bytes)).unwrap_or_else(|e| panic!("{e}"));
     (Source(path), scene)
@@ -108,11 +97,19 @@ fn bad_embedded_ranges_and_source_budget_fall_back_without_large_allocations() {
     scene.textures[0].offset = u32::MAX as u64;
     let r = textures::load(&scene, &source.0);
     assert!(r.textures.is_empty());
-    assert!(r.diagnostics[0].contains("declared range"));
+    assert!(
+        r.diagnostics[0].contains("declared range"),
+        "{:?}",
+        r.diagnostics
+    );
     scene.textures[0].offset = u64::MAX;
     let r = textures::load(&scene, &source.0);
     assert!(r.textures.is_empty());
-    assert!(r.diagnostics[0].contains("declared range"));
+    assert!(
+        r.diagnostics[0].contains("declared range"),
+        "{:?}",
+        r.diagnostics
+    );
 }
 
 #[test]

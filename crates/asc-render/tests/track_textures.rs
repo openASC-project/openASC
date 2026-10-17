@@ -1,10 +1,7 @@
 use asc_render::load_track_textures;
 use asc_test_support as fixture;
 use glam::Mat4;
-use std::{
-    path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::path::PathBuf;
 
 struct Directory(PathBuf);
 impl Drop for Directory {
@@ -13,14 +10,7 @@ impl Drop for Directory {
     }
 }
 fn track() -> (Directory, asc_scene::Track) {
-    let serial = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let path = std::env::temp_dir().join(format!(
-        "openasc-track-textures-{}-{serial}",
-        std::process::id()
-    ));
+    let path = fixture::temp_path("track-textures");
     std::fs::create_dir(&path).unwrap();
     let mesh = fixture::mesh(
         &[[0., 0., 0.], [1., 0., 0.], [0., 0., 1.]],

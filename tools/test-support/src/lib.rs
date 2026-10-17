@@ -1,5 +1,24 @@
 //! Original generated fixtures. No game or SDK bytes are included.
 use glam::Mat4;
+use std::{
+    path::PathBuf,
+    sync::atomic::{AtomicU64, Ordering},
+    time::{SystemTime, UNIX_EPOCH},
+};
+
+/// Distinct within a test process even when several calls see the same clock tick.
+pub fn temp_path(label: &str) -> PathBuf {
+    static SERIAL: AtomicU64 = AtomicU64::new(0);
+    let counter = SERIAL.fetch_add(1, Ordering::Relaxed);
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos();
+    std::env::temp_dir().join(format!(
+        "openasc-{label}-{}-{stamp}-{counter}",
+        std::process::id()
+    ))
+}
 
 /// Original 4x4 single-colour BC1 DDS, with no game-derived bytes.
 pub fn bc1(colour: u16) -> Vec<u8> {

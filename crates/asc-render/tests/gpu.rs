@@ -4,10 +4,7 @@ use asc_render::Resources;
 use asc_test_support as support;
 use asc_texture as dds;
 use glam::{Mat4, Vec3};
-use std::{
-    io::Cursor,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::io::Cursor;
 
 #[test]
 #[ignore = "Requires a native GPU adapter or software Vulkan; run explicitly in GPU CI."]
@@ -50,14 +47,7 @@ fn native_gpu_draws_geometry_obeys_depth_and_unpads_readback() {
         "Depth test center: {pixel:?}"
     );
     assert_eq!(pixel[3], 255);
-    let serial = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let path = std::env::temp_dir().join(format!(
-        "openasc-native-gpu-{}-{serial}.png",
-        std::process::id()
-    ));
+    let path = support::temp_path("native-gpu").with_extension("png");
     render::save_png(&frame, &path).unwrap();
     assert!(
         render::save_png(&frame, &path).is_err(),

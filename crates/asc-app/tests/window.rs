@@ -1,9 +1,6 @@
 use asc_test_support as fixture;
 use glam::Mat4;
-use std::{
-    process::Command,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::process::Command;
 
 #[test]
 #[ignore = "Requires a desktop display and GPU/software Vulkan; Linux CI uses Xvfb."]
@@ -18,14 +15,7 @@ fn native_window_presents_a_composed_models_ini_scene() {
 }
 
 fn run_window(composed: bool) {
-    let serial = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
-    let path = std::env::temp_dir().join(format!(
-        "openasc-window-{}-{serial}.kn5",
-        std::process::id()
-    ));
+    let path = fixture::temp_path("window").with_extension("kn5");
     let mesh = fixture::mesh(
         &[[0., 0., 0.], [1., 0., 0.], [0., 0., 1.]],
         &[0, 2, 1],
