@@ -24,6 +24,13 @@ def main(argv=None):
     scene.add_argument('--encoding', default='utf-8-sig')
     kn5 = commands.add_parser('kn5', help='Inspect supported KN5 static geometry without exporting assets')
     kn5.add_argument('file')
+    ground = commands.add_parser('ground', help='Inspect physical surfaces and optionally probe the ground vertically')
+    ground.add_argument('installation')
+    ground.add_argument('--track', required=True)
+    ground.add_argument('--layout')
+    ground.add_argument('--encoding', default='utf-8-sig')
+    ground.add_argument('--at', nargs=3, type=float, metavar=('X', 'Y', 'Z'))
+    ground.add_argument('--distance', type=float, default=1000.)
     viewer = commands.add_parser('view', help='Start a local-only static geometry viewer')
     viewer.add_argument('installation')
     viewer.add_argument('--track', required=True)
@@ -43,6 +50,13 @@ def main(argv=None):
                 result['sample'] = {'x': args.sample, 'y': table.sample(args.sample), 'boundary': 'clamp'}
         elif args.command == 'kn5':
             result = load_kn5(args.file).summary()
+        elif args.command == 'ground':
+            from .ground import load_ground
+            ground = load_ground(args.installation, args.track, args.layout, args.encoding)
+            result = ground.summary()
+            if args.at is not None:
+                result['probe'] = {'origin': args.at, 'max_distance': args.distance,
+                                   'hit': ground.probe(args.at, args.distance)}
         elif args.command == 'view':
             from .viewer import serve_preview
             if not 0 <= args.port <= 65535:

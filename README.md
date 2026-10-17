@@ -9,7 +9,7 @@
 
 An independent open-source engine project for **Assetto Corsa (2014)** content, inspired by [openOMSI](https://github.com/openOMSI-org/openOMSI).
 
-**Status: first static geometry viewer. There is no playable driving engine yet.** The repository contains local inventory, INI/LUT readers, a bounded KN5 static geometry importer, an interactive local WebGL viewer, original tests, and a documentation website. Supported embedded diffuse textures, alpha test, and approximate transparency are available. Original shaders and vehicle simulation are not implemented.
+**Status: first static geometry viewer. There is no playable driving engine yet.** The repository contains local inventory, INI/LUT readers, a bounded KN5 static geometry importer, an interactive local WebGL viewer, original tests, and a documentation website. Supported embedded diffuse textures, alpha test, approximate transparency, typed track surfaces and vertical ground support queries are available. Original shaders and vehicle simulation are not implemented.
 
 [Website](https://openasc-project.github.io/openASC/) · [User guide](docs/USER_GUIDE.md) · [Compatibility record](docs/FORMATS.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/FEASIBILITY.md)
 
@@ -23,6 +23,7 @@ python tools/inspect_content.py ./assettocorsa --output reports/content.json
 python -m openasc scene ./assettocorsa --track drift
 python -m openasc scene ./assettocorsa --track ks_barcelona --layout layout_gp
 python -m openasc view ./assettocorsa --track drift
+python -m openasc ground ./assettocorsa --track drift --at 0 100 0 --distance 150
 python -m unittest discover -s tests -v
 ```
 
@@ -64,7 +65,9 @@ assettocorsa/             Local game installation, ignored by Git
 
 ## Next milestone
 
-Move toward a first drive with validated road surfaces, vehicle configuration, and model rotation conventions, while improving multilayer/detail/normal material fidelity. Supported DDS diffuse textures are now available in the first viewer. Static KN5 geometry, hierarchy, and material definitions are read; unsupported features are diagnosed. Vehicle physics, force feedback, AI, audio, and networking are separate later stages. Full mod compatibility, CSP support, and exact original behavior are not established.
+Typed surface definitions and BVH-accelerated vertical ground queries are available through `ground`. This includes supported hidden road meshes and returns geometric height, an upward normal and source surface metadata. The path is tested on original fixtures and local Drift. It does not yet simulate tyres, suspension, walls or vehicle motion.
+
+Move toward a first drive with supported vehicle configuration, spawn transforms, independently implemented vehicle motion and model rotation conventions, while improving multilayer/detail/normal material fidelity. Supported DDS diffuse textures are now available in the first viewer. Static KN5 geometry, hierarchy, and material definitions are read; unsupported features are diagnosed. Vehicle physics, force feedback, AI, audio, and networking are separate later stages. Full mod compatibility, CSP support, and exact original behavior are not established.
 
 ## License and independence
 

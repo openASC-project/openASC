@@ -11,6 +11,8 @@ The implemented project contains Python content readers, a local static geometry
 | `openasc/scene.py` | Confined static model references, transforms, and KN5 header inspection |
 | `openasc/kn5.py` | Bounded KN5 parsing, static meshes, node transforms, material definitions, and embedded texture offsets |
 | `openasc/dds.py` | DDS validation, mip descriptors, and bounded embedded texture reads |
+| `openasc/surfaces.py` | Typed surface definitions, explicit file precedence, and conservative physical mesh naming |
+| `openasc/ground.py` | World-space ground triangles, a BVH, and vertical geometric support queries |
 | `openasc/viewer.py` | Local scene assembly and loopback-only preview server |
 | `viewer/` | WebGL 2 diffuse preview, portable DDS pixel decoding, camera controls, and mesh/material inspection |
 | `openasc/__main__.py` | JSON diagnostics through `python -m openasc` |
@@ -37,6 +39,10 @@ Keep file-format readers separate from rendering and physics so each can be test
 Python keeps content loading and the local HTTP server dependency-free. The first inspection renderer uses browser-native WebGL 2 with original JavaScript. This does not select a production simulation stack; Rust with wgpu remains one candidate. No Rust engine currently exists in this repository.
 
 The local viewer receives a metadata manifest and aligned vertex/index buffers from its loopback server. Static vertices retain their original interleaved format. Node transforms are composed on the CPU and applied per draw on the GPU. The binary importer indexes texture offsets without extracting assets. The preview then validates and loads referenced embedded diffuse textures into separate bounded memory buffers. Only numeric texture IDs are exposed by same-origin local routes; no disk path or resource export endpoint is exposed. The browser uses S3TC uploads when possible, with an independent RGBA software fallback. Authored compressed mip chains are retained; raw texture base levels use GPU-generated mipmaps. The public documentation site and local viewer are separate applications.
+
+## Ground support queries
+
+The first contact preparation path is separate from rendering. `ground` loads system and selected track surface definitions, includes supported active physical meshes even when hidden/non-renderable, transforms their vertices, and builds a median BVH. A downward probe returns the nearest triangle within its finite distance, an upward geometric normal, and the source surface definition. It does not execute a simulation step, tyre forces, procedural surface bumps or wall response. Surface friction is recorded input for later physics, not a validated grip model.
 
 ## Website
 
