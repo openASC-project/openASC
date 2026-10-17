@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 160" role="img" aria-labelledby="title desc">
+  <title id="title">openASC</title>
+  <desc id="desc">Original open circuit and forward arrow emblem. MIT licensed, copyright 2026 openASC contributors.</desc>
+  <g fill="#ee2534"><path d="M130 24H66L20 104L38 136H94L110 108H56L52 101L80 52H114Z"/><path d="M106 68H130L123 54L155 80L118 106L126 92H92Z"/></g><g transform="translate(24 0) skewX(-10)"><g fill="none" stroke="#bdc2cc" stroke-width="9" stroke-linecap="square" stroke-linejoin="round">
+<path d="M211 72H225Q236 72 236 84V99Q236 112 224 112H211Q199 112 199 100V85Q199 72 211 72Z"/>
+<path d="M254 132V72H277Q290 72 290 85V99Q290 112 277 112H254"/>
+<path d="M311 94H347V85Q347 72 334 72H324Q311 72 311 85V100Q311 112 324 112H346"/>
+<path d="M367 112V72H390Q403 72 403 85V112"/>
+</g>
+<g fill="#f4f5f7" fill-rule="evenodd">
+<path d="M431 112L465 42H490L505 112H485L482 96H458L451 112ZM465 80H479L475 59Z"/>
+<path d="M527 42H581V60H541L538 68L567 76Q579 80 575 94L569 112H512V94H552L555 86L526 78Q515 74 520 60Z"/>
+<path d="M607 42H659L655 60H617L608 94H647L643 112H591Q584 112 587 100L600 52Q602 42 607 42Z"/>
+</g></g>
+</svg>

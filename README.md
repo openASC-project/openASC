@@ -1,5 +1,12 @@
 # openASC
 
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="site/brand/openasc-dark.svg">
+  <img src="site/brand/openasc-light.svg" alt="openASC — open circuit and forward arrow" width="520">
+</picture>
+
+[Logo source files and usage](site/brand/README.md) · Artwork licensed under [MIT](LICENSE).
+
 An independent open-source engine project for **Assetto Corsa (2014)** content, inspired by [openOMSI](https://github.com/openOMSI-org/openOMSI).
 
 **Status: first static geometry viewer. There is no playable driving engine yet.** The repository contains local inventory, INI/LUT readers, a bounded KN5 static geometry importer, an interactive local WebGL viewer, original tests, and a documentation website. Supported embedded diffuse textures, alpha test, and approximate transparency are available. Original shaders and vehicle simulation are not implemented.

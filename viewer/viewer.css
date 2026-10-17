@@ -4,6 +4,7 @@ body { margin: 0; }
 header { height: 60px; display: flex; gap: 25px; align-items: center; padding: 0 24px; border-top: 3px solid #df1826; border-bottom: 1px solid #363942; background: #1c1e24; }
 .brand { font-style: italic; font-weight: 850; font-size: 24px; color: #fff; text-decoration: none; letter-spacing: -1px; }
 .brand span { color: #ee2534; font-size: 1.4em; }
+.brand img { display: block; width: 170px; height: 40px; }
 .header-label { font-size: 10px; letter-spacing: 2px; color: #b6b9c4; }
 #track { margin-left: auto; font-size: 13px; }
 main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; height: calc(100dvh - 60px); }

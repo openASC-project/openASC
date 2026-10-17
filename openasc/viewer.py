@@ -174,6 +174,9 @@ def make_server(preview, port=4180):
                     self.send_error(404)
                     return
                 data, mime = preview.textures[index].data, 'application/octet-stream'
+            elif path == '/brand.svg':
+                data = (ASSETS.parent / 'site/brand/openasc-dark.svg').read_bytes()
+                mime = 'image/svg+xml'
             elif path in routes:
                 file, mime = routes[path]
                 data = (ASSETS / file).read_bytes()
