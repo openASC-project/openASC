@@ -43,7 +43,7 @@ The current native scope is a static KN5 or an explicit static scene configurati
 
 Rendering includes approximate opaque, alpha-test and straight-alpha blend states, material opacity, basic lighting and depth modes. Add `--diagnostic` to skip texture loading for comparison; it can be combined with `--fallback`. Stdout includes uploaded/compressed texture counts, upload payload bytes, draw-state counts, resource diagnostics and texture metadata. The bc_enabled field reports whether BC support was enabled on the requested device. Add --rgba-textures to force software decoding of retained BC sources for comparison; unsupported/disabled BC falls back within the same bounded upload budget. Invalid/missing/ambiguous resources use diagnostic colours with an explanation. Inspect both scene and render diagnostics.
 
-Original shaders, multilayer/detail/normal maps, alpha-to-coverage and shadows are not reproduced. In Drift, grass remains visibly white/stippled because its original material behavior is unsupported. Transparent intersections, colour/lighting and coplanar surfaces remain approximate. Skinned meshes are structurally read and omitted. Dynamic objects/LOD, nonzero model rotations, native vehicle simulation and FFB are not implemented. Use the existing browser path below for keyboard-driving features.
+The native renderer reconstructs the base colour of ksMultilayer, ksMultilayer_objsp and ksMultilayer_fresnel_nm using their mask/detail inputs. Original normal maps, Fresnel/specular lighting, alpha-to-coverage and shadows remain incomplete. Grass now receives detail colour, but stippling, colour/lighting and coplanar artifacts remain unvalidated. Transparent intersections, colour/lighting and coplanar surfaces remain approximate. Skinned meshes are structurally read and omitted. Dynamic objects/LOD, nonzero model rotations, native vehicle simulation and FFB are not implemented. Use the existing browser path below for keyboard-driving features.
 
 ## Native static scene configuration
 
@@ -58,7 +58,7 @@ cargo run --locked -p asc-app -- view ./assettocorsa/content/tracks/ks_barcelona
 
 Only `MODEL_n` sections are assembled, in declaration order. Each requires `FILE`, `POSITION` and `ROTATION`. Zero rotation and finite translations within the supported world range are implemented; nonzero rotations fail explicitly until their original convention is validated. Models resolve relative to the selected configuration's directory. Windows/Unix absolute paths, drives, streams, parent traversal and symlinks resolving outside that directory are rejected. Missing/invalid static models fail the entire load. Dynamic sections and unknown keys are omitted with diagnostics.
 
-The native manifest reports each source model's version, position and material/texture ranges. Composed geometry uses version `0` as a composition marker, not a KN5 format version. Textures resolve from each model's own embedded table; original shared/cross-model texture precedence is unvalidated. Source, retained texture storage and upload payload budgets apply to the whole scene. Resources beyond them use diagnostic colours and report the reason. Magione now loads all 44 diffuse resources on the verified BC-capable adapter. The RGBA fallback still reaches the upload budget; original grass/material behavior remains visibly incomplete. Original source files remain unchanged.
+The native manifest reports each source model's version, position and material/texture ranges. Composed geometry uses version `0` as a composition marker, not a KN5 format version. Textures resolve from each model's own embedded table; original shared/cross-model texture precedence is unvalidated. Source, retained texture storage and upload payload budgets apply to the whole scene. Resources beyond them use diagnostic colours and report the reason. Magione now loads all 44 diffuse resources on the verified BC-capable adapter. The RGBA fallback still reaches the upload budget; full original grass/material behavior remains unvalidated; see the multilayer base-colour scope below. Original source files remain unchanged.
 
 Native text inspection is also available without a GPU:
 
@@ -70,6 +70,14 @@ cargo run --locked -p asc-app -- lut ./assettocorsa/content/cars/CAR/data/CURVE.
 Replace the LUT example with an existing unpacked file; the native path does not read ACD archives yet. Native text input is UTF-8 with an optional BOM, with strict duplicate/quote checks and source lines. LUT interpolation is linear with clamped endpoints and finite-number/range checks. Legacy encodings, includes and inline expressions are unsupported. The Python research tools retain their separate explicit encoding support.
 
 ## Native desktop window
+
+The native `ksMultilayer`, `ksMultilayer_objsp` and `ksMultilayer_fresnel_nm` colour path uses txMask plus four detail textures and their recorded scales. Missing/invalid inputs fall back to diffuse preview with a diagnostic. `multilayer_draws` counts enabled draws. Original normal/Fresnel/specular lighting and colour-space parity remain unvalidated; see the [material scope](FORMATS.md#native-multilayer-base-colour).
+
+Inspect full properties and texture slots without rendering:
+
+```sh
+cargo run --locked -p asc-app -- materials ./assettocorsa/content/tracks/drift/models.ini
+```
 
 ```sh
 cargo run --locked -p asc-app -- view ./assettocorsa/content/tracks/drift/drift.kn5

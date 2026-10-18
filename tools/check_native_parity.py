@@ -23,6 +23,16 @@ def compare(native, path):
     parsed = load_kn5(path)
     result = subprocess.run([str(native), 'inspect', str(path)], capture_output=True, text=True, check=True)
     report = json.loads(result.stdout)
+    material_result = subprocess.run([str(native), 'materials', str(path)], capture_output=True, text=True, check=True)
+    materials = json.loads(material_result.stdout)['materials']
+    for a, b in zip(parsed.materials, materials, strict=True):
+        if (a['name'], a['shader'], a['textures']) != (b['name'], b['shader'], b['mappings']):
+            raise AssertionError(f'{path.name}: different material mappings')
+        if a['properties'].keys() != b['properties'].keys():
+            raise AssertionError(f'{path.name}: different shader property names')
+        for name, values in a['properties'].items():
+            if len(values) != len(b['properties'][name]) or any(not math.isclose(x, y, rel_tol=1e-6, abs_tol=1e-6) for x, y in zip(values, b['properties'][name])):
+                raise AssertionError(f'{path.name}: different property {name}')
     expected = {'version': parsed.version, 'textures': len(parsed.textures), 'materials': len(parsed.materials),
                 'nodes': parsed.node_count, 'static_meshes': len(parsed.meshes),
                 'skinned_meshes': sum(n.kind == 3 for n in parsed.node_transforms)}

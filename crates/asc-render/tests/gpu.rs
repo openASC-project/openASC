@@ -109,6 +109,7 @@ fn texture(width: u32, height: u32, pixels: Vec<u8>) -> dds::Texture {
 }
 fn resources(colour: [u8; 4]) -> Resources {
     Resources {
+        material_layers: Vec::new(),
         allow_bc: false,
         textures: vec![texture(1, 1, colour.to_vec())],
         material_textures: vec![Some(0)],
@@ -139,6 +140,7 @@ fn pixel<'a>(frame: &'a render::Frame, scene: &kn5::Scene, point: Vec3) -> &'a [
 fn native_gpu_samples_uv_without_vertical_flip() {
     let scene = plane_scene(&[0.]);
     let r = Resources {
+        material_layers: Vec::new(),
         allow_bc: false,
         textures: vec![texture(
             2,
@@ -289,6 +291,7 @@ fn native_gpu_sorts_transparency_by_camera_depth_independently_of_source_order()
         m.blend = 1;
     }
     let r = Resources {
+        material_layers: Vec::new(),
         allow_bc: false,
         textures: vec![
             texture(1, 1, vec![0, 255, 0, 128]),
@@ -339,6 +342,7 @@ fn bc_upload_and_no_bc_device_fallback_preserve_colour_alpha_and_mip_tails() {
                 }
             }
             let mut r = Resources {
+                material_layers: Vec::new(),
                 textures: vec![dds::prepare(&data, 1024).unwrap()],
                 material_textures: vec![Some(0)],
                 diagnostics: Vec::new(),
@@ -381,4 +385,93 @@ fn bc_upload_and_no_bc_device_fallback_preserve_colour_alpha_and_mip_tails() {
             }
         }
     }
+}
+
+fn set_layers(scene: &mut kn5::Scene, shader: &str) {
+    let m = &mut scene.materials[0];
+    m.shader = shader.into();
+    for name in ["multR", "multG", "multB", "multA", "magicMult"] {
+        let mut values = [0.; 10];
+        values[..3].copy_from_slice(&[1., 1., 1.]);
+        m.properties.insert(name.into(), values);
+    }
+}
+fn layer_resources(mask: [u8; 4]) -> Resources {
+    Resources {
+        textures: vec![
+            texture(1, 1, vec![255; 4]),
+            texture(1, 1, mask.to_vec()),
+            texture(1, 1, vec![255, 0, 0, 255]),
+            texture(1, 1, vec![0, 255, 0, 255]),
+            texture(1, 1, vec![0, 0, 255, 255]),
+            texture(1, 1, vec![255; 4]),
+        ],
+        material_textures: vec![Some(0)],
+        material_layers: vec![Some([1, 2, 3, 4, 5])],
+        diagnostics: Vec::new(),
+        allow_bc: false,
+    }
+}
+#[test]
+#[ignore = "Requires native GPU or software Vulkan; run explicitly in GPU CI."]
+fn multilayer_gpu_uses_linear_unnormalized_rgba_weights_and_magic_gain() {
+    let mut scene = plane_scene(&[0.]);
+    let white = frame(&scene, &resources([255; 4]));
+    let reference = pixel(&white, &scene, Vec3::ZERO)[0] as f64 / 255.;
+    let light = if reference <= 0.04045 {
+        reference / 12.92
+    } else {
+        ((reference + 0.055) / 1.055).powf(2.4)
+    };
+    set_layers(&mut scene, "ksMultilayer");
+    scene.materials[0].properties.get_mut("magicMult").unwrap()[0] = 0.5;
+    for mask in [
+        [255, 0, 0, 0],
+        [0, 255, 0, 0],
+        [0, 0, 255, 0],
+        [0, 0, 0, 255],
+        [128, 64, 32, 16],
+        [0; 4],
+    ] {
+        let image = frame(&scene, &layer_resources(mask));
+        assert_eq!(image.report.multilayer_draws, 1);
+        let p = pixel(&image, &scene, Vec3::ZERO);
+        for c in 0..3 {
+            let linear = light * (mask[c] as f64 + mask[3] as f64) / 255. * 0.5;
+            let expected = if linear <= 0.0031308 {
+                linear * 12.92
+            } else {
+                1.055 * linear.powf(1. / 2.4) - 0.055
+            };
+            assert!(
+                p[c].abs_diff((expected * 255.).round() as u8) <= 2,
+                "mask {mask:?} channel {c}: {p:?}, expected {expected}"
+            );
+        }
+        assert_eq!(p[3], 255); // Mask alpha is a fourth layer weight, not surface opacity.
+    }
+}
+#[test]
+#[ignore = "Requires native GPU or software Vulkan; run explicitly in GPU CI."]
+fn multilayer_gpu_distinguishes_world_planar_and_source_uv_coordinates() {
+    let mut scene = plane_scene(&[0.]);
+    set_layers(&mut scene, "ksMultilayer");
+    scene.materials[0].properties.get_mut("multR").unwrap()[0] = 0.25;
+    let mut resources = layer_resources([255, 0, 0, 0]);
+    resources.textures[2] = texture(2, 1, vec![255, 0, 0, 255, 0, 255, 0, 255]);
+    let world = frame(&scene, &resources);
+    let p = pixel(&world, &scene, Vec3::new(-1., 0., -1.));
+    assert!(p[1] > 180 && p[0] < 20, "World XZ projection: {p:?}");
+    scene.materials[0].shader = "ksMultilayer_objsp".into();
+    let uv = frame(&scene, &resources);
+    let p = pixel(&uv, &scene, Vec3::new(-1., 0., -1.));
+    assert!(p[0] > 180 && p[1] < 20, "Source UV projection: {p:?}");
+    resources.textures.rotate_left(2);
+    resources.material_textures[0] = Some(4);
+    resources.material_layers[0] = Some([5, 0, 1, 2, 3]);
+    let reordered = frame(&scene, &resources);
+    assert_eq!(
+        uv.rgba, reordered.rgba,
+        "Diffuse-first upload scheduling must preserve resource identities."
+    );
 }

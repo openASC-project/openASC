@@ -14,7 +14,7 @@ cargo build --workspace --locked
 python tools/check_native_parity.py --native target/debug/openasc
 ```
 
-Use `target/debug/openasc.exe` on Windows. Native/Python contract checks compare original KN5 fixtures, selection, transforms/bounds, INI values/order/source lines, LUT samples, static model declarations and rejection codes. Optional repeated `--model PATH` arguments compare locally installed models without copying them. Agreement between two openASC implementations does not establish original-simulator parity.
+Use `target/debug/openasc.exe` on Windows. Native/Python contract checks compare original KN5 fixtures, selection, transforms/bounds, full material properties/sampler mappings, INI values/order/source lines, LUT samples, static model declarations and rejection codes. Optional repeated `--model PATH` arguments compare locally installed models without copying them. Agreement between two openASC implementations does not establish original-simulator parity.
 
 The separate GPU test is explicitly opt-in on a machine with a native adapter:
 
@@ -22,9 +22,9 @@ The separate GPU test is explicitly opt-in on a machine with a native adapter:
 cargo test -p asc-render --locked --test gpu --test track_textures -- --ignored --nocapture
 ```
 
-Five single-model GPU tests check non-background geometry, occlusion independent of triangle order, non-aligned row readback, PNG pixels/overwrite refusal, UV orientation, opaque versus cutout alpha, opacity and linear-light blending, read-only/disabled depth and back-to-front transparency ordering. Another GPU test checks BC1/2/3 direct upload against a device created without BC support, including alpha and authored non-power-of-two/sub-block mip tails. A separate composition GPU test proves that two composed models with identical texture names retain distinct red/green pixels. CPU fixtures cover native config parsing, translation and rebasing, resource confinement, model/texture budgets and per-model resource isolation. Set `OPENASC_TEST_FALLBACK=1` to request a software adapter; Linux CI installs Mesa Vulkan and runs these tests explicitly. GPU adapter absence fails the explicit tests. Structural, DDS and resource-resolution tests remain GPU-independent. Cargo build outputs under `target/` are ignored; commit `Cargo.lock` with dependency changes.
+Five single-model GPU tests check non-background geometry, occlusion independent of triangle order, non-aligned row readback, PNG pixels/overwrite refusal, UV orientation, opaque versus cutout alpha, opacity and linear-light blending, read-only/disabled depth and back-to-front transparency ordering. Another GPU test checks BC1/2/3 direct upload against a device created without BC support, including alpha and authored non-power-of-two/sub-block mip tails. Two multilayer GPU tests check linear unnormalised RGBA weights, magic gain, alpha-as-a-fourth-weight and world-XZ versus source-UV coordinates. A separate composition GPU test proves that two composed models with identical texture names retain distinct red/green pixels. CPU fixtures cover native config parsing, translation and rebasing, resource confinement, model/texture budgets and per-model resource isolation. Set `OPENASC_TEST_FALLBACK=1` to request a software adapter; Linux CI installs Mesa Vulkan and runs these tests explicitly. GPU adapter absence fails the explicit tests. Structural, DDS and resource-resolution tests remain GPU-independent. Cargo build outputs under `target/` are ignored; commit `Cargo.lock` with dependency changes.
 
-The three explicit desktop tests open real windows for a KN5, a composed models.ini scene and forced RGBA fallback, and therefore require a display:
+The four explicit desktop tests open real windows for a KN5, a composed models.ini scene, forced RGBA fallback and multilayer colour/toggle, and therefore require a display:
 
 ```sh
 cargo test -p asc-app --locked --test window -- --ignored --nocapture

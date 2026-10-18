@@ -133,6 +133,25 @@ fn prepared_storage_enforces_budget_truncation_and_software_fallback_dimensions(
 }
 
 #[test]
+fn raw_mask_generated_mips_average_data_channels_without_srgb_conversion() {
+    let data = source(
+        Header {
+            width: 2,
+            height: 1,
+            pf: 0x41,
+            bits: 32,
+            masks: [255, 65280, 16711680, 4278190080],
+            ..Default::default()
+        },
+        &[0, 0, 0, 0, 255, 255, 255, 255],
+    );
+    let mask = dds::prepare_data(&data, 12).unwrap();
+    let colour = dds::prepare(&data, 12).unwrap();
+    assert_eq!(mask.levels[1].rgba, [128, 128, 128, 128]);
+    assert_eq!(colour.levels[1].rgba, [188, 188, 188, 128]);
+}
+
+#[test]
 fn bc1_opaque_interpolation_and_three_colour_transparency() {
     let data = source(Header::default(), &colour_block(0xf800, 0x07e0, 0xe4e4e4e4));
     let t = decoded(&data);

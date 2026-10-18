@@ -10,6 +10,8 @@ Assetto Corsa installation, approved for the public project website.
 - `native-window-drift.png`: 2026-10-18 perspective GPU readback from the native Windows/Vulkan surface, without window decorations.
 - `native-magione-composed.png`: 2026-10-18 Rust models.ini composition of two Magione KN5 sources, with 622 draws. Eight resources exceeded the shared decoded-texture budget and use diagnostic colours; road/grass materials are visibly incomplete.
 - `native-magione-bc.png`: subsequent 2026-10-18 Vulkan/RTX 2080 frame with all 44 referenced diffuse textures uploaded directly as BC data, restoring asphalt within the bounded payload budget. Original grass/shader behavior remains incomplete.
+- `native-drift-multilayer.png`: subsequent 2026-10-18 frame with 46 masked four-detail base-colour draws and source grass colour; shading/stippling/coplanar behavior remains approximate.
+- `native-magione-multilayer.png`: corresponding two-model Magione frame with 85 multilayer draws and 63 resources; full original lighting/material parity remains unvalidated.
 - `native-drift-textured.png`: subsequent native diffuse frame with 25 embedded textures and approximate alpha/depth states. White/stippled grass reflects unsupported original material behavior.
 
 Captured on 2026-10-17 and 2026-10-18. No source models, textures or other installation files are

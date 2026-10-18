@@ -57,6 +57,7 @@ pub struct Statistics {
     pub texture_upload_bytes: usize,
     pub bc_enabled: bool,
     pub textured_draws: usize,
+    pub multilayer_draws: usize,
     pub alpha_test_draws: usize,
     pub blended_draws: usize,
     pub diagnostics: Vec<String>,
@@ -109,6 +110,11 @@ impl GpuScene {
             usage: wgpu::BufferUsages::INDEX,
         });
         let statistics = Statistics {
+            multilayer_draws: scene
+                .draws
+                .iter()
+                .filter(|d| prepared.materials[d.material].multilayer)
+                .count(),
             triangles: scene.indices.len() / 3,
             uploaded_textures: prepared.uploaded,
             compressed_textures: prepared.compressed,

@@ -17,6 +17,29 @@ fn triangle() -> Vec<u8> {
 }
 
 #[test]
+fn preserves_complete_shader_property_records_and_sampler_slots() {
+    let values = [1., 2., 3., 4., 5., 6., 7., 8., 9., 10.];
+    let bytes = material_file(
+        base(&[triangle()], Mat4::IDENTITY.to_cols_array(), 1),
+        6,
+        &[],
+        "ksMultilayer",
+        &[("multA", values)],
+        &[
+            ("txDiffuse", 0, "base.dds"),
+            ("txDetailNM", 21, "normal.dds"),
+        ],
+    );
+    let scene = parse(Cursor::new(bytes)).unwrap();
+    let material = &scene.materials[0];
+    assert_eq!(material.properties["multA"], values);
+    assert_eq!(material.mappings[1].slot, 21);
+    assert_eq!(material.mappings[1].sampler, "txDetailNM");
+    assert_eq!(material.mappings[1].texture, "normal.dds");
+    assert_eq!(material.diffuse_refs, ["base.dds"]);
+}
+
+#[test]
 fn uv_and_inverse_transpose_normals_survive_shear_and_singular_fallback_is_explicit() {
     let mut node = triangle();
     let vertex_start = 4 + 4 + "original_mesh".len() + 4 + 4 + 4;

@@ -239,6 +239,14 @@ pub fn load(config: &Path) -> Result<Track> {
                     m.name.len()
                         + m.shader.len()
                         + m.diffuse_refs.iter().map(String::len).sum::<usize>()
+                        + m.properties
+                            .iter()
+                            .map(|(k, v)| k.len() + size_of_val(v))
+                            .sum::<usize>()
+                        + m.mappings
+                            .iter()
+                            .map(|v| v.sampler.len() + v.texture.len())
+                            .sum::<usize>()
                 })
                 .sum::<usize>()
             + model
@@ -257,7 +265,7 @@ pub fn load(config: &Path) -> Result<Track> {
                 "scene_limit",
                 source,
                 section.line,
-                "Combined scene exceeds geometry (256 MiB), metadata text (32 MiB), node (200000), material or texture (100000) budgets.",
+                "Combined scene exceeds geometry (256 MiB), metadata payload (32 MiB), node (200000), material or texture (100000) budgets.",
             ));
         }
         let origin = Origin {

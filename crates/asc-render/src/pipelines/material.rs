@@ -9,6 +9,7 @@ pub struct GpuMaterial {
     pub diagnostic_bind: wgpu::BindGroup,
     pub pipeline: usize,
     pub textured: bool,
+    pub multilayer: bool,
     pub cutout: bool,
     pub blend: bool,
 }
@@ -34,11 +35,15 @@ fn state(material: &Material) -> (bool, bool, u32) {
     }
 }
 
+struct TextureViews {
+    colour: wgpu::TextureView,
+    linear: wgpu::TextureView,
+}
 fn upload(
     device: &wgpu::Device,
     queue: &wgpu::Queue,
     texture: &dds::Texture,
-) -> Result<(wgpu::TextureView, usize, bool), Box<dyn std::error::Error>> {
+) -> Result<(TextureViews, usize, bool), Box<dyn std::error::Error>> {
     let compressed = texture.encoded.is_some();
     let format = if compressed {
         match texture.info.format {
@@ -71,7 +76,7 @@ fn upload(
         dimension: wgpu::TextureDimension::D2,
         format,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-        view_formats: &[],
+        view_formats: &[format.remove_srgb_suffix()],
     });
     let mut bytes = 0;
     let stride = if texture.info.format == "BC1" { 8 } else { 16 };
@@ -120,7 +125,17 @@ fn upload(
             },
         );
     }
-    Ok((gpu.create_view(&Default::default()), bytes, compressed))
+    Ok((
+        TextureViews {
+            colour: gpu.create_view(&Default::default()),
+            linear: gpu.create_view(&wgpu::TextureViewDescriptor {
+                format: Some(format.remove_srgb_suffix()),
+                ..Default::default()
+            }),
+        },
+        bytes,
+        compressed,
+    ))
 }
 
 pub fn prepare(
@@ -144,37 +159,51 @@ pub fn prepare(
             count: None,
         }],
     });
+    let mut material_entries = vec![
+        wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        },
+        wgpu::BindGroupLayoutEntry {
+            binding: 1,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            count: None,
+        },
+        wgpu::BindGroupLayoutEntry {
+            binding: 2,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        },
+    ];
+    for binding in 3..=7 {
+        material_entries.push(wgpu::BindGroupLayoutEntry {
+            binding,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        });
+    }
     let material_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("Diffuse material layout"),
-        entries: &[
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 2,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            },
-        ],
+        entries: &material_entries,
     });
+
     let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Native diffuse pipeline layout"),
         bind_group_layouts: &[Some(&camera_layout), Some(&material_layout)],
@@ -262,18 +291,27 @@ pub fn prepare(
     let mut views = vec![upload(device, queue, &fallback)?.0];
     let (mut upload_bytes, mut compressed) = (0, 0);
     let mut diagnostics = resources.map(|r| r.diagnostics.clone()).unwrap_or_default();
-    let mut ids = Vec::new();
+    let mut ids = vec![None; resources.map_or(0, |r| r.textures.len())];
     if let Some(resources) = resources {
         if resources.material_textures.len() != scene.materials.len() {
             return Err("Material texture mapping length differs from scene.".into());
         }
-        for (texture_index, texture) in resources.textures.iter().enumerate() {
+        let mut primary = vec![false; resources.textures.len()];
+        for id in resources.material_textures.iter().flatten() {
+            if let Some(value) = primary.get_mut(*id) {
+                *value = true;
+            }
+        }
+        let order = (0..primary.len())
+            .filter(|&i| primary[i])
+            .chain((0..primary.len()).filter(|&i| !primary[i]));
+        for texture_index in order {
+            let texture = &resources.textures[texture_index];
             if (texture.levels.is_empty() && texture.encoded.is_none())
                 || texture.info.width.max(texture.info.height)
                     > device.limits().max_texture_dimension_2d
             {
                 diagnostics.push("Decoded texture exceeds device dimensions or has no mip levels; diagnostic colour.".into());
-                ids.push(None);
             } else {
                 let decoded;
                 let remaining = 256 * 1024 * 1024 - upload_bytes;
@@ -291,7 +329,7 @@ pub fn prepare(
                                 diagnostics.push(format!(
                                     "Texture resource {texture_index}, BC software fallback: {error} Diagnostic colour."
                                 ));
-                                ids.push(None);
+
                                 continue;
                             }
                         }
@@ -308,13 +346,13 @@ pub fn prepare(
                 };
                 if cost > remaining {
                     diagnostics.push("Texture upload payload exceeds the 256 MiB scene budget; diagnostic colour.".into());
-                    ids.push(None);
+
                     continue;
                 }
                 let (view, bytes, bc) = upload(device, queue, texture)?;
                 upload_bytes += bytes;
                 compressed += usize::from(bc);
-                ids.push(Some(views.len()));
+                ids[texture_index] = Some(views.len());
                 views.push(view);
             }
         }
@@ -342,7 +380,7 @@ pub fn prepare(
             None
         };
         let (blend, cutout, depth) = state(material);
-        let params = [
+        let mut params = [
             if slot.is_some() { 1_f32 } else { 0. },
             if cutout { 0.5 } else { 0. },
             if cutout || blend { 1. } else { 0. },
@@ -351,41 +389,101 @@ pub fn prepare(
             0.,
             0.,
             0.,
+            0.,
+            0.,
+            0.,
+            0.,
+            0.,
+            0.,
+            0.,
+            0.,
+            0.,
+            0.,
+            0.,
+            0.,
         ];
-        let make_bind = |params: &[f32; 8]| {
+        let mut layer_slots = [0; 5];
+        let mut layered = false;
+        if let Some(resources) = resources {
+            if !resources.material_layers.is_empty()
+                && resources.material_layers.len() != scene.materials.len()
+            {
+                return Err("Material layer mapping length differs from scene.".into());
+            }
+            if let Some(Some(indices)) = resources.material_layers.get(index) {
+                let resolved = indices.map(|id| ids.get(id).copied().flatten());
+                if slot.is_some() && resolved.iter().all(Option::is_some) {
+                    if let Some(spec) = crate::scene::material::layers(material)
+                        .map_err(|e| format!("{}: {e}", material.name))?
+                    {
+                        layer_slots = resolved.map(Option::unwrap);
+                        layered = true;
+                        params[8..12].copy_from_slice(&[
+                            1.,
+                            if spec.world { 1. } else { 0. },
+                            spec.magic,
+                            0.,
+                        ]);
+                        for (i, uv) in spec.scales.iter().enumerate() {
+                            params[12 + i * 2..14 + i * 2].copy_from_slice(uv);
+                        }
+                        diagnostics.push(format!("{}: reconstructed multilayer base colour; original normal/Fresnel/specular lighting, shadows and colour-space parity remain unvalidated.",material.name));
+                    }
+                } else {
+                    diagnostics.push(format!(
+                        "{}: incomplete GPU multilayer resources; diffuse-only fallback.",
+                        material.name
+                    ));
+                }
+            }
+        }
+        let make_bind = |params: &[f32; 20]| {
             let buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Material parameters"),
                 contents: bytemuck::cast_slice(params),
                 usage: wgpu::BufferUsages::UNIFORM,
             });
+            let mut entries = vec![
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&views[slot.unwrap_or(0)].colour),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: buffer.as_entire_binding(),
+                },
+            ];
+            for (i, &slot) in layer_slots.iter().enumerate() {
+                entries.push(wgpu::BindGroupEntry {
+                    binding: 3 + i as u32,
+                    resource: wgpu::BindingResource::TextureView(if i == 0 {
+                        &views[slot].linear
+                    } else {
+                        &views[slot].colour
+                    }),
+                });
+            }
             device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("Diffuse material"),
                 layout: &material_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(&views[slot.unwrap_or(0)]),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: buffer.as_entire_binding(),
-                    },
-                ],
+                entries: &entries,
             })
         };
         let bind = make_bind(&params);
         let mut diagnostic_params = params;
         diagnostic_params[0] = 0.;
+        diagnostic_params[8] = 0.;
         let diagnostic_bind = make_bind(&diagnostic_params);
         materials.push(GpuMaterial {
             bind,
             diagnostic_bind,
             pipeline: depth as usize * 2 + usize::from(blend),
             textured: slot.is_some(),
+            multilayer: layered,
             cutout,
             blend,
         });

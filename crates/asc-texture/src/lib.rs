@@ -84,9 +84,15 @@ fn bc_aligned(info: &Info) -> bool {
 /// Retain validated, block-aligned BC sources without expanding RGBA. Raw/unaligned
 /// images use the software decoder; adapters lacking BC decode retained sources later.
 pub fn prepare(data: &[u8], remaining_bytes: usize) -> Result<Texture, Error> {
+    prepare_inner(data, remaining_bytes, false)
+}
+pub fn prepare_data(data: &[u8], remaining_bytes: usize) -> Result<Texture, Error> {
+    prepare_inner(data, remaining_bytes, true)
+}
+fn prepare_inner(data: &[u8], remaining_bytes: usize, data_map: bool) -> Result<Texture, Error> {
     let h = header(data)?;
     if !bc_aligned(&h.info) {
-        return decode(data, remaining_bytes);
+        return decode_inner(data, remaining_bytes, data_map);
     }
     let &(_, _, offset, length) = h.ranges.last().unwrap();
     let end = offset + length;
@@ -273,6 +279,12 @@ pub fn inspect(data: &[u8]) -> Result<Info, Error> {
 
 /// Budget is checked before allocating any decoded pixels.
 pub fn decode(data: &[u8], remaining_bytes: usize) -> Result<Texture, Error> {
+    decode_inner(data, remaining_bytes, false)
+}
+pub fn decode_data(data: &[u8], remaining_bytes: usize) -> Result<Texture, Error> {
+    decode_inner(data, remaining_bytes, true)
+}
+fn decode_inner(data: &[u8], remaining_bytes: usize, data_map: bool) -> Result<Texture, Error> {
     let h = header(data)?;
     if h.info.decoded_bytes > remaining_bytes {
         return fail(
@@ -316,7 +328,7 @@ pub fn decode(data: &[u8], remaining_bytes: usize) -> Result<Texture, Error> {
             });
         }
         while h.info.generated_mips && levels.last().is_some_and(|l| l.width > 1 || l.height > 1) {
-            levels.push(downsample(levels.last().unwrap()));
+            levels.push(downsample(levels.last().unwrap(), data_map));
         }
     } else {
         for &(width, height, offset, length) in &h.ranges {
@@ -426,7 +438,7 @@ fn linear_to_srgb(v: f64) -> u8 {
     };
     (c * 255.).round().clamp(0., 255.) as u8
 }
-fn downsample(source: &Level) -> Level {
+fn downsample(source: &Level, data_map: bool) -> Level {
     let linear: [f64; 256] = std::array::from_fn(|i| srgb_to_linear(i as u8));
     let (width, height) = ((source.width / 2).max(1), (source.height / 2).max(1));
     let mut rgba = vec![0; (width * height * 4) as usize];
@@ -440,7 +452,11 @@ fn downsample(source: &Level) -> Level {
                 for sx in x0..x1 {
                     let p = &source.rgba[((sy * source.width + sx) * 4) as usize..][..4];
                     for c in 0..3 {
-                        sum[c] += linear[p[c] as usize];
+                        sum[c] += if data_map {
+                            p[c] as f64
+                        } else {
+                            linear[p[c] as usize]
+                        };
                     }
                     sum[3] += p[3] as f64;
                 }
@@ -448,7 +464,11 @@ fn downsample(source: &Level) -> Level {
             let count = ((x1 - x0) * (y1 - y0)) as f64;
             let out = &mut rgba[((y * width + x) * 4) as usize..][..4];
             for c in 0..3 {
-                out[c] = linear_to_srgb(sum[c] / count);
+                out[c] = if data_map {
+                    (sum[c] / count).round() as u8
+                } else {
+                    linear_to_srgb(sum[c] / count)
+                };
             }
             out[3] = (sum[3] / count).round() as u8;
         }

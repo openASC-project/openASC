@@ -159,3 +159,76 @@ fn prepared_resource_retains_bc_source_once_without_decoding_rgba() {
         8
     );
 }
+
+#[test]
+fn multilayer_resources_resolve_all_channels_and_reject_missing_or_ambiguous_layers() {
+    let (source, _) = source();
+    let mesh = support::mesh(
+        &[[0., 0., 0.], [1., 0., 0.], [0., 0., 1.]],
+        &[0, 2, 1],
+        2,
+        1,
+        1,
+        0.,
+        0,
+    );
+    std::fs::write(
+        &source.0,
+        support::multilayer_file(support::base(&[mesh], Mat4::IDENTITY.to_cols_array(), 1)),
+    )
+    .unwrap();
+    let mut scene = kn5::load(&source.0).unwrap();
+    let result = textures::load_prepared(&scene, &source.0);
+    assert_eq!(result.material_layers, [Some([1, 2, 3, 4, 5])]);
+    assert_eq!(result.textures.len(), 6);
+    assert!(result.diagnostics.is_empty());
+    let duplicate = scene.materials[0].mappings[4].clone();
+    scene.materials[0].mappings.push(duplicate);
+    let result = textures::load_prepared(&scene, &source.0);
+    assert!(result.material_layers[0].is_none());
+    assert!(result.material_textures[0].is_some());
+    assert!(result.diagnostics.iter().any(|d| d.contains("txDetailB")));
+    scene.materials[0].mappings.pop();
+    scene.materials[0].mappings[4].texture = "missing".into();
+    assert!(textures::load_prepared(&scene, &source.0).material_layers[0].is_none());
+    scene.materials[0].mappings[4].texture = "b".into();
+    let mut second = scene.materials[0].clone();
+    second.shader = "ksPerPixel".into();
+    second.diffuse_refs = vec!["r".into()];
+    scene.materials.push(second);
+    let mut draw = scene.draws[0].clone();
+    draw.material = 1;
+    scene.draws.push(draw);
+    let result = textures::load_prepared(&scene, &source.0);
+    assert_eq!(result.material_textures, [Some(0), Some(1)]);
+    assert_eq!(
+        result.material_layers[0].unwrap()[0],
+        2,
+        "Primary diffuse resources must be queued before detail masks."
+    );
+}
+
+#[test]
+fn multilayer_parameter_interpretation_preserves_scalar_vector_roles_and_rejects_unknowns() {
+    let (_source, mut scene) = source();
+    let m = &mut scene.materials[0];
+    m.shader = "ksMultilayer".into();
+    m.properties = support::layer_properties()
+        .into_iter()
+        .map(|(k, v)| (k.into(), v))
+        .collect();
+    m.properties.get_mut("multR").unwrap()[..3].copy_from_slice(&[0.5, 2., 3.]);
+    let world = asc_render::scene::material::layers(m).unwrap().unwrap();
+    assert_eq!(world.scales[0], [0.5; 2]);
+    assert!(world.world);
+    m.shader = "ksMultilayer_objsp".into();
+    let uv = asc_render::scene::material::layers(m).unwrap().unwrap();
+    assert_eq!(uv.scales[0], [2., 3.]);
+    assert!(!uv.world);
+    m.properties.remove("multA");
+    assert!(asc_render::scene::material::layers(m).is_err());
+    m.properties.insert("multA".into(), [f32::NAN; 10]);
+    assert!(asc_render::scene::material::layers(m).is_err());
+    m.shader = "ksMultilayer_unknown".into();
+    assert!(asc_render::scene::material::layers(m).unwrap().is_none());
+}

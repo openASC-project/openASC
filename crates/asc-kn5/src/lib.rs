@@ -3,7 +3,7 @@
 use glam::{DMat3, DMat4, DVec3};
 use serde::Serialize;
 use std::{
-    collections::HashSet,
+    collections::{BTreeMap, HashSet},
     fmt,
     fs::File,
     io::{BufReader, Read, Seek, SeekFrom},
@@ -46,6 +46,12 @@ pub struct Embedded {
     pub length: usize,
 }
 #[derive(Clone, Debug, Serialize)]
+pub struct Mapping {
+    pub sampler: String,
+    pub slot: u32,
+    pub texture: String,
+}
+#[derive(Clone, Debug, Serialize)]
 pub struct Material {
     pub name: String,
     pub shader: String,
@@ -55,6 +61,8 @@ pub struct Material {
     pub opacity: f32,
     pub diffuse: f32,
     pub diffuse_refs: Vec<String>,
+    pub properties: BTreeMap<String, [f32; 10]>,
+    pub mappings: Vec<Mapping>,
 }
 #[derive(Clone, Debug)]
 pub struct Draw {
@@ -221,7 +229,7 @@ pub fn parse<R: Read + Seek>(stream: R) -> Result<Scene, Error> {
     if version != 5 && version != 6 {
         return r.fail("kn5_version", "Only KN5 v5/v6 are supported.");
     }
-    let mut diagnostics = vec!["Structural inspection indexes embedded textures without decoding. Native rendering separately loads supported txDiffuse, basic lighting and approximate alpha/depth modes; original shaders, multilayer/detail/normal maps, shadows, skinning and distance LOD remain unsupported.".into()];
+    let mut diagnostics = vec!["Structural inspection indexes embedded textures without decoding. Native rendering loads supported diffuse resources and reconstructs a limited multilayer base colour with approximate lighting/alpha/depth; original normal/Fresnel/specular lighting, shadows, skinning and distance LOD remain incomplete.".into()];
     if version == 6 && r.u32()? != 0 {
         diagnostics.push("Nonzero v6 header field is unsupported.".into());
     }
@@ -256,6 +264,7 @@ pub fn parse<R: Read + Seek>(stream: R) -> Result<Scene, Error> {
             return r.fail("kn5_limit", "Combined shader properties exceed 100000.");
         }
         let mut names = HashSet::new();
+        let mut property_records = BTreeMap::new();
         for _ in 0..count {
             let property = r.string()?;
             if !names.insert(property.clone()) {
@@ -268,6 +277,7 @@ pub fn parse<R: Read + Seek>(stream: R) -> Result<Scene, Error> {
             if property == "ksDiffuse" {
                 diffuse = values[0].clamp(0., 2.);
             }
+            property_records.insert(property, values);
         }
         let count = r.count(10_000)?;
         mappings += count;
@@ -275,13 +285,19 @@ pub fn parse<R: Read + Seek>(stream: R) -> Result<Scene, Error> {
             return r.fail("kn5_limit", "Combined texture mappings exceed 100000.");
         }
         let mut diffuse_refs = Vec::new();
+        let mut texture_mappings = Vec::new();
         for _ in 0..count {
             let sampler = r.string()?;
-            r.u32()?;
+            let slot = r.u32()?;
             let texture = r.string()?;
             if sampler == "txDiffuse" {
-                diffuse_refs.push(texture);
+                diffuse_refs.push(texture.clone());
             }
+            texture_mappings.push(Mapping {
+                sampler,
+                slot,
+                texture,
+            });
         }
         // Original diagnostic palette, deliberately unrelated to source shader execution.
         let hash = name
@@ -311,6 +327,8 @@ pub fn parse<R: Read + Seek>(stream: R) -> Result<Scene, Error> {
             opacity,
             diffuse,
             diffuse_refs,
+            properties: property_records,
+            mappings: texture_mappings,
         });
     }
     let mut scene = Scene {

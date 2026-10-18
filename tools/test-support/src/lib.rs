@@ -40,6 +40,58 @@ pub fn bc1(colour: u16) -> Vec<u8> {
     out
 }
 
+pub fn layer_properties() -> Vec<(&'static str, [f32; 10])> {
+    ["ksDiffuse", "multR", "multG", "multB", "multA", "magicMult"]
+        .into_iter()
+        .map(|name| {
+            let mut values = [0.; 10];
+            values[..3].copy_from_slice(&[1., 1., 1.]);
+            (name, values)
+        })
+        .collect()
+}
+pub fn multilayer_file(node: Vec<u8>) -> Vec<u8> {
+    let names = ["base", "mask", "r", "g", "b", "a"];
+    let mut textures = [
+        bc1(0xffff),
+        bc1(0xf800),
+        bc1(0x07e0),
+        bc1(0x001f),
+        bc1(0xf800),
+        bc1(0xffff),
+    ];
+    // Red data mask with zero alpha: only the R detail contributes.
+    textures[1][84..88].copy_from_slice(b"DXT5");
+    textures[1].splice(128..128, [0; 8]);
+    let textures: Vec<_> = names
+        .iter()
+        .zip(&textures)
+        .map(|(name, data)| (*name, data.as_slice()))
+        .collect();
+    let samplers = [
+        "txDiffuse",
+        "txMask",
+        "txDetailR",
+        "txDetailG",
+        "txDetailB",
+        "txDetailA",
+    ];
+    let mappings: Vec<_> = samplers
+        .iter()
+        .zip(names)
+        .enumerate()
+        .map(|(i, (sampler, name))| (*sampler, i as u32, name))
+        .collect();
+    material_file(
+        node,
+        6,
+        &textures,
+        "ksMultilayer",
+        &layer_properties(),
+        &mappings,
+    )
+}
+
 pub fn u32(out: &mut Vec<u8>, value: u32) {
     out.extend(value.to_le_bytes());
 }
@@ -108,28 +160,51 @@ pub fn file(node: Vec<u8>, version: u32) -> Vec<u8> {
     file_texture(node, version, &[11, 12, 13])
 }
 pub fn file_texture(node: Vec<u8>, version: u32, texture: &[u8]) -> Vec<u8> {
+    material_file(
+        node,
+        version,
+        &[("original_texture", texture)],
+        "original_shader",
+        &[("ksDiffuse", [0.7, 0., 0., 0., 0., 0., 0., 0., 0., 0.])],
+        &[("txDiffuse", 0, "original_texture")],
+    )
+}
+pub fn material_file(
+    node: Vec<u8>,
+    version: u32,
+    textures: &[(&str, &[u8])],
+    shader: &str,
+    properties: &[(&str, [f32; 10])],
+    mappings: &[(&str, u32, &str)],
+) -> Vec<u8> {
     let mut out = b"sc6969".to_vec();
     u32(&mut out, version);
     if version == 6 {
         u32(&mut out, 0);
     }
-    u32(&mut out, 1);
-    u32(&mut out, 1);
-    string(&mut out, "original_texture");
-    u32(&mut out, texture.len() as u32);
-    out.extend(texture);
+    u32(&mut out, textures.len() as u32);
+    for (name, texture) in textures {
+        u32(&mut out, 1);
+        string(&mut out, name);
+        u32(&mut out, texture.len() as u32);
+        out.extend(*texture);
+    }
     u32(&mut out, 1);
     string(&mut out, "original_material");
-    string(&mut out, "original_shader");
+    string(&mut out, shader);
     out.extend([0, 0]);
     u32(&mut out, 0);
-    u32(&mut out, 1);
-    string(&mut out, "ksDiffuse");
-    floats(&mut out, &[0.7, 0., 0., 0., 0., 0., 0., 0., 0., 0.]);
-    u32(&mut out, 1);
-    string(&mut out, "txDiffuse");
-    u32(&mut out, 0);
-    string(&mut out, "original_texture");
+    u32(&mut out, properties.len() as u32);
+    for (name, values) in properties {
+        string(&mut out, name);
+        floats(&mut out, values);
+    }
+    u32(&mut out, mappings.len() as u32);
+    for (sampler, slot, texture) in mappings {
+        string(&mut out, sampler);
+        u32(&mut out, *slot);
+        string(&mut out, texture);
+    }
     out.extend(node);
     out
 }

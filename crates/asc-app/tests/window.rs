@@ -5,22 +5,34 @@ use std::process::Command;
 #[test]
 #[ignore = "Requires a desktop display and GPU/software Vulkan; Linux CI uses Xvfb."]
 fn native_window_presents_resizes_and_reads_back_changed_cameras() {
-    run_window(false, false);
+    run_window(false, TextureMode::Diffuse);
 }
 
 #[test]
 #[ignore = "Requires a desktop display and GPU/software Vulkan; Linux CI uses Xvfb."]
 fn native_window_presents_a_composed_models_ini_scene() {
-    run_window(true, false);
+    run_window(true, TextureMode::Diffuse);
 }
 
 #[test]
 #[ignore = "Requires a desktop display and GPU/software Vulkan; Linux CI uses Xvfb."]
 fn native_window_can_force_rgba_decode_of_retained_bc_sources() {
-    run_window(false, true);
+    run_window(false, TextureMode::Rgba);
 }
 
-fn run_window(composed: bool, rgba: bool) {
+enum TextureMode {
+    Diffuse,
+    Rgba,
+    Layers,
+}
+#[test]
+#[ignore = "Requires a desktop display and GPU/software Vulkan; Linux CI uses Xvfb."]
+fn native_window_presents_and_toggles_multilayer_base_colour() {
+    run_window(false, TextureMode::Layers);
+}
+fn run_window(composed: bool, mode: TextureMode) {
+    let rgba = matches!(mode, TextureMode::Rgba);
+    let layered = matches!(mode, TextureMode::Layers);
     let path = fixture::temp_path("window").with_extension("kn5");
     let mesh = fixture::mesh(
         &[[0., 0., 0.], [1., 0., 0.], [0., 0., 1.]],
@@ -45,13 +57,14 @@ fn run_window(composed: bool, rgba: bool) {
         dds.extend(v.to_le_bytes());
     }
     dds.extend([0, 248, 0, 0, 0, 0, 0, 0]);
+    let node = fixture::base(&[mesh], Mat4::IDENTITY.to_cols_array(), 1);
     std::fs::write(
         &path,
-        fixture::file_texture(
-            fixture::base(&[mesh], Mat4::IDENTITY.to_cols_array(), 1),
-            6,
-            &dds,
-        ),
+        if layered {
+            fixture::multilayer_file(node)
+        } else {
+            fixture::file_texture(node, 6, &dds)
+        },
     )
     .unwrap();
     let config = path.with_extension("ini");
@@ -83,6 +96,16 @@ fn run_window(composed: bool, rgba: bool) {
         output.status.success(),
         "Native window failed: {stdout}\n{stderr}"
     );
+    if layered {
+        let native: serde_json::Value = serde_json::from_str(
+            stdout
+                .lines()
+                .find(|l| l.starts_with("{\"native_window\":"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(native["native_window"]["scene"]["multilayer_draws"], 1);
+    }
     if rgba {
         let native: serde_json::Value = serde_json::from_str(
             stdout
