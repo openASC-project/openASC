@@ -1,4 +1,5 @@
 //! Confined static models.ini assembly. Nonzero model rotations remain unvalidated.
+pub mod spawns;
 use asc_config::{Error, Result, Section, finite_number, read_ini};
 use asc_kn5::{Scene, Summary};
 use serde::Serialize;

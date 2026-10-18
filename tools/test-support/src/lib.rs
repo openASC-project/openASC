@@ -104,6 +104,14 @@ pub fn string(out: &mut Vec<u8>, value: &str) {
     u32(out, value.len() as u32);
     out.extend(value.as_bytes());
 }
+/// Rename an original generated node, preserving all other fields.
+pub fn named(node: Vec<u8>, name: &str) -> Vec<u8> {
+    let old = u32::from_le_bytes(node[4..8].try_into().unwrap()) as usize;
+    let mut out = node[..4].to_vec();
+    string(&mut out, name);
+    out.extend(&node[8 + old..]);
+    out
+}
 pub fn base(children: &[Vec<u8>], matrix: [f32; 16], active: u8) -> Vec<u8> {
     let mut out = Vec::new();
     u32(&mut out, 1);
@@ -208,3 +216,6 @@ pub fn material_file(
     out.extend(node);
     out
 }
+
+mod vehicle;
+pub use vehicle::vehicle_files;

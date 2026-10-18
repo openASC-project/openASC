@@ -82,3 +82,11 @@ python tools/check_native_parity.py --native target/debug/openasc.exe --ground .
 ```
 
 The command compares complete mesh/surface metadata and 1000 deterministic centroid support queries plus two misses on each track, in bounded batches. No source content is extracted or modified. This checks agreement with the research implementation; it does not validate the original game's contact or tyre model.
+
+## Validate native geometric placement
+
+```sh
+python tools/check_native_parity.py --native target/debug/openasc.exe --placement ./assettocorsa/content/cars/bmw_m3_e30 ./assettocorsa/content/tracks/drift
+```
+
+The ordinary CI invocation also compares original spawn/placement fixtures, packed/unpacked car loading, complete contacts, report error flags and CLI exit statuses. The optional local comparison checks every retained marker and four wheel contacts without extracting or changing content. Drift's unrelated duplicate start marker remains an error even when AC_PIT_0 has four hits. This preparation does not validate a native driving solver.

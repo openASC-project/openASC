@@ -10,6 +10,7 @@ license = "MIT"
 repository = "https://github.com/openASC-project/openASC"
 
 [workspace.dependencies]
+asc-session = { path = "crates/asc-session" }
 asc-ground = { path = "crates/asc-ground" }
 asc-acd = { path = "crates/asc-acd" }
 asc-vehicle = { path = "crates/asc-vehicle" }

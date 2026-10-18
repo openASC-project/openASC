@@ -69,6 +69,23 @@ cargo run --locked -p asc-app -- lut ./assettocorsa/content/cars/CAR/data/CURVE.
 
 Replace the standalone LUT example with an existing unpacked file. Native vehicle loading can also read ordinary data.acd records in memory, as described below. Native text input is UTF-8 with an optional BOM, with strict duplicate/quote checks and source lines. LUT interpolation is linear with clamped endpoints and finite-number/range checks. Legacy encodings, includes and inline expressions are unsupported. The Python research tools retain their separate explicit encoding support.
 
+## Native spawn and placement preflight
+
+Read canonical track markers, then check a vehicle footprint against static road geometry:
+
+```sh
+cargo run --locked -p asc-app -- spawns ./assettocorsa/content/tracks/drift/models.ini
+cargo run --locked -p asc-app -- place ./assettocorsa/content/cars/bmw_m3_e30 ./assettocorsa/content/tracks/drift/models.ini ./assettocorsa/content/tracks/drift/data/surfaces.ini --defaults ./assettocorsa/system/data/surfaces.ini --spawn AC_PIT_0
+```
+
+Use matching model/surface paths for the selected layout. `place` accepts the car reader's `--data auto|packed|unpacked` and `--compound N` options; the default marker is `AC_PIT_0`. Both commands work without Python or a GPU. The node-only KN5 path validates complete supported structure while retaining node transforms instead of vertex/index buffers.
+
+Supported marker names are exact-case `AC_PIT_N`, `AC_START_N` (no leading zeroes except index 0), and `AC_HOTLAP_START_0`. Active ancestry applies independently of render visibility. A transform plus its same-named attached mesh is one marker; genuine duplicate names are omitted with errors. The source basis must be finite, upright, rigid and right-handed; it is retained as left/up/forward vectors without an Euler conversion. Native model-level rotations remain unsupported.
+
+Placement transforms the vehicle's four wheel offsets through the selected left/forward basis, then probes vertically down up to 20 metres. The footprint uses the marker plane; wheel BASEY, tyre radius and graphics offsets do not establish a solved chassis height. The report contains typed contacts, all_wheels_supported, diagnostics, has_errors and `simulation_ready: false`. It does not move a car, solve suspension equilibrium or run dynamics. Missing/ambiguous selected markers are fatal. Reports containing errors print JSON and return a nonzero process status; inspect the JSON even when contacts exist.
+
+The local Drift configuration has 35 usable markers and a duplicate `AC_START_3` error. At `AC_PIT_0`, BMW M3 E30 has four ROAD support hits roughly 0.554 metres below the footprint plane, while has_errors remains true for that separate duplicate. This is geometric evidence only. See the [native placement contract](FORMATS.md#native-spawn-and-placement-path).
+
 ## Native static ground support
 
 The native `ground` command reads the selected static model declarations and explicit surface definitions without Python or a GPU:

@@ -34,9 +34,66 @@ fn load_input(path: &Path, diagnostic: bool) -> Result<Input, Box<dyn Error>> {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    let usage = "Usage: openasc ground MODELS.ini SURFACES.ini [--defaults SURFACES.ini] [--probe X Y Z]... [--distance D] | car CAR_DIRECTORY [--data auto|packed|unpacked] [--compound N] | acd FILE.acd CAR_ID | inspect SCENE | materials SCENE | render SCENE NEW.png [--fallback] [--diagnostic] [--rgba-textures] | view SCENE [--fallback] [--diagnostic] [--rgba-textures] [--captures DIR] [--capture NEW.png] [--smoke] | ini FILE.ini | lut FILE.lut [--sample X]. SCENE is a KN5 file or an explicit models.ini/models_LAYOUT.ini path.";
+    let usage = "Usage: openasc spawns MODELS.ini | place CAR_DIRECTORY MODELS.ini SURFACES.ini [--defaults SURFACES.ini] [--spawn NAME] [--data auto|packed|unpacked] [--compound N] | ground MODELS.ini SURFACES.ini [--defaults SURFACES.ini] [--probe X Y Z]... [--distance D] | car CAR_DIRECTORY [--data auto|packed|unpacked] [--compound N] | acd FILE.acd CAR_ID | inspect SCENE | materials SCENE | render SCENE NEW.png [--fallback] [--diagnostic] [--rgba-textures] | view SCENE [--fallback] [--diagnostic] [--rgba-textures] [--captures DIR] [--capture NEW.png] [--smoke] | ini FILE.ini | lut FILE.lut [--sample X]. SCENE is a KN5 file or an explicit models.ini/models_LAYOUT.ini path.";
     let command = args.first().and_then(|v| v.to_str()).ok_or(usage)?;
     match command {
+        "spawns" if args.len() == 2 => {
+            let report = asc_scene::spawns::load(Path::new(&args[1]))?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            if report.has_errors {
+                return Err("Spawn report contains errors; inspect its diagnostics.".into());
+            }
+        }
+        "place" if args.len() >= 4 => {
+            let mut defaults = None;
+            let mut spawn = "AC_PIT_0";
+            let mut mode = asc_vehicle::data::Mode::Auto;
+            let mut compound = None;
+            let mut flags = args[4..].iter();
+            while let Some(flag) = flags.next() {
+                match flag.to_str() {
+                    Some("--defaults") => defaults = Some(Path::new(flags.next().ok_or(usage)?)),
+                    Some("--spawn") => {
+                        spawn = flags.next().and_then(|v| v.to_str()).ok_or(usage)?
+                    }
+                    Some("--compound") => {
+                        compound = Some(
+                            flags
+                                .next()
+                                .and_then(|v| v.to_str())
+                                .ok_or(usage)?
+                                .parse::<u32>()?,
+                        )
+                    }
+                    Some("--data") => {
+                        mode = match flags.next().and_then(|v| v.to_str()) {
+                            Some("auto") => asc_vehicle::data::Mode::Auto,
+                            Some("packed") => asc_vehicle::data::Mode::Packed,
+                            Some("unpacked") => asc_vehicle::data::Mode::Unpacked,
+                            _ => return Err(usage.into()),
+                        }
+                    }
+                    _ => return Err(usage.into()),
+                }
+            }
+            let mut surfaces = Vec::new();
+            if let Some(path) = defaults {
+                surfaces.push(path);
+            }
+            surfaces.push(Path::new(&args[3]));
+            let report = asc_session::place(
+                Path::new(&args[1]),
+                Path::new(&args[2]),
+                &surfaces,
+                spawn,
+                mode,
+                compound,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+            if report.has_errors {
+                return Err("Placement report contains errors; inspect its diagnostics.".into());
+            }
+        }
         "ground" if args.len() >= 3 => {
             let config = Path::new(&args[1]);
             let selected = Path::new(&args[2]);

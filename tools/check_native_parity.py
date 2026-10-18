@@ -20,6 +20,7 @@ from openasc.config import ContentError, parse_ini, parse_lut
 from openasc.scene import inspect_scene
 from openasc.vehicle import load_vehicle
 from openasc.ground import load_ground
+from openasc.placement import inspect_spawns, inspect_placement
 from vehicle_fixtures import FILES, archive_bytes, install_car
 from kn5_fixtures import base, file_bytes, mesh
 
@@ -293,21 +294,115 @@ def ground_contracts(native):
         return report
 
 
+def compare_placement(native, car, track):
+    installation = track.parents[2]
+    if car.parents[2] != installation:
+        raise ValueError('Car and track must belong to the same installation for this comparison')
+    expected_spawns = inspect_spawns(installation, track.name)
+    command = [str(native), 'spawns', str(track / 'models.ini')]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=90)
+    actual_spawns = json.loads(result.stdout)
+    if result.returncode != int(actual_spawns['has_errors']):
+        raise AssertionError('Spawn process status does not reflect report errors')
+    def normalize(value):
+        if isinstance(value, dict):
+            result = {k: normalize(v) for k, v in value.items()}
+            if 'source' in result and Path(result['source']).is_absolute():
+                result['source'] = Path(result['source']).relative_to(installation).as_posix()
+            return result
+        if isinstance(value, (tuple, list)):
+            return [normalize(v) for v in value]
+        return value
+    def compare_values(a, b, location):
+        if isinstance(a, dict):
+            if a.keys() != b.keys():
+                raise AssertionError(f'{location}: keys differ')
+            for key in a:
+                compare_values(a[key], b[key], location + '.' + key)
+        elif isinstance(a, (tuple, list)):
+            if len(a) != len(b):
+                raise AssertionError(f'{location}: lengths differ')
+            for i, (x, y) in enumerate(zip(a, b)):
+                compare_values(x, y, f'{location}[{i}]')
+        elif isinstance(a, float):
+            if not math.isclose(a, b, abs_tol=1e-7, rel_tol=1e-10):
+                raise AssertionError(f'{location}: {a} != {b}')
+        elif a != b:
+            raise AssertionError(f'{location}: {a!r} != {b!r}')
+    compare_values(expected_spawns['spawns'], actual_spawns['spawns'], 'spawns')
+    compare_values(expected_spawns['has_errors'], actual_spawns['has_errors'], 'spawns.has_errors')
+    expected = inspect_placement(installation, car.name, track.name)
+    command = [str(native), 'place', str(car), str(track / 'models.ini'),
+               str(track / 'data/surfaces.ini'), '--defaults', str(installation / 'system/data/surfaces.ini')]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=90)
+    actual = json.loads(result.stdout)
+    if result.returncode != int(actual['has_errors']):
+        raise AssertionError('Placement process status does not reflect report errors')
+    for field in ('scope', 'track', 'layout', 'diagnostics'):
+        expected.pop(field)
+    for field in ('scope', 'config', 'diagnostics'):
+        actual.pop(field)
+    compare_values(normalize(expected), normalize(actual), 'placement')
+    return {'car': car.name, 'track': track.name, 'usable_spawns': len(actual_spawns['spawns']),
+            'all_wheels_supported': actual['all_wheels_supported'], 'has_errors': actual['has_errors'],
+            'simulation_ready': actual['simulation_ready']}
+
+
+def placement_contracts(native):
+    with tempfile.TemporaryDirectory(prefix='openasc-native-placement-') as directory:
+        root = Path(directory)
+        car = install_car(root)
+        packed = install_car(root, 'packed_fixture', packed=True)
+        track = root / 'content/tracks/fixture'
+        (track / 'data').mkdir(parents=True)
+        (root / 'system/data').mkdir(parents=True)
+        definition = '[SURFACE_0]\nKEY=ROAD\nFRICTION=.9\nDAMPING=0\nIS_VALID_TRACK=1\nIS_PITLANE=0\n'
+        (root / 'system/data/surfaces.ini').write_text(definition, encoding='utf-8')
+        (track / 'data/surfaces.ini').write_text(definition, encoding='utf-8')
+        (track / 'models.ini').write_text('[MODEL_0]\nFILE=original.kn5\nPOSITION=5,3,0\nROTATION=0,0,0\n', encoding='utf-8')
+        road = mesh(name='01ROAD', renderable=False,
+                    points=((-50, 0, -50), (50, 0, -50), (-50, 0, 50), (50, 0, 50)), indices=(0, 2, 1, 1, 2, 3))
+        pose = (0., 0., -1., 0., 0., 1., 0., 0., 1., 0., 0., 0., 10., 2., 0., 1.)
+        marker = base([mesh(name='AC_PIT_0', renderable=False)], matrix=pose, name='AC_PIT_0')
+        path = track / 'original.kn5'
+        path.write_bytes(file_bytes(base([road, marker])))
+        before = set(root.rglob('*'))
+        reports = [compare_placement(native, car, track), compare_placement(native, packed, track)]
+        duplicate = base([], name='AC_START_3')
+        path.write_bytes(file_bytes(base([road, marker, duplicate, duplicate])))
+        reports.append(compare_placement(native, car, track))
+        outside = list(pose)
+        outside[12] = 100
+        path.write_bytes(file_bytes(base([road, base([], matrix=outside, name='AC_PIT_0')])))
+        reports.append(compare_placement(native, car, track))
+        path.write_bytes(file_bytes(base([road, marker, marker])))
+        rejected = subprocess.run([str(native), 'place', str(car), str(track / 'models.ini'),
+                                   str(track / 'data/surfaces.ini')], capture_output=True, text=True, timeout=10)
+        if rejected.returncode == 0 or 'spawn_missing' not in rejected.stderr:
+            raise AssertionError('Ambiguous selected spawn must not be arbitrarily selected')
+        if set(root.rglob('*')) != before:
+            raise AssertionError('Placement preparation wrote into source content')
+        return {'compared_reports': reports, 'ambiguous_selection_rejected': True}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--native', required=True, type=Path)
     parser.add_argument('--model', action='append', default=[], type=Path, help='Optional local model; never exported.')
     parser.add_argument('--car', action='append', default=[], type=Path, help='Optional local content/cars/CAR directory; configuration only.')
     parser.add_argument('--ground', action='append', default=[], type=Path, help='Optional local content/tracks/TRACK directory; static support only.')
+    parser.add_argument('--placement', nargs=2, metavar=('CAR_DIRECTORY', 'TRACK_DIRECTORY'), type=Path, help='Optional local geometric placement comparison at AC_PIT_0.')
     args = parser.parse_args()
     native = args.native.resolve(strict=True)
     report = fixtures(native)
     report['text_and_scene_contracts'] = text_and_scene_contracts(native)
     report['vehicle_contracts'] = vehicle_contracts(native)
     report['ground_contracts'] = ground_contracts(native)
+    report['placement_contracts'] = placement_contracts(native)
     report['local_models'] = [{'source': path.name, **compare(native, path)} for path in args.model]
     report['local_cars'] = [compare_vehicle(native, path.resolve(strict=True)) for path in args.car]
     report['local_ground'] = [compare_ground(native, path.resolve(strict=True).parents[2], path.name) for path in args.ground]
+    report['local_placement'] = compare_placement(native, *(path.resolve(strict=True) for path in args.placement)) if args.placement else None
     print(json.dumps(report, indent=2, allow_nan=False))
 
 

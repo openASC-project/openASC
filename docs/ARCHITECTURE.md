@@ -6,6 +6,8 @@ The implemented project contains a first native Rust KN5 reader and wgpu offscre
 
 | Location | Responsibility |
 | --- | --- |
+| `crates/asc-session/` | Native geometric vehicle/spawn preparation and four-wheel support preflight |
+| `crates/asc-scene/src/spawns.rs` | Canonical rigid spawn bases, active ancestry and ambiguity diagnostics |
 | `crates/asc-ground/` | Explicit surface definitions, independent static physical geometry and vertical support BVH |
 | `crates/asc-acd/` | Bounded ordinary folder-keyed ACD index and in-memory record reads |
 | `crates/asc-vehicle/` | Whole-source packed/unpacked selection, typed vehicle configuration and field provenance |

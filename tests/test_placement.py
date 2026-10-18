@@ -71,6 +71,17 @@ class PlacementTests(unittest.TestCase):
             inspect_placement(self.root, 'fixture', 'fixture')
         self.assertIn('spawn_duplicate', [d['code'] for d in error.exception.diagnostics])
 
+    def test_invalid_first_basis_does_not_hide_duplicate_identity(self):
+        skewed = list(self.pose)
+        skewed[0] = .2
+        self.write([base([], matrix=skewed, name='AC_PIT_0'),
+                    base([], matrix=self.pose, name='AC_PIT_0')])
+        result = inspect_spawns(self.root, 'fixture')
+        self.assertFalse(result['spawns'])
+        self.assertTrue(result['has_errors'])
+        self.assertTrue({'spawn_basis', 'spawn_duplicate', 'no_spawns'} <=
+                        {d['code'] for d in result['diagnostics']})
+
     def test_noncanonical_inactive_and_skewed_spawns_are_explicit(self):
         skewed = list(self.pose)
         skewed[0:3] = (0, .2, -1)

@@ -242,19 +242,69 @@ pub fn load_collision(path: &Path) -> Result<Collision, Error> {
     parse_collision(BufReader::with_capacity(256 * 1024, file))
 }
 pub fn parse_collision<R: Read + Seek>(stream: R) -> Result<Collision, Error> {
-    let (scene, meshes) = parse_inner(stream, true)?;
+    let (scene, traversal) = parse_inner(stream, ReadMode::Collision)?;
     Ok(Collision {
-        meshes,
+        meshes: traversal.physical.unwrap_or_default(),
         summary: scene.summary,
     })
 }
 pub fn parse<R: Read + Seek>(stream: R) -> Result<Scene, Error> {
-    Ok(parse_inner(stream, false)?.0)
+    Ok(parse_inner(stream, ReadMode::Render)?.0)
 }
-fn parse_inner<R: Read + Seek>(
-    stream: R,
-    collision: bool,
-) -> Result<(Scene, Vec<PhysicalMesh>), Error> {
+#[derive(Clone, Debug, Serialize)]
+pub struct NodeTransform {
+    pub name: String,
+    pub kind: u32,
+    pub active: bool,
+    pub parent: Option<usize>,
+    pub world: [f64; 16],
+}
+pub struct NodeScene {
+    pub nodes: Vec<NodeTransform>,
+    pub summary: Summary,
+}
+/// Full structural validation and node transforms, without retaining mesh buffers.
+pub fn load_nodes(path: &Path) -> Result<NodeScene, Error> {
+    if !std::fs::metadata(path)
+        .map_err(|e| Error {
+            code: "kn5_io",
+            byte_offset: 0,
+            message: e.to_string(),
+        })?
+        .is_file()
+    {
+        return Err(Error {
+            code: "kn5_io",
+            byte_offset: 0,
+            message: "Expected a regular KN5 file.".into(),
+        });
+    }
+    let file = File::open(path).map_err(|e| Error {
+        code: "kn5_io",
+        byte_offset: 0,
+        message: e.to_string(),
+    })?;
+    parse_nodes(BufReader::with_capacity(256 * 1024, file))
+}
+pub fn parse_nodes<R: Read + Seek>(stream: R) -> Result<NodeScene, Error> {
+    let (scene, traversal) = parse_inner(stream, ReadMode::Nodes)?;
+    Ok(NodeScene {
+        nodes: traversal.nodes.unwrap_or_default(),
+        summary: scene.summary,
+    })
+}
+enum ReadMode {
+    Render,
+    Collision,
+    Nodes,
+}
+struct Traversal {
+    render_geometry: bool,
+    physical: Option<Vec<PhysicalMesh>>,
+    nodes: Option<Vec<NodeTransform>>,
+    parent_index: Option<usize>,
+}
+fn parse_inner<R: Read + Seek>(stream: R, mode: ReadMode) -> Result<(Scene, Traversal), Error> {
     let mut r = Reader::new(stream)?;
     if &r.bytes::<6>()? != b"sc6969" {
         return r.fail("kn5_signature", "Unsupported/protected KN5 signature.");
@@ -386,7 +436,12 @@ fn parse_inner<R: Read + Seek>(
         textures: embedded,
         draws: Vec::new(),
     };
-    let mut physical = collision.then(Vec::new);
+    let mut traversal = Traversal {
+        render_geometry: matches!(mode, ReadMode::Render),
+        physical: matches!(mode, ReadMode::Collision).then(Vec::new),
+        nodes: matches!(mode, ReadMode::Nodes).then(Vec::new),
+        parent_index: None,
+    };
     node(
         &mut r,
         &mut scene,
@@ -394,7 +449,7 @@ fn parse_inner<R: Read + Seek>(
         DMat4::IDENTITY,
         true,
         0,
-        &mut physical,
+        &mut traversal,
     )?;
     if r.offset != r.size {
         return r.fail("kn5_trailing_data", "Unexplained trailing bytes.");
@@ -405,7 +460,7 @@ fn parse_inner<R: Read + Seek>(
             .diagnostics
             .push("Skinned meshes validated structurally but omitted from rendering.".into());
     }
-    Ok((scene, physical.unwrap_or_default()))
+    Ok((scene, traversal))
 }
 
 fn node<R: Read + Seek>(
@@ -415,8 +470,10 @@ fn node<R: Read + Seek>(
     parent: DMat4,
     ancestor_active: bool,
     depth: usize,
-    physical: &mut Option<Vec<PhysicalMesh>>,
+    traversal: &mut Traversal,
 ) -> Result<(), Error> {
+    let parent_index = traversal.parent_index;
+    let node_index = scene.summary.nodes;
     scene.summary.nodes += 1;
     if scene.summary.nodes > 200_000 || depth > 128 {
         return r.fail("kn5_limit", "Node count/depth exceeds budget.");
@@ -458,11 +515,21 @@ fn node<R: Read + Seek>(
             let stride = if kind == 2 { 44 } else { 76 };
             r.geometry(count * stride)?;
             let prefix: String = name.chars().take_while(char::is_ascii_digit).collect();
-            let capture =
-                physical.is_some() && kind == 2 && active && prefix.bytes().any(|c| c != b'0');
+            let capture = traversal.physical.is_some()
+                && kind == 2
+                && active
+                && prefix.bytes().any(|c| c != b'0');
             let mut collision_positions = Vec::new();
-            let mut positions = Vec::with_capacity(if kind == 2 { count } else { 0 });
-            let mut attributes = Vec::with_capacity(if kind == 2 { count } else { 0 });
+            let mut positions = Vec::with_capacity(if kind == 2 && traversal.render_geometry {
+                count
+            } else {
+                0
+            });
+            let mut attributes = Vec::with_capacity(if kind == 2 && traversal.render_geometry {
+                count
+            } else {
+                0
+            });
             let linear = DMat3::from_cols(
                 world.x_axis.truncate(),
                 world.y_axis.truncate(),
@@ -501,14 +568,18 @@ fn node<R: Read + Seek>(
                         }
                         collision_positions.push(p.to_array());
                     }
-                    positions.push(p.as_vec3().to_array());
+                    if traversal.render_geometry {
+                        positions.push(p.as_vec3().to_array());
+                    }
                     let normal = if normals_valid {
                         (normal_matrix * DVec3::new(v[3].into(), v[4].into(), v[5].into()))
                             .normalize_or_zero()
                     } else {
                         DVec3::ZERO
                     };
-                    attributes.push((normal.as_vec3().to_array(), [v[6], v[7]]));
+                    if traversal.render_geometry {
+                        attributes.push((normal.as_vec3().to_array(), [v[6], v[7]]));
+                    }
                 }
             }
             let index_count = r.count(12_000_000)?;
@@ -520,13 +591,18 @@ fn node<R: Read + Seek>(
             }
             r.geometry(index_count * 2)?;
             scene.summary.structural_triangles += index_count / 3;
-            let mut indices = Vec::with_capacity(if kind == 2 { index_count } else { 0 });
+            let mut indices =
+                Vec::with_capacity(if kind == 2 && (capture || traversal.render_geometry) {
+                    index_count
+                } else {
+                    0
+                });
             for _ in 0..index_count {
                 let index = u16::from_le_bytes(r.bytes()?) as usize;
                 if index >= count {
                     return r.fail("kn5_indices", "Index outside vertex array.");
                 }
-                if kind == 2 {
+                if kind == 2 && (capture || traversal.render_geometry) {
                     indices.push(index as u32);
                 }
             }
@@ -558,13 +634,13 @@ fn node<R: Read + Seek>(
                 if r.physical_geometry > MAX_GEOMETRY {
                     return r.fail("kn5_limit", "Retained physical geometry exceeds 256 MiB.");
                 }
-                physical.as_mut().unwrap().push(PhysicalMesh {
+                traversal.physical.as_mut().unwrap().push(PhysicalMesh {
                     name: name.clone(),
                     lod,
                     positions: collision_positions,
                     indices,
                 });
-            } else if physical.is_none()
+            } else if traversal.render_geometry
                 && kind == 2
                 && active
                 && visible
@@ -611,9 +687,20 @@ fn node<R: Read + Seek>(
             );
         }
     }
-    for _ in 0..children {
-        node(r, scene, colours, world, active, depth + 1, physical)?;
+    if let Some(nodes) = &mut traversal.nodes {
+        nodes.push(NodeTransform {
+            name,
+            kind,
+            active,
+            parent: parent_index,
+            world: world.to_cols_array(),
+        });
     }
+    traversal.parent_index = Some(node_index);
+    for _ in 0..children {
+        node(r, scene, colours, world, active, depth + 1, traversal)?;
+    }
+    traversal.parent_index = parent_index;
     Ok(())
 }
 

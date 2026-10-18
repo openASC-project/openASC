@@ -24,9 +24,12 @@ cargo run --locked -p asc-app -- inspect ./assettocorsa/content/tracks/drift/dri
 cargo run --locked -p asc-app -- view ./assettocorsa/content/tracks/drift/drift.kn5
 cargo run --locked -p asc-app -- render ./assettocorsa/content/tracks/drift/drift.kn5 reports/native-drift.png
 cargo run --locked -p asc-app -- car ./assettocorsa/content/cars/bmw_m3_e30
+cargo run --locked -p asc-app -- spawns ./assettocorsa/content/tracks/drift/models.ini
 ```
 
 The native view command opens a desktop window with orbit, pan, zoom and perspective/orthographic cameras. It reuses persistent wgpu resources and the same material pipeline as the PNG path. Pass either one KN5 or an explicit `models.ini`/`models_LAYOUT.ini` path to inspect, render or view a composed static scene. For example, `cargo run --locked -p asc-app -- view ./assettocorsa/content/tracks/magione/models.ini` loads both declared models. Embedded diffuse resources remain local to each KN5 and share a bounded scene budget. Supported BC1/2/3 textures now upload directly on capable adapters; --rgba-textures forces the software fallback. The native path now reconstructs masked four-detail base colour for three ksMultilayer variants; original normal/Fresnel/specular lighting remains incomplete. Use `materials SCENE` to inspect retained shader properties and sampler slots. Add `--diagnostic` to skip texture loading. Native INI/LUT readers are available through `ini FILE.ini` and `lut FILE.lut --sample X`. Nonzero model rotations, dynamic objects and native driving remain unsupported. See the [native guide](docs/USER_GUIDE.md#native-static-scene-configuration).
+
+Native `spawns` and `place` provide geometric preparation only. Drift has a duplicate `AC_START_3`, so its reports retain `has_errors: true` and a nonzero process status even when the selected pit footprint has support; see the [placement guide](docs/USER_GUIDE.md#native-spawn-and-placement-preflight).
 
 The existing content tools, browser viewer and keyboard-driving prototype require Python 3.10+. No third-party Python packages are needed.
 

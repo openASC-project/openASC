@@ -112,6 +112,7 @@ dependencies = [
  "asc-kn5",
  "asc-render",
  "asc-scene",
+ "asc-session",
  "asc-test-support",
  "asc-vehicle",
  "glam",
@@ -178,6 +179,21 @@ dependencies = [
  "asc-test-support",
  "glam",
  "serde",
+]
+
+[[package]]
+name = "asc-session"
+version = "0.1.0"
+dependencies = [
+ "asc-config",
+ "asc-ground",
+ "asc-kn5",
+ "asc-scene",
+ "asc-test-support",
+ "asc-vehicle",
+ "glam",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

@@ -69,6 +69,9 @@ pub struct Hit<'a> {
 }
 
 impl Ground {
+    pub fn diagnostics(&self) -> &[Error] {
+        &self.diagnostics
+    }
     fn retain_metadata(&mut self, bytes: usize) -> Result<()> {
         self.metadata_bytes += bytes;
         if self.metadata_bytes > 32 * 1024 * 1024 {

@@ -51,7 +51,7 @@ def load_spawns(installation, track, layout=None, encoding='utf-8-sig'):
     manifest = inspect_scene(installation, track, layout, encoding)
     content = confined(Path(installation).resolve(), f'content/tracks/{track}', '<spawns>')
     diagnostics, spawns = list(manifest['diagnostics']), {}
-    duplicates = set()
+    seen = set()
     for model in manifest['models']:
         if any(abs(v) > 1e-6 for v in model['rotation']):
             diagnostics.append(Diagnostic('model_rotation_unsupported', f'{model["section"]} spawn nodes are omitted until model rotation is validated.', manifest['config']).as_dict())
@@ -77,11 +77,11 @@ def load_spawns(installation, track, layout=None, encoding='utf-8-sig'):
             if not SPAWN.fullmatch(node.name):
                 diagnostics.append(Diagnostic('spawn_name', f'{node.name!r} is outside the canonical supported spawn naming subset.', model['file'], severity='warning').as_dict())
                 continue
-            if node.name in spawns or node.name in duplicates:
+            if node.name in seen:
                 spawns.pop(node.name, None)
-                duplicates.add(node.name)
                 diagnostics.append(Diagnostic('spawn_duplicate', f'{node.name!r} occurs more than once and is omitted.', model['file']).as_dict())
                 continue
+            seen.add(node.name)
             try:
                 spawns[node.name] = spawn_transform(node.name, model['file'], multiply(root, node.world))
             except ContentError as error:

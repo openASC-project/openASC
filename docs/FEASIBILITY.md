@@ -44,3 +44,5 @@ Use the [compatibility record](FORMATS.md) for implemented behavior and the [arc
 Write original code and document verified behavior. Use original minimal fixtures in tests. Do not commit game executables, models, textures, sounds, SDK archives, or third-party mods. Distribution rights for any future third-party material must be considered separately.
 
 Native contact preparation now reads physical geometry separately from render buffers and provides static vertical support queries through `asc-ground`. Drift/Magione probes agree with the research loader, including surface metadata. Native chassis equilibrium, collision response, suspension/tyre force laws and a controlled driving session remain unimplemented.
+
+Native session preparation now joins canonical rigid spawn transforms, typed vehicle offsets and four ground queries through `asc-session`. The local BMW/Drift footprint agrees with the research path, while its duplicate start-marker error stays visible. Native chassis equilibrium and the controlled driving loop remain work ahead.
