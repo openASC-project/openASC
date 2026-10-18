@@ -83,6 +83,22 @@ fn source_budget_is_shared_across_models_instead_of_reset_for_each_file() {
     assert!(resources.diagnostics[0].contains("declared range"));
     assert!(resources.diagnostics[1].contains("128 MiB scene budget"));
 }
+
+#[test]
+fn prepared_composition_keeps_each_models_encoded_texture_namespace() {
+    let (_dir, track) = track();
+    let resources = asc_render::prepare_track_textures(&track);
+    assert_eq!(resources.material_textures, [Some(0), Some(1)]);
+    for (texture, expected) in resources
+        .textures
+        .iter()
+        .zip([[255, 0, 0, 255], [0, 255, 0, 255]])
+    {
+        assert!(texture.levels.is_empty());
+        let decoded = asc_texture::decode(texture.encoded.as_ref().unwrap(), 64).unwrap();
+        assert_eq!(&decoded.levels[0].rgba[..4], &expected);
+    }
+}
 #[test]
 #[ignore = "Requires a GPU or explicit software Vulkan adapter."]
 fn composed_models_render_both_local_diffuse_textures() {

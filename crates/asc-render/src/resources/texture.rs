@@ -13,12 +13,14 @@ pub struct Resources {
     pub textures: Vec<dds::Texture>,
     pub material_textures: Vec<Option<usize>>,
     pub diagnostics: Vec<String>,
+    pub allow_bc: bool,
 }
 
 pub fn load(scene: &Scene, path: &Path) -> Resources {
     load_sources(
         scene,
         &[(path, 0..scene.materials.len(), 0..scene.textures.len())],
+        false,
     )
 }
 
@@ -29,16 +31,38 @@ pub fn load_track(track: &asc_scene::Track) -> Resources {
         .iter()
         .map(|m| (m.path.as_path(), m.materials.clone(), m.textures.clone()))
         .collect();
-    load_sources(&track.scene, &sources)
+    load_sources(&track.scene, &sources, false)
 }
 
-fn load_sources(scene: &Scene, sources: &[(&Path, Range<usize>, Range<usize>)]) -> Resources {
+pub fn load_prepared(scene: &Scene, path: &Path) -> Resources {
+    load_sources(
+        scene,
+        &[(path, 0..scene.materials.len(), 0..scene.textures.len())],
+        true,
+    )
+}
+pub fn load_track_prepared(track: &asc_scene::Track) -> Resources {
+    let sources: Vec<_> = track
+        .manifest
+        .models
+        .iter()
+        .map(|m| (m.path.as_path(), m.materials.clone(), m.textures.clone()))
+        .collect();
+    load_sources(&track.scene, &sources, true)
+}
+
+fn load_sources(
+    scene: &Scene,
+    sources: &[(&Path, Range<usize>, Range<usize>)],
+    prepared: bool,
+) -> Resources {
     let mut result = Resources {
         textures: Vec::new(),
         material_textures: vec![None; scene.materials.len()],
         diagnostics: Vec::new(),
+        allow_bc: prepared,
     };
-    let (mut source_bytes, mut decoded_bytes) = (0, 0);
+    let (mut source_bytes, mut retained_bytes) = (0, 0);
     let mut used = vec![false; scene.materials.len()];
     for draw in &scene.draws {
         used[draw.material] = true;
@@ -92,11 +116,15 @@ fn load_sources(scene: &Scene, sources: &[(&Path, Range<usize>, Range<usize>)]) 
                     file.seek(SeekFrom::Start(descriptor.offset))?;
                     let mut data = vec![0; descriptor.length];
                     file.read_exact(&mut data)?;
-                    Ok(dds::decode(&data, 256 * 1024 * 1024 - decoded_bytes)?)
+                    Ok(if prepared {
+                        dds::prepare(&data, 256 * 1024 * 1024 - retained_bytes)?
+                    } else {
+                        dds::decode(&data, 256 * 1024 * 1024 - retained_bytes)?
+                    })
                 })();
                 match decoded {
                     Ok(texture) => {
-                        decoded_bytes += texture.info.decoded_bytes;
+                        retained_bytes += texture.retained_bytes();
                         let id = result.textures.len();
                         result.textures.push(texture);
                         Some(id)

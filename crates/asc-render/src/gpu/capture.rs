@@ -19,6 +19,9 @@ pub struct Report {
     pub background_rgba: [u8; 4],
     pub triangles: usize,
     pub uploaded_textures: usize,
+    pub compressed_textures: usize,
+    pub texture_upload_bytes: usize,
+    pub bc_enabled: bool,
     pub textured_draws: usize,
     pub alpha_test_draws: usize,
     pub blended_draws: usize,
@@ -56,7 +59,13 @@ pub async fn render_with_textures(
         backends: wgpu::Backends::PRIMARY,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
     });
-    let context = Context::request(&instance, None, fallback).await?;
+    let context = Context::request(
+        &instance,
+        None,
+        fallback,
+        resources.is_some_and(|r| r.allow_bc),
+    )
+    .await?;
     let gpu = GpuScene::new(
         &context,
         scene,
@@ -153,6 +162,9 @@ pub(super) fn frame(
             background_rgba: BACKGROUND,
             triangles: stats.triangles,
             uploaded_textures: stats.uploaded_textures,
+            compressed_textures: stats.compressed_textures,
+            texture_upload_bytes: stats.texture_upload_bytes,
+            bc_enabled: stats.bc_enabled,
             textured_draws: if scope.1 { stats.textured_draws } else { 0 },
             alpha_test_draws: stats.alpha_test_draws,
             blended_draws: stats.blended_draws,

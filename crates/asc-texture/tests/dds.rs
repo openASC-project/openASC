@@ -69,6 +69,70 @@ fn fails(data: &[u8], code: &str) {
 }
 
 #[test]
+fn upload_preparation_retains_exact_bc_mips_without_rgba_allocation() {
+    for (fourcc, stride) in [(*b"DXT1", 8), (*b"DXT3", 16), (*b"DXT5", 16)] {
+        let payload: Vec<u8> = (0..7 * stride).map(|v| v as u8).collect();
+        let data = source(
+            Header {
+                width: 12,
+                height: 4,
+                mips: 4,
+                fourcc,
+                ..Default::default()
+            },
+            &payload,
+        );
+        let prepared = dds::prepare(&data, data.len()).unwrap();
+        assert!(prepared.levels.is_empty());
+        assert_eq!(prepared.retained_bytes(), data.len());
+        let levels = prepared.block_levels().unwrap();
+        assert_eq!(
+            levels
+                .iter()
+                .map(|l| (l.width, l.height, l.bytes.len()))
+                .collect::<Vec<_>>(),
+            [
+                (12, 4, 3 * stride),
+                (6, 2, 2 * stride),
+                (3, 1, stride),
+                (1, 1, stride)
+            ]
+        );
+        assert_eq!(
+            levels
+                .iter()
+                .flat_map(|l| l.bytes.iter().copied())
+                .collect::<Vec<_>>(),
+            payload
+        );
+        // 3 + 2 + 1 + 1 blocks are required, including two sub-block mip tails.
+    }
+}
+
+#[test]
+fn prepared_storage_enforces_budget_truncation_and_software_fallback_dimensions() {
+    let data = source(Header::default(), &colour_block(0xf800, 0, 0));
+    assert_eq!(
+        dds::prepare(&data, data.len() - 1).err().unwrap().code,
+        "dds_limit"
+    );
+    for length in 0..data.len() {
+        assert!(dds::prepare(&data[..length], usize::MAX).is_err());
+    }
+    let data = source(
+        Header {
+            width: 3,
+            height: 2,
+            ..Default::default()
+        },
+        &colour_block(0xf800, 0, 0),
+    );
+    let prepared = dds::prepare(&data, 24).unwrap();
+    assert!(prepared.encoded.is_none());
+    assert_eq!(prepared.levels[0].rgba, [255, 0, 0, 255].repeat(6));
+}
+
+#[test]
 fn bc1_opaque_interpolation_and_three_colour_transparency() {
     let data = source(Header::default(), &colour_block(0xf800, 0x07e0, 0xe4e4e4e4));
     let t = decoded(&data);

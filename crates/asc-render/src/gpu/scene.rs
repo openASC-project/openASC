@@ -18,6 +18,7 @@ impl Context {
         instance: &wgpu::Instance,
         surface: Option<&wgpu::Surface<'_>>,
         fallback: bool,
+        allow_bc: bool,
     ) -> Result<Self> {
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
@@ -31,6 +32,11 @@ impl Context {
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("openASC native device"),
+                required_features: if allow_bc {
+                    adapter.features() & wgpu::Features::TEXTURE_COMPRESSION_BC
+                } else {
+                    wgpu::Features::empty()
+                },
                 ..Default::default()
             })
             .await?;
@@ -47,6 +53,9 @@ impl Context {
 pub struct Statistics {
     pub triangles: usize,
     pub uploaded_textures: usize,
+    pub compressed_textures: usize,
+    pub texture_upload_bytes: usize,
+    pub bc_enabled: bool,
     pub textured_draws: usize,
     pub alpha_test_draws: usize,
     pub blended_draws: usize,
@@ -102,6 +111,12 @@ impl GpuScene {
         let statistics = Statistics {
             triangles: scene.indices.len() / 3,
             uploaded_textures: prepared.uploaded,
+            compressed_textures: prepared.compressed,
+            texture_upload_bytes: prepared.upload_bytes,
+            bc_enabled: context
+                .device
+                .features()
+                .contains(wgpu::Features::TEXTURE_COMPRESSION_BC),
             textured_draws: scene
                 .draws
                 .iter()

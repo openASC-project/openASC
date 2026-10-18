@@ -5,16 +5,22 @@ use std::process::Command;
 #[test]
 #[ignore = "Requires a desktop display and GPU/software Vulkan; Linux CI uses Xvfb."]
 fn native_window_presents_resizes_and_reads_back_changed_cameras() {
-    run_window(false);
+    run_window(false, false);
 }
 
 #[test]
 #[ignore = "Requires a desktop display and GPU/software Vulkan; Linux CI uses Xvfb."]
 fn native_window_presents_a_composed_models_ini_scene() {
-    run_window(true);
+    run_window(true, false);
 }
 
-fn run_window(composed: bool) {
+#[test]
+#[ignore = "Requires a desktop display and GPU/software Vulkan; Linux CI uses Xvfb."]
+fn native_window_can_force_rgba_decode_of_retained_bc_sources() {
+    run_window(false, true);
+}
+
+fn run_window(composed: bool, rgba: bool) {
     let path = fixture::temp_path("window").with_extension("kn5");
     let mesh = fixture::mesh(
         &[[0., 0., 0.], [1., 0., 0.], [0., 0., 1.]],
@@ -60,6 +66,9 @@ fn run_window(composed: bool) {
         .arg(if composed { &config } else { &path })
         .arg("--smoke");
     command.arg("--capture").arg(&capture);
+    if rgba {
+        command.arg("--rgba-textures");
+    }
     if std::env::var_os("OPENASC_TEST_FALLBACK").is_some() {
         command.arg("--fallback");
     }
@@ -74,6 +83,18 @@ fn run_window(composed: bool) {
         output.status.success(),
         "Native window failed: {stdout}\n{stderr}"
     );
+    if rgba {
+        let native: serde_json::Value = serde_json::from_str(
+            stdout
+                .lines()
+                .find(|l| l.starts_with("{\"native_window\":"))
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(native["native_window"]["scene"]["bc_enabled"], false);
+        assert_eq!(native["native_window"]["scene"]["compressed_textures"], 0);
+        assert_eq!(native["native_window"]["scene"]["texture_upload_bytes"], 64);
+    }
     if composed {
         let manifest: serde_json::Value = serde_json::from_str(
             stdout

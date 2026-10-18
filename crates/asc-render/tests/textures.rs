@@ -140,3 +140,22 @@ fn malformed_dds_uses_diagnostic_colour_and_caches_the_failure() {
     assert_eq!(r.diagnostics.len(), 1);
     assert!(r.diagnostics[0].contains("dds_header"));
 }
+
+#[test]
+fn prepared_resource_retains_bc_source_once_without_decoding_rgba() {
+    let (source, mut scene) = source();
+    scene.materials.push(scene.materials[0].clone());
+    let mut draw = scene.draws[0].clone();
+    draw.material = 1;
+    scene.draws.push(draw);
+    let resources = textures::load_prepared(&scene, &source.0);
+    assert!(resources.allow_bc);
+    assert!(resources.diagnostics.is_empty());
+    assert_eq!(resources.material_textures, [Some(0), Some(0)]);
+    assert_eq!(resources.textures.len(), 1);
+    assert!(resources.textures[0].levels.is_empty());
+    assert_eq!(
+        resources.textures[0].block_levels().unwrap()[0].bytes.len(),
+        8
+    );
+}

@@ -15,7 +15,7 @@ fn load_input(path: &Path, diagnostic: bool) -> Result<Input, Box<dyn Error>> {
         .is_some_and(|e| e.eq_ignore_ascii_case("ini"))
     {
         let track = asc_scene::load(path)?;
-        let resources = (!diagnostic).then(|| render::load_track_textures(&track));
+        let resources = (!diagnostic).then(|| render::prepare_track_textures(&track));
         Ok(Input {
             scene: track.scene,
             resources,
@@ -23,7 +23,7 @@ fn load_input(path: &Path, diagnostic: bool) -> Result<Input, Box<dyn Error>> {
         })
     } else {
         let scene = kn5::load(path)?;
-        let resources = (!diagnostic).then(|| render::load_textures(&scene, path));
+        let resources = (!diagnostic).then(|| render::prepare_textures(&scene, path));
         Ok(Input {
             scene,
             resources,
@@ -34,7 +34,7 @@ fn load_input(path: &Path, diagnostic: bool) -> Result<Input, Box<dyn Error>> {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    let usage = "Usage: openasc inspect SCENE | render SCENE NEW.png [--fallback] [--diagnostic] | view SCENE [--fallback] [--diagnostic] [--captures DIR] [--capture NEW.png] [--smoke] | ini FILE.ini | lut FILE.lut [--sample X]. SCENE is a KN5 file or an explicit models.ini/models_LAYOUT.ini path.";
+    let usage = "Usage: openasc inspect SCENE | render SCENE NEW.png [--fallback] [--diagnostic] [--rgba-textures] | view SCENE [--fallback] [--diagnostic] [--rgba-textures] [--captures DIR] [--capture NEW.png] [--smoke] | ini FILE.ini | lut FILE.lut [--sample X]. SCENE is a KN5 file or an explicit models.ini/models_LAYOUT.ini path.";
     let command = args.first().and_then(|v| v.to_str()).ok_or(usage)?;
     match command {
         "ini" if args.len() == 2 => {
@@ -64,10 +64,12 @@ fn run() -> Result<(), Box<dyn Error>> {
                 (false, false, false, None);
             let mut flags = args[2..].iter();
             let mut first_capture = None;
+            let mut rgba_textures = false;
             while let Some(flag) = flags.next() {
                 match flag.to_str() {
                     Some("--fallback") => fallback = true,
                     Some("--diagnostic") => diagnostic = true,
+                    Some("--rgba-textures") => rgba_textures = true,
                     Some("--smoke") => smoke = true,
                     Some("--captures") => {
                         captures = Some(std::path::PathBuf::from(flags.next().ok_or(usage)?))
@@ -84,9 +86,12 @@ fn run() -> Result<(), Box<dyn Error>> {
             }
             let Input {
                 scene,
-                resources,
+                mut resources,
                 manifest,
             } = load_input(Path::new(&args[1]), diagnostic)?;
+            if let Some(resources) = resources.as_mut() {
+                resources.allow_bc = !rgba_textures;
+            }
             if let Some(manifest) = manifest {
                 println!(
                     "{}",
@@ -119,10 +124,10 @@ fn run() -> Result<(), Box<dyn Error>> {
             }
         }
         "render"
-            if (3..=5).contains(&args.len())
-                && args[3..]
-                    .iter()
-                    .all(|v| v == "--fallback" || v == "--diagnostic") =>
+            if (3..=6).contains(&args.len())
+                && args[3..].iter().all(|v| {
+                    v == "--fallback" || v == "--diagnostic" || v == "--rgba-textures"
+                }) =>
         {
             let output = Path::new(&args[2]);
             if output.exists() {
@@ -130,12 +135,15 @@ fn run() -> Result<(), Box<dyn Error>> {
             }
             let Input {
                 scene,
-                resources,
+                mut resources,
                 manifest,
             } = load_input(
                 Path::new(&args[1]),
                 args[3..].iter().any(|v| v == "--diagnostic"),
             )?;
+            if let Some(resources) = resources.as_mut() {
+                resources.allow_bc = !args[3..].iter().any(|v| v == "--rgba-textures");
+            }
             let frame = pollster::block_on(render::render_with_textures(
                 &scene,
                 resources.as_ref(),

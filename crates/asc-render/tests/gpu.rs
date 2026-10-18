@@ -91,6 +91,7 @@ fn plane_scene(heights: &[f32]) -> kn5::Scene {
 }
 fn texture(width: u32, height: u32, pixels: Vec<u8>) -> dds::Texture {
     dds::Texture {
+        encoded: None,
         info: dds::Info {
             width,
             height,
@@ -108,6 +109,7 @@ fn texture(width: u32, height: u32, pixels: Vec<u8>) -> dds::Texture {
 }
 fn resources(colour: [u8; 4]) -> Resources {
     Resources {
+        allow_bc: false,
         textures: vec![texture(1, 1, colour.to_vec())],
         material_textures: vec![Some(0)],
         diagnostics: Vec::new(),
@@ -137,6 +139,7 @@ fn pixel<'a>(frame: &'a render::Frame, scene: &kn5::Scene, point: Vec3) -> &'a [
 fn native_gpu_samples_uv_without_vertical_flip() {
     let scene = plane_scene(&[0.]);
     let r = Resources {
+        allow_bc: false,
         textures: vec![texture(
             2,
             2,
@@ -286,6 +289,7 @@ fn native_gpu_sorts_transparency_by_camera_depth_independently_of_source_order()
         m.blend = 1;
     }
     let r = Resources {
+        allow_bc: false,
         textures: vec![
             texture(1, 1, vec![0, 255, 0, 128]),
             texture(1, 1, vec![255, 0, 0, 128]),
@@ -302,4 +306,79 @@ fn native_gpu_sorts_transparency_by_camera_depth_independently_of_source_order()
         p[1] > p[0] + 30,
         "Near green blend should contribute more than far red: {p:?}"
     );
+}
+
+#[test]
+#[ignore = "Requires native GPU or software Vulkan; run explicitly in GPU CI."]
+fn bc_upload_and_no_bc_device_fallback_preserve_colour_alpha_and_mip_tails() {
+    for fourcc in [*b"DXT1", *b"DXT3", *b"DXT5"] {
+        let mut data = support::bc1(0xf800);
+        data[12..16].copy_from_slice(&4u32.to_le_bytes());
+        data[16..20].copy_from_slice(&12u32.to_le_bytes());
+        data[28..32].copy_from_slice(&4u32.to_le_bytes());
+        data[84..88].copy_from_slice(&fourcc);
+        data.truncate(128);
+        for (count, colour) in [(3, 0xf800), (2, 0x07e0), (1, 0x001f), (1, 0xffff)] {
+            let block = support::bc1(colour);
+            for _ in 0..count {
+                if fourcc == *b"DXT3" {
+                    data.extend([0x88; 8]);
+                }
+                if fourcc == *b"DXT5" {
+                    data.extend([128, 128, 0, 0, 0, 0, 0, 0]);
+                }
+                data.extend(&block[128..]);
+            }
+        }
+        let mut scene = plane_scene(&[0.]);
+        scene.materials[0].blend = 1;
+        for minified in [false, true] {
+            if minified {
+                for vertex in &mut scene.vertices {
+                    vertex.uv = vertex.uv.map(|v| v * 256.);
+                }
+            }
+            let mut r = Resources {
+                textures: vec![dds::prepare(&data, 1024).unwrap()],
+                material_textures: vec![Some(0)],
+                diagnostics: Vec::new(),
+                allow_bc: true,
+            };
+            let direct = frame(&scene, &r);
+            assert!(
+                direct.report.diagnostics.is_empty(),
+                "{:?}",
+                direct.report.diagnostics
+            );
+            assert_eq!(
+                direct.report.compressed_textures,
+                usize::from(direct.report.bc_enabled)
+            );
+            r.allow_bc = false;
+            let decoded = frame(&scene, &r);
+            assert!(!decoded.report.bc_enabled);
+            assert_eq!(decoded.report.compressed_textures, 0);
+            assert!(
+                decoded.report.diagnostics.is_empty(),
+                "{:?}",
+                decoded.report.diagnostics
+            );
+            let a = pixel(&direct, &scene, Vec3::ZERO);
+            let b = pixel(&decoded, &scene, Vec3::ZERO);
+            assert!(
+                a.iter().zip(b).all(|(x, y)| x.abs_diff(*y) <= 2),
+                "BC/RGBA centre {fourcc:?}: {a:?}/{b:?}"
+            );
+            assert!(a[0] > 80, "Red base/white mip must contribute: {a:?}");
+            if minified {
+                assert!(
+                    a[1] > 80 && a[2] > 80,
+                    "Authored white 1x1 mip must be sampled: {a:?}"
+                );
+            }
+            if direct.report.bc_enabled {
+                assert!(direct.report.texture_upload_bytes < decoded.report.texture_upload_bytes);
+            }
+        }
+    }
 }

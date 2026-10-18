@@ -17,6 +17,8 @@ pub struct Prepared {
     pub pipelines: Vec<wgpu::RenderPipeline>,
     pub materials: Vec<GpuMaterial>,
     pub uploaded: usize,
+    pub compressed: usize,
+    pub upload_bytes: usize,
     pub diagnostics: Vec<String>,
 }
 
@@ -32,23 +34,72 @@ fn state(material: &Material) -> (bool, bool, u32) {
     }
 }
 
-fn upload(device: &wgpu::Device, queue: &wgpu::Queue, texture: &dds::Texture) -> wgpu::TextureView {
-    let base = &texture.levels[0];
+fn upload(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    texture: &dds::Texture,
+) -> Result<(wgpu::TextureView, usize, bool), Box<dyn std::error::Error>> {
+    let compressed = texture.encoded.is_some();
+    let format = if compressed {
+        match texture.info.format {
+            "BC1" => wgpu::TextureFormat::Bc1RgbaUnormSrgb,
+            "BC2" => wgpu::TextureFormat::Bc2RgbaUnormSrgb,
+            "BC3" => wgpu::TextureFormat::Bc3RgbaUnormSrgb,
+            _ => return Err("Unsupported compressed upload format.".into()),
+        }
+    } else {
+        wgpu::TextureFormat::Rgba8UnormSrgb
+    };
+    let blocks = if compressed {
+        texture.block_levels()?
+    } else {
+        Vec::new()
+    };
     let gpu = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("Decoded embedded diffuse"),
+        label: Some("Embedded diffuse"),
         size: wgpu::Extent3d {
-            width: base.width,
-            height: base.height,
+            width: texture.info.width,
+            height: texture.info.height,
             depth_or_array_layers: 1,
         },
-        mip_level_count: texture.levels.len() as u32,
+        mip_level_count: if compressed {
+            blocks.len()
+        } else {
+            texture.levels.len()
+        } as u32,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        format,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
+    let mut bytes = 0;
+    let stride = if texture.info.format == "BC1" { 8 } else { 16 };
+    for (mip, level) in blocks.iter().enumerate() {
+        bytes += level.bytes.len();
+        queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &gpu,
+                mip_level: mip as u32,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            level.bytes,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(level.width.div_ceil(4) * stride),
+                rows_per_image: Some(level.height.div_ceil(4)),
+            },
+            wgpu::Extent3d {
+                width: level.width,
+                height: level.height,
+                depth_or_array_layers: 1,
+            }
+            .physical_size(format),
+        );
+    }
     for (mip, level) in texture.levels.iter().enumerate() {
+        bytes += level.rgba.len();
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture: &gpu,
@@ -69,7 +120,7 @@ fn upload(device: &wgpu::Device, queue: &wgpu::Queue, texture: &dds::Texture) ->
             },
         );
     }
-    gpu.create_view(&Default::default())
+    Ok((gpu.create_view(&Default::default()), bytes, compressed))
 }
 
 pub fn prepare(
@@ -193,6 +244,7 @@ pub fn prepare(
         }
     }
     let fallback = dds::Texture {
+        encoded: None,
         info: dds::Info {
             width: 1,
             height: 1,
@@ -207,23 +259,63 @@ pub fn prepare(
             rgba: vec![255; 4],
         }],
     };
-    let mut views = vec![upload(device, queue, &fallback)];
+    let mut views = vec![upload(device, queue, &fallback)?.0];
+    let (mut upload_bytes, mut compressed) = (0, 0);
     let mut diagnostics = resources.map(|r| r.diagnostics.clone()).unwrap_or_default();
     let mut ids = Vec::new();
     if let Some(resources) = resources {
         if resources.material_textures.len() != scene.materials.len() {
             return Err("Material texture mapping length differs from scene.".into());
         }
-        for texture in &resources.textures {
-            if texture.levels.is_empty()
+        for (texture_index, texture) in resources.textures.iter().enumerate() {
+            if (texture.levels.is_empty() && texture.encoded.is_none())
                 || texture.info.width.max(texture.info.height)
                     > device.limits().max_texture_dimension_2d
             {
                 diagnostics.push("Decoded texture exceeds device dimensions or has no mip levels; diagnostic colour.".into());
                 ids.push(None);
             } else {
+                let decoded;
+                let remaining = 256 * 1024 * 1024 - upload_bytes;
+                let texture = if let Some(data) = &texture.encoded {
+                    if !device
+                        .features()
+                        .contains(wgpu::Features::TEXTURE_COMPRESSION_BC)
+                    {
+                        match dds::decode(data, remaining) {
+                            Ok(value) => {
+                                decoded = value;
+                                &decoded
+                            }
+                            Err(error) => {
+                                diagnostics.push(format!(
+                                    "Texture resource {texture_index}, BC software fallback: {error} Diagnostic colour."
+                                ));
+                                ids.push(None);
+                                continue;
+                            }
+                        }
+                    } else {
+                        texture
+                    }
+                } else {
+                    texture
+                };
+                let cost = if texture.encoded.is_some() {
+                    texture.block_levels()?.iter().map(|l| l.bytes.len()).sum()
+                } else {
+                    texture.retained_bytes()
+                };
+                if cost > remaining {
+                    diagnostics.push("Texture upload payload exceeds the 256 MiB scene budget; diagnostic colour.".into());
+                    ids.push(None);
+                    continue;
+                }
+                let (view, bytes, bc) = upload(device, queue, texture)?;
+                upload_bytes += bytes;
+                compressed += usize::from(bc);
                 ids.push(Some(views.len()));
-                views.push(upload(device, queue, texture));
+                views.push(view);
             }
         }
     }
@@ -303,6 +395,8 @@ pub fn prepare(
         pipelines,
         materials,
         uploaded: views.len() - 1,
+        compressed,
+        upload_bytes,
         diagnostics,
     })
 }

@@ -24,6 +24,7 @@ pub struct Info {
     pub height: u32,
     pub format: &'static str,
     pub source_mips: u32,
+    /// Required bytes for the complete RGBA mip chain, even when blocks stay encoded.
     pub decoded_bytes: usize,
     pub generated_mips: bool,
 }
@@ -35,6 +36,71 @@ pub struct Level {
 pub struct Texture {
     pub info: Info,
     pub levels: Vec<Level>,
+    /// Validated legacy BC DDS retained for upload; mutually exclusive with RGBA levels.
+    pub encoded: Option<Vec<u8>>,
+}
+pub struct BlockLevel<'a> {
+    pub width: u32,
+    pub height: u32,
+    pub bytes: &'a [u8],
+}
+impl Texture {
+    pub fn retained_bytes(&self) -> usize {
+        self.encoded
+            .as_ref()
+            .map_or_else(|| self.levels.iter().map(|l| l.rgba.len()).sum(), Vec::len)
+    }
+    pub fn block_levels(&self) -> Result<Vec<BlockLevel<'_>>, Error> {
+        let data = self.encoded.as_deref().ok_or(Error {
+            code: "dds_storage",
+            message: "Texture has no encoded BC data.",
+        })?;
+        let h = header(data)?;
+        if !self.levels.is_empty()
+            || !bc_aligned(&h.info)
+            || h.info.width != self.info.width
+            || h.info.height != self.info.height
+            || h.info.format != self.info.format
+            || h.info.source_mips != self.info.source_mips
+        {
+            return fail("dds_storage", "Inconsistent compressed texture storage.");
+        }
+        Ok(h.ranges
+            .into_iter()
+            .map(|(width, height, offset, length)| BlockLevel {
+                width,
+                height,
+                bytes: &data[offset..offset + length],
+            })
+            .collect())
+    }
+}
+fn bc_aligned(info: &Info) -> bool {
+    matches!(info.format, "BC1" | "BC2" | "BC3")
+        && info.width.is_multiple_of(4)
+        && info.height.is_multiple_of(4)
+}
+
+/// Retain validated, block-aligned BC sources without expanding RGBA. Raw/unaligned
+/// images use the software decoder; adapters lacking BC decode retained sources later.
+pub fn prepare(data: &[u8], remaining_bytes: usize) -> Result<Texture, Error> {
+    let h = header(data)?;
+    if !bc_aligned(&h.info) {
+        return decode(data, remaining_bytes);
+    }
+    let &(_, _, offset, length) = h.ranges.last().unwrap();
+    let end = offset + length;
+    if end > remaining_bytes {
+        return fail(
+            "dds_limit",
+            "Retained scene texture budget would be exceeded.",
+        );
+    }
+    Ok(Texture {
+        info: h.info,
+        levels: Vec::new(),
+        encoded: Some(data[..end].to_vec()),
+    })
 }
 struct Header {
     info: Info,
@@ -280,6 +346,7 @@ pub fn decode(data: &[u8], remaining_bytes: usize) -> Result<Texture, Error> {
     Ok(Texture {
         info: h.info,
         levels,
+        encoded: None,
     })
 }
 

@@ -34,7 +34,13 @@ impl Presenter {
         size: (u32, u32),
         fallback: bool,
     ) -> Result<Self> {
-        let context = Context::request(&instance, Some(&surface), fallback).await?;
+        let context = Context::request(
+            &instance,
+            Some(&surface),
+            fallback,
+            resources.is_some_and(|r| r.allow_bc),
+        )
+        .await?;
         let caps = surface.get_capabilities(&context.adapter);
         let format = caps
             .formats
