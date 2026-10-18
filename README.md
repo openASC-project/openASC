@@ -90,6 +90,7 @@ crates/asc-vehicle/       Typed car configuration and suspension records
 crates/asc-physics/       Independent rigid bodies, springs and fixed clock
 crates/asc-session/       Vehicle/spawn placement and explicit body seeding
 tools/test-support/      Original shared Rust fixtures
+tools/asc-telemetry/     Read-only Windows original-game measurement tool
 tools/prototype/openasc/ Python research readers and driving model
 tools/prototype/viewer/  Research WebGL preview interface
 openasc/                 Compatibility entry point for python -m openasc
@@ -101,6 +102,8 @@ assettocorsa/             Local game installation, ignored by Git
 ```
 
 The source layout follows the subsystem workspace used by [openOMSI](https://github.com/openOMSI-org/openOMSI/blob/main/Cargo.toml). Each engine subsystem has its own crate, with the executable assembling them in `asc-app`. Python research stays under `tools/prototype/`. See [workspace boundaries](docs/ARCHITECTURE.md#workspace-and-subsystem-boundaries) before adding a subsystem.
+
+The separate Rust [telemetry collector](docs/TELEMETRY.md) reads an existing original-game session on Windows for future controlled comparisons. Its protocol and OS access are fixture-tested; live acquisition and original physics parity remain unverified.
 
 ## Next milestone
 

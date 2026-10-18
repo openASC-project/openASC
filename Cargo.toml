@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/*", "tools/test-support"]
+members = ["crates/*", "tools/test-support", "tools/asc-telemetry"]
 default-members = ["crates/asc-app"]
 resolver = "3"
 

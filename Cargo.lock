@@ -207,6 +207,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "asc-telemetry"
+version = "0.1.0"
+dependencies = [
+ "asc-test-support",
+ "serde",
+ "serde_json",
+ "windows-sys 0.61.2",
+]
+
+[[package]]
 name = "asc-test-support"
 version = "0.1.0"
 dependencies = [

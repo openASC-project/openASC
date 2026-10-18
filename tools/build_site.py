@@ -10,6 +10,7 @@ REPOSITORY = 'https://github.com/openASC-project/openASC'
 PAGES = [
     ('guide', 'User guide', 'USER_GUIDE.md', '▷'),
     ('formats', 'Content formats', 'FORMATS.md', '▤'),
+    ('telemetry', 'Telemetry research', 'TELEMETRY.md', '∿'),
     ('architecture', 'Architecture', 'ARCHITECTURE.md', '⌘'),
     ('roadmap', 'Roadmap & feasibility', 'FEASIBILITY.md', '↗'),
     ('development', 'Development', 'DEVELOPMENT.md', '⚒'),

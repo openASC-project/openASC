@@ -63,6 +63,8 @@ Edit `docs/` for documentation, `web/overview.html` for the overview body, and `
 
 ## Contribute
 
+The independent Rust telemetry research tool is documented in [TELEMETRY.md](TELEMETRY.md). Run `cargo test --locked -p asc-telemetry` for original protocol/journal fixtures and Windows named-mapping tests. Tests never create or write the game's mapping names. Keep local capture logs in ignored `reports/`; a complete acquisition log does not establish original physics parity.
+
 The independent driving model is in `tools/prototype/openasc/dynamics.py`; its tests use original flat/sloped geometry and original car configurations. Keep rendering and HTTP telemetry reads out of the fixed-step solver. Controller tests can advance exact steps with an injected clock instead of sleeping. Real-content/browser validation remains local; record the scope and limitations before changing compatibility claims.
 
 Website progress screenshots are selected flattened captures under `site/images/`, with captions in `web/overview.html`. Update them after meaningful visual milestones. Do not add raw game assets or temporary browser reports. The project's MIT license does not relicense the underlying game content depicted in screenshots.

@@ -1,5 +1,7 @@
 # User guide
 
+For read-only measurement of an already running original-game session on Windows, see the separate [telemetry research guide](TELEMETRY.md). This collector supports future comparisons; live acquisition has not yet been verified.
+
 openASC provides content readers, local geometry inspection and an independent keyboard-driving prototype. The prototype is locally tested on BMW M3 E30/Drift; original physics and general gameplay compatibility are not established.
 
 ## Requirements

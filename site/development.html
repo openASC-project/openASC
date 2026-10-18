@@ -30,6 +30,7 @@
 <nav aria-labelledby="docs-label"><h2 id="docs-label">Documentation</h2>
 <a href="./guide.html"><span class="nav-icon" aria-hidden="true">▷</span>User guide</a>
 <a href="./formats.html"><span class="nav-icon" aria-hidden="true">▤</span>Content formats</a>
+<a href="./telemetry.html"><span class="nav-icon" aria-hidden="true">∿</span>Telemetry research</a>
 <a href="./architecture.html"><span class="nav-icon" aria-hidden="true">⌘</span>Architecture</a>
 <a href="./roadmap.html"><span class="nav-icon" aria-hidden="true">↗</span>Roadmap & feasibility</a>
 <a href="./development.html" aria-current="page"><span class="nav-icon" aria-hidden="true">⚒</span>Development</a>
@@ -77,6 +78,7 @@ python -m http.server 4173 --directory site --bind 127.0.0.1</code></pre>
 <p>Open <a href="http://127.0.0.1:4173/">localhost</a>. The document builder supports the Markdown subset used here: headings, paragraphs, links, inline code, bold text, lists, fenced code, and tables. Raw HTML in documentation is escaped.</p>
 <p>Edit <code>docs/</code> for documentation, <code>web/overview.html</code> for the overview body, and <code>web/layout.html</code> for the shared shell. Edit <code>site/style.css</code> and <code>site/app.js</code> for styling and browser behavior. Generated HTML files contain a notice identifying their source.</p>
 <h2 id="contribute">Contribute</h2>
+<p>The independent Rust telemetry research tool is documented in <a href="./telemetry.html">TELEMETRY.md</a>. Run <code>cargo test --locked -p asc-telemetry</code> for original protocol/journal fixtures and Windows named-mapping tests. Tests never create or write the game&#x27;s mapping names. Keep local capture logs in ignored <code>reports/</code>; a complete acquisition log does not establish original physics parity.</p>
 <p>The independent driving model is in <code>tools/prototype/openasc/dynamics.py</code>; its tests use original flat/sloped geometry and original car configurations. Keep rendering and HTTP telemetry reads out of the fixed-step solver. Controller tests can advance exact steps with an injected clock instead of sleeping. Real-content/browser validation remains local; record the scope and limitations before changing compatibility claims.</p>
 <p>Website progress screenshots are selected flattened captures under <code>site/images/</code>, with captions in <code>web/overview.html</code>. Update them after meaningful visual milestones. Do not add raw game assets or temporary browser reports. The project&#x27;s MIT license does not relicense the underlying game content depicted in screenshots.</p>
 <p>Start with an <a href="https://github.com/openASC-project/openASC/issues">issue</a> describing a reproducible problem or bounded feature. Keep parser fixtures original and small. A green test suite does not establish compatibility with all Assetto Corsa content.</p>

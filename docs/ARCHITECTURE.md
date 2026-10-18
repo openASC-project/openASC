@@ -57,6 +57,7 @@ The implemented project contains a first native Rust KN5 reader and wgpu offscre
 | `crates/*/tests/` | Original format, resource, camera, material pixel and PNG fixtures |
 | `crates/asc-app/` | Native CLI executable named openasc |
 | `tools/test-support/` | Shared original Rust fixture crate |
+| `tools/asc-telemetry/` | Read-only Windows original-game prefix acquisition and bounded research JSONL journals; see [telemetry](TELEMETRY.md) |
 | `tools/check_native_parity.py` | Native/Python reader contract comparisons; not original-game physics validation |
 
 ## Workspace and subsystem boundaries
