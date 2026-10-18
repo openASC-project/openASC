@@ -44,16 +44,16 @@
   </aside>
   <div class="page-shell">
     <main id="main" tabindex="-1" class="documentation">
-      <article class="document"><h1>Development</h1>
+      <article class="document"><h1 id="development">Development</h1>
 <p>All repository documentation, code comments, diagnostics, commit messages, and website content are maintained in English.</p>
-<h2>Run checks</h2>
+<h2 id="run-checks">Run checks</h2>
 <p>The native workspace uses Rust with wgpu. CI checks both Windows and Linux with the stable Rust toolchain. Native fixtures require no game content:</p>
 <pre><code>cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
 cargo build --workspace --locked
 python tools/check_native_parity.py --native target/debug/openasc</code></pre>
-<p>Use <code>target/debug/openasc.exe</code> on Windows. Native/Python contract checks compare original KN5 fixtures, selection, transforms/bounds, full material properties/sampler mappings, INI values/order/source lines, LUT samples, static model declarations and rejection codes. Optional repeated <code>--model PATH</code> arguments compare locally installed models without copying them. Agreement between two openASC implementations does not establish original-simulator parity.</p>
+<p>Use <code>target/debug/openasc.exe</code> on Windows. Native/Python contract checks compare original KN5 fixtures, selection, transforms/bounds, full material properties/sampler mappings, INI values/order/source lines, LUT samples, static model declarations, packed/unpacked vehicle configurations and rejection codes. Optional repeated <code>--model PATH</code> arguments compare locally installed models without copying them. <code>--car PATH/TO/content/cars/CAR</code> additionally compares complete local vehicle configuration values and field sources. Warning wording/order is not compared; Rust fixtures separately check warning codes. Agreement between two openASC implementations does not establish original-simulator parity.</p>
 <p>The separate GPU test is explicitly opt-in on a machine with a native adapter:</p>
 <pre><code>cargo test -p asc-render --locked --test gpu --test track_textures -- --ignored --nocapture</code></pre>
 <p>Five single-model GPU tests check non-background geometry, occlusion independent of triangle order, non-aligned row readback, PNG pixels/overwrite refusal, UV orientation, opaque versus cutout alpha, opacity and linear-light blending, read-only/disabled depth and back-to-front transparency ordering. Another GPU test checks BC1/2/3 direct upload against a device created without BC support, including alpha and authored non-power-of-two/sub-block mip tails. Two multilayer GPU tests check linear unnormalised RGBA weights, magic gain, alpha-as-a-fourth-weight and world-XZ versus source-UV coordinates. A separate composition GPU test proves that two composed models with identical texture names retain distinct red/green pixels. CPU fixtures cover native config parsing, translation and rebasing, resource confinement, model/texture budgets and per-model resource isolation. Set <code>OPENASC_TEST_FALLBACK=1</code> to request a software adapter; Linux CI installs Mesa Vulkan and runs these tests explicitly. GPU adapter absence fails the explicit tests. Structural, DDS and resource-resolution tests remain GPU-independent. Cargo build outputs under <code>target/</code> are ignored; commit <code>Cargo.lock</code> with dependency changes.</p>
@@ -71,12 +71,12 @@ node --check tools/prototype/viewer/drive.js
 node --test tests/test_dds.cjs</code></pre>
 <p>Node.js 18+ is used for JavaScript syntax checks and original DDS pixel tests. The website itself has no npm dependencies or build-time JavaScript framework.</p>
 <p>The local geometry viewer also has no npm dependencies. Its JavaScript is in <code>tools/prototype/viewer/</code>, served only by <code>python -m openasc view</code>. Tests construct original complete KN5 fixtures and exercise the loopback server, including foreign-host/origin rejection. Binary fixtures are not copied from the game.</p>
-<h2>Update the website</h2>
+<h2 id="update-the-website">Update the website</h2>
 <pre><code>python tools/build_site.py
 python -m http.server 4173 --directory site --bind 127.0.0.1</code></pre>
 <p>Open <a href="http://127.0.0.1:4173/">localhost</a>. The document builder supports the Markdown subset used here: headings, paragraphs, links, inline code, bold text, lists, fenced code, and tables. Raw HTML in documentation is escaped.</p>
 <p>Edit <code>docs/</code> for documentation, <code>web/overview.html</code> for the overview body, and <code>web/layout.html</code> for the shared shell. Edit <code>site/style.css</code> and <code>site/app.js</code> for styling and browser behavior. Generated HTML files contain a notice identifying their source.</p>
-<h2>Contribute</h2>
+<h2 id="contribute">Contribute</h2>
 <p>The independent driving model is in <code>tools/prototype/openasc/dynamics.py</code>; its tests use original flat/sloped geometry and original car configurations. Keep rendering and HTTP telemetry reads out of the fixed-step solver. Controller tests can advance exact steps with an injected clock instead of sleeping. Real-content/browser validation remains local; record the scope and limitations before changing compatibility claims.</p>
 <p>Website progress screenshots are selected flattened captures under <code>site/images/</code>, with captions in <code>web/overview.html</code>. Update them after meaningful visual milestones. Do not add raw game assets or temporary browser reports. The project&#x27;s MIT license does not relicense the underlying game content depicted in screenshots.</p>
 <p>Start with an <a href="https://github.com/openASC-project/openASC/issues">issue</a> describing a reproducible problem or bounded feature. Keep parser fixtures original and small. A green test suite does not establish compatibility with all Assetto Corsa content.</p>

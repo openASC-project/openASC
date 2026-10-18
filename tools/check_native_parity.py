@@ -5,6 +5,7 @@ No source content is copied or extracted. Agreement does not prove AC parity.
 import argparse
 import json
 import math
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -16,6 +17,8 @@ sys.path.insert(0, str(ROOT / 'tests'))
 from openasc.kn5 import IDENTITY, load_kn5
 from openasc.config import ContentError, parse_ini, parse_lut
 from openasc.scene import inspect_scene
+from openasc.vehicle import load_vehicle
+from vehicle_fixtures import FILES, archive_bytes, install_car
 from kn5_fixtures import base, file_bytes, mesh
 
 
@@ -152,15 +155,77 @@ def text_and_scene_contracts(native):
     return {'ini_documents': 1, 'lut_samples': len(samples), 'rejected_configs': len(rejected), 'composed_models': 2}
 
 
+def compare_vehicle(native, path, mode='auto', compound=None):
+    expected = load_vehicle(path.parents[2], path.name, mode=mode, compound=compound).summary()
+    args = [str(native), 'car', str(path), '--data', mode]
+    if compound is not None:
+        args += ['--compound', str(compound)]
+    result = subprocess.run(args, capture_output=True, text=True, check=True)
+    actual = json.loads(result.stdout)
+    expected.pop('diagnostics')
+    actual.pop('diagnostics')
+    def compare_values(a, b, location):
+        if isinstance(a, dict):
+            if a.keys() != b.keys():
+                raise AssertionError(f'{location}: different fields')
+            for key in a:
+                compare_values(a[key], b[key], location + '.' + key)
+        elif isinstance(a, (list, tuple)):
+            if len(a) != len(b):
+                raise AssertionError(f'{location}: different lengths')
+            for i, (x, y) in enumerate(zip(a, b)):
+                compare_values(x, y, f'{location}[{i}]')
+        elif isinstance(a, (float, int)) and not isinstance(a, bool):
+            if not math.isclose(a, b, rel_tol=1e-12, abs_tol=1e-12):
+                raise AssertionError(f'{location}: {a} != {b}')
+        elif a != b:
+            raise AssertionError(f'{location}: {a!r} != {b!r}')
+    compare_values(expected, actual, path.name)
+    return {'car': actual['car'], 'data_source': actual['data_source'], 'mass_kg': actual['mass_kg'],
+            'wheelbase_m': actual['wheelbase_m'], 'torque_points': len(actual['engine']['torque_lut']['points'])}
+
+
+def vehicle_contracts(native):
+    with tempfile.TemporaryDirectory(prefix='openasc-native-car-') as directory:
+        root = Path(directory)
+        if hasattr(os, 'mkfifo'):
+            fifo = root / 'not-an-archive.acd'
+            os.mkfifo(fifo)
+            result = subprocess.run([str(native), 'acd', str(fifo), 'fixture'], capture_output=True, text=True, timeout=5)
+            if result.returncode == 0 or 'acd_io' not in result.stderr:
+                raise AssertionError('Native archive reader accepted a nonregular input')
+        unpacked = install_car(root)
+        packed = install_car(root, 'packed_fixture', packed=True)
+        reports = [compare_vehicle(native, unpacked), compare_vehicle(native, packed),
+                   compare_vehicle(native, unpacked, compound=1)]
+        (unpacked / 'data.acd').write_bytes(archive_bytes(FILES.items()))
+        (unpacked / 'data' / 'engine.ini').unlink()
+        result = subprocess.run([str(native), 'car', str(unpacked)], capture_output=True, text=True)
+        if result.returncode == 0 or 'car_data_missing' not in result.stderr:
+            raise AssertionError('Native auto mode silently mixed packed and unpacked files')
+        reports.append(compare_vehicle(native, unpacked, mode='packed'))
+        for text, code in [(FILES['car.ini'].replace('TOTALMASS=900', 'TOTALMASS=nan'), 'nonfinite_number'),
+                           (FILES['car.ini'].replace('VERSION=1', 'VERSION=999'), 'vehicle_version')]:
+            (unpacked / 'data' / 'engine.ini').write_text(FILES['engine.ini'], encoding='utf-8')
+            (unpacked / 'data' / 'car.ini').write_text(text, encoding='utf-8')
+            result = subprocess.run([str(native), 'car', str(unpacked)], capture_output=True, text=True)
+            if result.returncode == 0 or code not in result.stderr:
+                raise AssertionError(f'Native did not reject car fixture with {code}')
+    return {'accepted_configurations': len(reports), 'whole_source_rejection': 1, 'invalid_fields': 2}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--native', required=True, type=Path)
     parser.add_argument('--model', action='append', default=[], type=Path, help='Optional local model; never exported.')
+    parser.add_argument('--car', action='append', default=[], type=Path, help='Optional local content/cars/CAR directory; configuration only.')
     args = parser.parse_args()
     native = args.native.resolve(strict=True)
     report = fixtures(native)
     report['text_and_scene_contracts'] = text_and_scene_contracts(native)
+    report['vehicle_contracts'] = vehicle_contracts(native)
     report['local_models'] = [{'source': path.name, **compare(native, path)} for path in args.model]
+    report['local_cars'] = [compare_vehicle(native, path.resolve(strict=True)) for path in args.car]
     print(json.dumps(report, indent=2, allow_nan=False))
 
 

@@ -14,7 +14,7 @@ cargo build --workspace --locked
 python tools/check_native_parity.py --native target/debug/openasc
 ```
 
-Use `target/debug/openasc.exe` on Windows. Native/Python contract checks compare original KN5 fixtures, selection, transforms/bounds, full material properties/sampler mappings, INI values/order/source lines, LUT samples, static model declarations and rejection codes. Optional repeated `--model PATH` arguments compare locally installed models without copying them. Agreement between two openASC implementations does not establish original-simulator parity.
+Use `target/debug/openasc.exe` on Windows. Native/Python contract checks compare original KN5 fixtures, selection, transforms/bounds, full material properties/sampler mappings, INI values/order/source lines, LUT samples, static model declarations, packed/unpacked vehicle configurations and rejection codes. Optional repeated `--model PATH` arguments compare locally installed models without copying them. `--car PATH/TO/content/cars/CAR` additionally compares complete local vehicle configuration values and field sources. Warning wording/order is not compared; Rust fixtures separately check warning codes. Agreement between two openASC implementations does not establish original-simulator parity.
 
 The separate GPU test is explicitly opt-in on a machine with a native adapter:
 

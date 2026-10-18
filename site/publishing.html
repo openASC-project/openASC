@@ -44,16 +44,16 @@
   </aside>
   <div class="page-shell">
     <main id="main" tabindex="-1" class="documentation">
-      <article class="document"><h1>GitHub Pages</h1>
+      <article class="document"><h1 id="github-pages">GitHub Pages</h1>
 <p>The live site is <a href="https://openasc-project.github.io/openASC/">openasc-project.github.io/openASC</a>. The source repository is <a href="https://github.com/openASC-project/openASC">openASC-project/openASC</a>.</p>
-<h2>Deployment</h2>
+<h2 id="deployment">Deployment</h2>
 <p>The <code>Deploy GitHub Pages</code> workflow uploads <strong>only <code>site/</code></strong>, never the local installation or reports. It runs on pushes affecting site files or the deployment workflow on <code>main</code> or <code>master</code>, and only deploys from the repository&#x27;s default branch. A manual run is also available in GitHub Actions.</p>
 <ol><li>Edit documentation in <code>docs/</code> or overview content in <code>web/overview.html</code>.</li><li>Run <code>python tools/build_site.py</code> to regenerate HTML.</li><li>Run <code>python tools/build_site.py --check</code> and the checks in the development guide.</li><li>Commit the source and generated pages, then push to the default branch.</li><li>Check the deployment result and its <code>github-pages</code> environment URL in Actions.</li></ol>
-<h2>Configure a fork</h2>
+<h2 id="configure-a-fork">Configure a fork</h2>
 <ol><li>Open Settings → Pages → Build and deployment.</li><li>Set Source to GitHub Actions.</li><li>Update repository links in <code>web/layout.html</code>, <code>web/overview.html</code>, <code>tools/build_site.py</code>, and documentation for your fork.</li><li>Regenerate the site and push to the default branch.</li></ol>
 <p>All page and asset links are relative, so the site works beneath a repository path. A repository called <code>OWNER/openASC</code> normally publishes at <code>https://OWNER.github.io/openASC/</code>.</p>
 <p>The workflow uses <code>configure-pages@v5</code>, <code>upload-pages-artifact@v4</code>, and <code>deploy-pages@v4</code>, following the <a href="https://docs.github.com/en/pages/getting-started-with-github-pages/using-custom-workflows-with-github-pages">GitHub documentation</a>.</p>
-<h2>Preview locally</h2>
+<h2 id="preview-locally">Preview locally</h2>
 <pre><code>python -m http.server 4173 --directory site --bind 127.0.0.1</code></pre>
 <p>Open <a href="http://127.0.0.1:4173/">localhost</a>. Review the overview and documentation at desktop and phone widths before publishing. Site claims must match the currently implemented and tested features.</p><a class="edit-link" href="https://github.com/openASC-project/openASC/blob/main/docs/GITHUB_PAGES.md">View this document on GitHub ↗</a></article>
     </main>

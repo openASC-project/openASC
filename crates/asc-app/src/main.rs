@@ -34,9 +34,58 @@ fn load_input(path: &Path, diagnostic: bool) -> Result<Input, Box<dyn Error>> {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    let usage = "Usage: openasc inspect SCENE | materials SCENE | render SCENE NEW.png [--fallback] [--diagnostic] [--rgba-textures] | view SCENE [--fallback] [--diagnostic] [--rgba-textures] [--captures DIR] [--capture NEW.png] [--smoke] | ini FILE.ini | lut FILE.lut [--sample X]. SCENE is a KN5 file or an explicit models.ini/models_LAYOUT.ini path.";
+    let usage = "Usage: openasc car CAR_DIRECTORY [--data auto|packed|unpacked] [--compound N] | acd FILE.acd CAR_ID | inspect SCENE | materials SCENE | render SCENE NEW.png [--fallback] [--diagnostic] [--rgba-textures] | view SCENE [--fallback] [--diagnostic] [--rgba-textures] [--captures DIR] [--capture NEW.png] [--smoke] | ini FILE.ini | lut FILE.lut [--sample X]. SCENE is a KN5 file or an explicit models.ini/models_LAYOUT.ini path.";
     let command = args.first().and_then(|v| v.to_str()).ok_or(usage)?;
     match command {
+        "acd" if args.len() == 3 => {
+            let path = Path::new(&args[1]);
+            let archive = asc_acd::Archive::open(
+                path,
+                args[2].to_str().ok_or(usage)?,
+                &path.to_string_lossy(),
+            )?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &serde_json::json!({"scope":"acd_index_only","header":archive.header,"entries":archive.entries(),"authenticated":false})
+                )?
+            );
+        }
+        "car" if args.len() >= 2 => {
+            let mut mode = asc_vehicle::data::Mode::Auto;
+            let mut compound = None;
+            let mut flags = args[2..].iter();
+            while let Some(flag) = flags.next() {
+                match flag.to_str() {
+                    Some("--data") => {
+                        mode = match flags.next().and_then(|v| v.to_str()) {
+                            Some("auto") => asc_vehicle::data::Mode::Auto,
+                            Some("packed") => asc_vehicle::data::Mode::Packed,
+                            Some("unpacked") => asc_vehicle::data::Mode::Unpacked,
+                            _ => return Err(usage.into()),
+                        }
+                    }
+                    Some("--compound") => {
+                        compound = Some(
+                            flags
+                                .next()
+                                .and_then(|v| v.to_str())
+                                .ok_or(usage)?
+                                .parse::<u32>()?,
+                        )
+                    }
+                    _ => return Err(usage.into()),
+                }
+            }
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&asc_vehicle::load(
+                    Path::new(&args[1]),
+                    mode,
+                    compound
+                )?)?
+            );
+        }
         "ini" if args.len() == 2 => {
             println!(
                 "{}",

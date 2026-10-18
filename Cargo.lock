@@ -96,14 +96,23 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "175571dd1d178ced59193a6fc02dde1b972eb0bc56c892cde9beeceac5bf0f6b"
 
 [[package]]
+name = "asc-acd"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "asc-app"
 version = "0.1.0"
 dependencies = [
+ "asc-acd",
  "asc-config",
  "asc-kn5",
  "asc-render",
  "asc-scene",
  "asc-test-support",
+ "asc-vehicle",
  "glam",
  "png",
  "pollster",
@@ -168,6 +177,16 @@ dependencies = [
 name = "asc-texture"
 version = "0.1.0"
 dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "asc-vehicle"
+version = "0.1.0"
+dependencies = [
+ "asc-acd",
+ "asc-config",
+ "asc-test-support",
  "serde",
 ]
 

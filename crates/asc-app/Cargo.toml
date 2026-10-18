@@ -12,6 +12,8 @@ name = "openasc"
 path = "src/main.rs"
 
 [dependencies]
+asc-acd.workspace = true
+asc-vehicle.workspace = true
 asc-config.workspace = true
 asc-scene.workspace = true
 asc-kn5.workspace = true

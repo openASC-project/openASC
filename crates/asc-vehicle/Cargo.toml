@@ -1,0 +1,15 @@
+[package]
+name = "asc-vehicle"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+asc-acd.workspace = true
+asc-config.workspace = true
+serde.workspace = true
+
+[dev-dependencies]
+asc-test-support.workspace = true

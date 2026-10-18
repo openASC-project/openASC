@@ -67,7 +67,25 @@ cargo run --locked -p asc-app -- ini ./assettocorsa/content/tracks/drift/models.
 cargo run --locked -p asc-app -- lut ./assettocorsa/content/cars/CAR/data/CURVE.lut --sample 5000
 ```
 
-Replace the LUT example with an existing unpacked file; the native path does not read ACD archives yet. Native text input is UTF-8 with an optional BOM, with strict duplicate/quote checks and source lines. LUT interpolation is linear with clamped endpoints and finite-number/range checks. Legacy encodings, includes and inline expressions are unsupported. The Python research tools retain their separate explicit encoding support.
+Replace the standalone LUT example with an existing unpacked file. Native vehicle loading can also read ordinary data.acd records in memory, as described below. Native text input is UTF-8 with an optional BOM, with strict duplicate/quote checks and source lines. LUT interpolation is linear with clamped endpoints and finite-number/range checks. Legacy encodings, includes and inline expressions are unsupported. The Python research tools retain their separate explicit encoding support.
+
+## Native vehicle configuration
+
+The native reader accepts the selected car directory independently of Python or a GPU:
+
+```sh
+cargo run --locked -p asc-app -- car ./assettocorsa/content/cars/bmw_m3_e30
+cargo run --locked -p asc-app -- car ./assettocorsa/content/cars/bmw_m3_e30 --data packed --compound 0
+cargo run --locked -p asc-app -- acd ./assettocorsa/content/cars/bmw_m3_e30/data.acd bmw_m3_e30
+```
+
+`car` prints typed mass/inertia dimensions, steering, axle/tyre dimensions, engine torque LUT, gear ratios, brakes, compound, geometric wheel offsets, first-model header and source lines. It requires car.ini, suspensions.ini, tyres.ini, engine.ini, drivetrain.ini, brakes.ini, lods.ini and the referenced torque LUT. Inertia dimensions are not a physical inertia tensor. The output explicitly reports `simulation_ready: false`; this command does not launch a native driving session or simulate original vehicle dynamics.
+
+`--data auto` selects an existing unpacked data directory as a whole; otherwise it selects data.acd. When both sources exist, auto warns and selects unpacked. Missing files are never filled from the other source. `--data packed` or `--data unpacked` selects that source explicitly. A default tyre compound is required unless `--compound 0..99` is supplied; missing compound sections are errors. Model references must resolve inside the selected car root, and unpacked data references must remain inside its data directory. Parent traversal, absolute/drive/stream paths and resolved-outside-root symlinks are rejected for selected resources.
+
+The packed reader supports the ordinary folder-keyed record format. The folder identifier is part of that format; renaming a packed car folder can produce invalid decoded data. Native identifiers are 1..128 ASCII letters, digits, underscores or hyphens. The archive is not authenticated, and a wrong key is not guaranteed to produce a dedicated error. `acd` prints only the validated record index and optional header word, without exporting decoded content. No extraction/writing API is provided.
+
+Native text remains strict UTF-8 with an optional BOM. Turbo, unused configuration fields and incomplete simulation scope are reported as warnings. Tyre/suspension/drivetrain behavior, fuel, coast torque, aero, electronics, FFB and audio remain unimplemented in the native path. See the [compatibility record](FORMATS.md#native-vehicle-and-acd-path) for limits and verified scope.
 
 ## Native desktop window
 

@@ -6,6 +6,8 @@ The implemented project contains a first native Rust KN5 reader and wgpu offscre
 
 | Location | Responsibility |
 | --- | --- |
+| `crates/asc-acd/` | Bounded ordinary folder-keyed ACD index and in-memory record reads |
+| `crates/asc-vehicle/` | Whole-source packed/unpacked selection, typed vehicle configuration and field provenance |
 | `crates/asc-config/` | Bounded source-aware native INI/LUT readers and interpolation |
 | `crates/asc-scene/` | Confined models.ini loading, static translation, rebased geometry and source resource ranges |
 | `tools/inspect_content.py` | Read-only content inventory and JSON CLI |
@@ -49,7 +51,7 @@ The implemented project contains a first native Rust KN5 reader and wgpu offscre
 
 ## Workspace and subsystem boundaries
 
-The workspace follows the subsystem-crate organisation of [openOMSI](https://github.com/openOMSI-org/openOMSI/tree/main/crates), with original openASC implementation code. `asc-app` composes `asc-config`, `asc-scene`, `asc-kn5` and `asc-render`. `asc-scene` depends on the configuration and KN5 readers; `asc-render` consumes scene source ranges alongside KN5 geometry and DDS resources. Format and scene crates have no wgpu dependency and can be tested independently of a GPU. Renderer sources are divided into `gpu/`, `pipelines/`, `resources/`, `scene/` and `shaders/`. The shared original fixture crate lives under `tools/test-support/` and is a development dependency. Additional simulation, input and audio crates belong alongside these as their implementations arrive.
+The workspace follows the subsystem-crate organisation of [openOMSI](https://github.com/openOMSI-org/openOMSI/tree/main/crates), with original openASC implementation code. `asc-app` composes `asc-config`, `asc-scene`, `asc-kn5`, `asc-render`, `asc-acd` and `asc-vehicle`. The vehicle crate depends only on the configuration and ACD readers; it does not depend on wgpu or launch a simulation. `asc-scene` depends on the configuration and KN5 readers; `asc-render` consumes scene source ranges alongside KN5 geometry and DDS resources. Format and scene crates have no wgpu dependency and can be tested independently of a GPU. Renderer sources are divided into `gpu/`, `pipelines/`, `resources/`, `scene/` and `shaders/`. The shared original fixture crate lives under `tools/test-support/` and is a development dependency. Additional simulation, input and audio crates belong alongside these as their implementations arrive.
 
 The earlier Python/WebGL research implementation lives under `tools/prototype/`. The root `openasc/__init__.py` only redirects package discovery there, preserving `python -m openasc` and existing Python imports. Website sources and documentation remain separate under `web/`, `docs/` and `site/`. No openOMSI implementation files are included.
 

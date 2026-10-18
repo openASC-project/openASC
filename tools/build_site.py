@@ -20,10 +20,12 @@ ROUTES = {filename: f'./{slug}.html' for slug, _, filename, _ in PAGES}
 
 def link_target(target):
     """Only emit local references or HTTP(S) links from Markdown."""
-    if target in ROUTES:
-        return ROUTES[target]
-    if target == '../LICENSE':
-        return f'{REPOSITORY}/blob/main/LICENSE'
+    path, marker, fragment = target.partition('#')
+    route = ROUTES.get(path.removeprefix('./'))
+    if route is not None:
+        return route + (marker + fragment if marker else '')
+    if path == '../LICENSE':
+        return f'{REPOSITORY}/blob/main/LICENSE' + (marker + fragment if marker else '')
     if re.match(r'^https?://', target) or re.match(r'^[\w./#-]+$', target):
         return target
     return '#'
@@ -47,6 +49,7 @@ def inline(text):
 def markdown(text):
     lines = text.splitlines()
     output = []
+    heading_ids = set()
     index = 0
     while index < len(lines):
         line = lines[index].strip()
@@ -65,7 +68,13 @@ def markdown(text):
         elif re.match(r'^#{1,3} ', line):
             marker, title = line.split(' ', 1)
             level = len(marker)
-            output.append(f'<h{level}>{inline(title)}</h{level}>')
+            base = re.sub(r'\s+', '-', re.sub(r'[^\w\s-]', '', title.lower())).strip('-') or 'section'
+            anchor, suffix = base, 0
+            while anchor in heading_ids:
+                suffix += 1
+                anchor = f'{base}-{suffix}'
+            heading_ids.add(anchor)
+            output.append(f'<h{level} id="{html.escape(anchor, quote=True)}">{inline(title)}</h{level}>')
         elif line.startswith('|'):
             rows = [line]
             while index < len(lines) and lines[index].strip().startswith('|'):
