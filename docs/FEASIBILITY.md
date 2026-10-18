@@ -42,3 +42,5 @@ Use the [compatibility record](FORMATS.md) for implemented behavior and the [arc
 ## Content handling
 
 Write original code and document verified behavior. Use original minimal fixtures in tests. Do not commit game executables, models, textures, sounds, SDK archives, or third-party mods. Distribution rights for any future third-party material must be considered separately.
+
+Native contact preparation now reads physical geometry separately from render buffers and provides static vertical support queries through `asc-ground`. Drift/Magione probes agree with the research loader, including surface metadata. Native chassis equilibrium, collision response, suspension/tyre force laws and a controlled driving session remain unimplemented.

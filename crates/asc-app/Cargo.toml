@@ -12,6 +12,7 @@ name = "openasc"
 path = "src/main.rs"
 
 [dependencies]
+asc-ground.workspace = true
 asc-acd.workspace = true
 asc-vehicle.workspace = true
 asc-config.workspace = true

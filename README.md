@@ -94,6 +94,8 @@ BMW M3 E30/Drift now runs in an independently implemented local keyboard-driving
 
 The native Rust/wgpu path now renders real Drift geometry with 25 embedded diffuse textures, approximate alpha/depth states and source normals/UVs. It agrees with the Python reader on tested structural counts, visible selection and bounds. The workspace follows openOMSI's subsystem-crate organisation. Native INI/LUT and zero-rotation static scene assembly now load multiple declared models. Next, add original material behavior and a fixed-step simulation/platform foundation. Native physics and FFB must be validated against the original game rather than inferred from the approximate prototype.
 
+Native static support queries are also available without Python or a GPU; see the [ground command guide](docs/USER_GUIDE.md#native-static-ground-support). Original native vehicle dynamics remain unimplemented.
+
 ## License and independence
 
 New source code, original branding and website code use the [MIT license](LICENSE). Progress screenshots depict locally loaded game content; MIT does not relicense that underlying content. This does not grant rights to Assetto Corsa or third-party content. Game binaries, cars, tracks, textures, and audio are not distributed here. Use your own installed copy for local research.

@@ -108,6 +108,7 @@ version = "0.1.0"
 dependencies = [
  "asc-acd",
  "asc-config",
+ "asc-ground",
  "asc-kn5",
  "asc-render",
  "asc-scene",
@@ -126,6 +127,19 @@ name = "asc-config"
 version = "0.1.0"
 dependencies = [
  "serde",
+]
+
+[[package]]
+name = "asc-ground"
+version = "0.1.0"
+dependencies = [
+ "asc-config",
+ "asc-kn5",
+ "asc-scene",
+ "asc-test-support",
+ "glam",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]

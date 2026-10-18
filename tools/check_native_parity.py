@@ -6,6 +6,7 @@ import argparse
 import json
 import math
 import os
+import random
 from pathlib import Path
 import subprocess
 import sys
@@ -18,6 +19,7 @@ from openasc.kn5 import IDENTITY, load_kn5
 from openasc.config import ContentError, parse_ini, parse_lut
 from openasc.scene import inspect_scene
 from openasc.vehicle import load_vehicle
+from openasc.ground import load_ground
 from vehicle_fixtures import FILES, archive_bytes, install_car
 from kn5_fixtures import base, file_bytes, mesh
 
@@ -214,18 +216,98 @@ def vehicle_contracts(native):
     return {'accepted_configurations': len(reports), 'whole_source_rejection': 1, 'invalid_fields': 2}
 
 
+def compare_ground(native, installation, track, layout=None, samples=1000):
+    """Compare geometric support only; source assets stay in the installation."""
+    installation = installation.resolve(strict=True)
+    expected = load_ground(installation, track, layout)
+    content = installation / 'content/tracks' / track
+    config = content / (f'models_{layout}.ini' if layout else 'models.ini')
+    selected = content / (f'{layout}/data/surfaces.ini' if layout else 'data/surfaces.ini')
+    command = [str(native), 'ground', str(config), str(selected), '--defaults',
+               str(installation / 'system/data/surfaces.ini'), '--distance', '1']
+    rng = random.Random(6743)
+    indices = rng.sample(range(len(expected.mesh_ids)), min(samples, len(expected.mesh_ids)))
+    origins = []
+    for index in indices:
+        tri = expected.triangles[index * 9:index * 9 + 9]
+        x, y, z = [sum(tri[axis::3]) / 3 for axis in range(3)]
+        origins.append((x, y + .1, z))
+    origins += [(0., -9_999_999., 0.), (9_999_999., 0., 9_999_999.)]
+    def normalize(value):
+        if isinstance(value, dict):
+            result = {key: normalize(v) for key, v in value.items()}
+            if 'source' in result and Path(result['source']).is_absolute():
+                result['source'] = Path(result['source']).relative_to(installation).as_posix()
+            return result
+        if isinstance(value, (list, tuple)):
+            return [normalize(v) for v in value]
+        return value
+    def same(a, b):
+        if isinstance(a, dict):
+            return a.keys() == b.keys() and all(same(a[k], b[k]) for k in a)
+        if isinstance(a, (list, tuple)):
+            return len(a) == len(b) and all(same(x, y) for x, y in zip(a, b))
+        if isinstance(a, float):
+            return math.isclose(a, b, abs_tol=1e-7, rel_tol=1e-10)
+        return a == b
+    hits = 0
+    for start in range(0, len(origins), 128):
+        batch = origins[start:start + 128]
+        args = command + [field for origin in batch for field in ('--probe', *map(str, origin))]
+        result = subprocess.run(args, capture_output=True, text=True, check=True, timeout=90)
+        actual = json.loads(result.stdout)
+        for key in ('triangles', 'input_triangles', 'skipped_vertical_or_degenerate', 'bvh_ready', 'meshes'):
+            if not same(normalize(expected.summary()[key]), normalize(actual['summary'][key])):
+                raise AssertionError(f'{track}: ground summary {key} differs')
+        if actual['summary']['simulation_ready'] is not False:
+            raise AssertionError('Ground preparation must not claim simulation readiness')
+        for origin, probe in zip(batch, actual['probes'], strict=True):
+            wanted = expected.probe(origin, 1.)
+            if not same(normalize(wanted), normalize(probe['hit'])):
+                raise AssertionError(f'{track}: support differs at {origin}: {wanted} != {probe["hit"]}')
+            hits += wanted is not None
+    return {'track': track, 'layout': layout, 'triangles': len(expected.mesh_ids),
+            'meshes': len(expected.meshes), 'probes': len(origins), 'hits': hits,
+            'comparison': 'static geometry and surface metadata; not original vehicle physics'}
+
+
+def ground_contracts(native):
+    with tempfile.TemporaryDirectory(prefix='openasc-native-ground-') as directory:
+        root = Path(directory)
+        content = root / 'content/tracks/original'
+        (content / 'data').mkdir(parents=True)
+        (root / 'system/data').mkdir(parents=True)
+        definition = '[SURFACE_0]\nKEY=ROAD\nFRICTION=.83\nDAMPING=.02\nIS_VALID_TRACK=1\nIS_PITLANE=0\n'
+        (root / 'system/data/surfaces.ini').write_text(definition, encoding='utf-8')
+        (content / 'data/surfaces.ini').write_text(definition.replace('.83', '.71'), encoding='utf-8')
+        node = base([mesh(name='1ROAD', renderable=False, points=((0, 0, 0), (2, 2, 0), (0, 0, 2))),
+                     mesh(name='1WALL'), mesh(name='1UNKNOWN'), mesh(name='visual')])
+        (content / 'a.kn5').write_bytes(file_bytes(node, version=5))
+        (content / 'b.kn5').write_bytes(file_bytes(node, version=6))
+        (content / 'models.ini').write_text('[MODEL_0]\nFILE=a.kn5\nPOSITION=0,0,0\nROTATION=0,0,0\n'
+                                           '[MODEL_1]\nFILE=b.kn5\nPOSITION=10,3,20\nROTATION=0,0,0\n', encoding='utf-8')
+        before = set(root.rglob('*'))
+        report = compare_ground(native, root, 'original')
+        if set(root.rglob('*')) != before:
+            raise AssertionError('Ground preparation wrote into source content')
+        return report
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--native', required=True, type=Path)
     parser.add_argument('--model', action='append', default=[], type=Path, help='Optional local model; never exported.')
     parser.add_argument('--car', action='append', default=[], type=Path, help='Optional local content/cars/CAR directory; configuration only.')
+    parser.add_argument('--ground', action='append', default=[], type=Path, help='Optional local content/tracks/TRACK directory; static support only.')
     args = parser.parse_args()
     native = args.native.resolve(strict=True)
     report = fixtures(native)
     report['text_and_scene_contracts'] = text_and_scene_contracts(native)
     report['vehicle_contracts'] = vehicle_contracts(native)
+    report['ground_contracts'] = ground_contracts(native)
     report['local_models'] = [{'source': path.name, **compare(native, path)} for path in args.model]
     report['local_cars'] = [compare_vehicle(native, path.resolve(strict=True)) for path in args.car]
+    report['local_ground'] = [compare_ground(native, path.resolve(strict=True).parents[2], path.name) for path in args.ground]
     print(json.dumps(report, indent=2, allow_nan=False))
 
 

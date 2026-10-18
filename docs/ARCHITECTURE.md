@@ -6,6 +6,7 @@ The implemented project contains a first native Rust KN5 reader and wgpu offscre
 
 | Location | Responsibility |
 | --- | --- |
+| `crates/asc-ground/` | Explicit surface definitions, independent static physical geometry and vertical support BVH |
 | `crates/asc-acd/` | Bounded ordinary folder-keyed ACD index and in-memory record reads |
 | `crates/asc-vehicle/` | Whole-source packed/unpacked selection, typed vehicle configuration and field provenance |
 | `crates/asc-config/` | Bounded source-aware native INI/LUT readers and interpolation |

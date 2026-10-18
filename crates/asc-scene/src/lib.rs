@@ -142,7 +142,21 @@ fn union(into: &mut Option<[[f32; 3]; 2]>, bounds: Option<[[f32; 3]; 2]>) {
     }
 }
 
-pub fn load(config: &Path) -> Result<Track> {
+pub struct ModelSource {
+    pub section: String,
+    pub file: String,
+    pub path: PathBuf,
+    pub line: usize,
+    pub position: [f64; 3],
+    pub rotation: [f64; 3],
+}
+pub struct Sources {
+    pub config: PathBuf,
+    pub models: Vec<ModelSource>,
+    pub diagnostics: Vec<String>,
+}
+/// Resolve and validate declarations without opening model geometry.
+pub fn sources(config: &Path) -> Result<Sources> {
     let document = read_ini(config)?;
     let source = &document.source;
     let canonical = config
@@ -156,17 +170,10 @@ pub fn load(config: &Path) -> Result<Track> {
             "Configuration needs a parent directory.",
         )
     })?;
-    let mut manifest = Manifest {
-        scope: "native_static_models",
+    let mut manifest = Sources {
         config: canonical.clone(),
         models: Vec::new(),
         diagnostics: Vec::new(),
-    };
-    let mut metadata_bytes = 0usize;
-    let mut scene = Scene {
-        // A composed scene is not a KN5 file. Actual format versions belong to each Origin.
-        summary: Summary { version: 0, nodes: 0, static_meshes: 0, skinned_meshes: 0, textures: 0, materials: 0, structural_triangles: 0, drawn_meshes: 0, drawn_triangles: 0, bounds: None, road_focus_bounds: None, diagnostics: vec!["Composed static scene: version 0 is a composition marker; see models for actual KN5 versions.".into()] },
-        vertices: Vec::new(), indices: Vec::new(), materials: Vec::new(), textures: Vec::new(), draws: Vec::new(),
     };
     for section in document.sections {
         if !section
@@ -221,12 +228,51 @@ pub fn load(config: &Path) -> Result<Track> {
             }
         }
         let path = confined(root, &file.text, source, file.line)?;
-        let mut model = asc_kn5::load(&path).map_err(|e| {
+        manifest.models.push(ModelSource {
+            section: section.name.clone(),
+            file: file.text.clone(),
+            path,
+            line: file.line,
+            position,
+            rotation,
+        });
+    }
+    if manifest.models.is_empty() {
+        return Err(Error::new(
+            "no_models",
+            source,
+            0,
+            "No static MODEL_n declarations found.",
+        ));
+    }
+    Ok(manifest)
+}
+
+pub fn load(config: &Path) -> Result<Track> {
+    let declared = sources(config)?;
+    let source_name = declared.config.to_string_lossy().into_owned();
+    let source = source_name.as_str();
+    let mut manifest = Manifest {
+        scope: "native_static_models",
+        config: declared.config,
+        models: Vec::new(),
+        diagnostics: declared.diagnostics,
+    };
+    let mut metadata_bytes = 0usize;
+    let mut scene = Scene {
+        // A composed scene is not a KN5 file. Actual format versions belong to each Origin.
+        summary: Summary { version: 0, nodes: 0, static_meshes: 0, skinned_meshes: 0, textures: 0, materials: 0, structural_triangles: 0, drawn_meshes: 0, drawn_triangles: 0, bounds: None, road_focus_bounds: None, diagnostics: vec!["Composed static scene: version 0 is a composition marker; see models for actual KN5 versions.".into()] },
+        vertices: Vec::new(), indices: Vec::new(), materials: Vec::new(), textures: Vec::new(), draws: Vec::new(),
+    };
+    for entry in declared.models {
+        let position = entry.position;
+        let rotation = entry.rotation;
+        let mut model = asc_kn5::load(&entry.path).map_err(|e| {
             Error::new(
                 "scene_model",
                 source,
-                file.line,
-                &format!("{}: {e}", file.text),
+                entry.line,
+                &format!("{}: {e}", entry.file),
             )
         })?;
         let geometry = (scene.vertices.len() + model.vertices.len()) * size_of::<asc_kn5::Vertex>()
@@ -264,15 +310,15 @@ pub fn load(config: &Path) -> Result<Track> {
             return Err(Error::new(
                 "scene_limit",
                 source,
-                section.line,
+                entry.line,
                 "Combined scene exceeds geometry (256 MiB), metadata payload (32 MiB), node (200000), material or texture (100000) budgets.",
             ));
         }
         let origin = Origin {
-            section: section.name.clone(),
-            file: file.text.clone(),
-            path,
-            line: file.line,
+            section: entry.section.clone(),
+            file: entry.file.clone(),
+            path: entry.path,
+            line: entry.line,
             position,
             rotation,
             version: model.summary.version,
@@ -283,23 +329,28 @@ pub fn load(config: &Path) -> Result<Track> {
         let base_index = scene.indices.len() as u32;
         for vertex in &mut model.vertices {
             for (v, p) in vertex.position.iter_mut().zip(position) {
-                *v = coordinate(f64::from(*v) + p, source, file.line)?;
+                *v = coordinate(f64::from(*v) + p, source, entry.line)?;
             }
         }
         for draw in &mut model.draws {
             draw.start += base_index;
             draw.material += origin.materials.start;
             for (v, p) in draw.center.iter_mut().zip(position) {
-                *v = coordinate(f64::from(*v) + p, source, file.line)?;
+                *v = coordinate(f64::from(*v) + p, source, entry.line)?;
             }
         }
         union(
             &mut scene.summary.bounds,
-            shifted(model.summary.bounds, position, source, file.line)?,
+            shifted(model.summary.bounds, position, source, entry.line)?,
         );
         union(
             &mut scene.summary.road_focus_bounds,
-            shifted(model.summary.road_focus_bounds, position, source, file.line)?,
+            shifted(
+                model.summary.road_focus_bounds,
+                position,
+                source,
+                entry.line,
+            )?,
         );
         scene.summary.nodes += model.summary.nodes;
         scene.summary.static_meshes += model.summary.static_meshes;
@@ -312,7 +363,7 @@ pub fn load(config: &Path) -> Result<Track> {
                 .summary
                 .diagnostics
                 .into_iter()
-                .map(|d| format!("{}: {d}", file.text)),
+                .map(|d| format!("{}: {d}", entry.file)),
         );
         scene.vertices.extend(model.vertices);
         scene

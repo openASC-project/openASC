@@ -69,6 +69,20 @@ cargo run --locked -p asc-app -- lut ./assettocorsa/content/cars/CAR/data/CURVE.
 
 Replace the standalone LUT example with an existing unpacked file. Native vehicle loading can also read ordinary data.acd records in memory, as described below. Native text input is UTF-8 with an optional BOM, with strict duplicate/quote checks and source lines. LUT interpolation is linear with clamped endpoints and finite-number/range checks. Legacy encodings, includes and inline expressions are unsupported. The Python research tools retain their separate explicit encoding support.
 
+## Native static ground support
+
+The native `ground` command reads the selected static model declarations and explicit surface definitions without Python or a GPU:
+
+```sh
+cargo run --locked -p asc-app -- ground ./assettocorsa/content/tracks/drift/models.ini ./assettocorsa/content/tracks/drift/data/surfaces.ini --defaults ./assettocorsa/system/data/surfaces.ini --probe 0 100 0 --distance 1000
+```
+
+Choose the matching `models_LAYOUT.ini` and `LAYOUT/data/surfaces.ini` for a layout. `--defaults` is optional; its complete surface definitions load first, then the selected file replaces complete definitions with matching keys. Both explicitly supplied files must exist and be valid. Add multiple `--probe X Y Z` arguments to query up to 4096 positions; `--distance` applies to all probes. Coordinates and distances are in metres. A probe returns the nearest supported triangle below the origin, including its height, upward geometric normal, model/mesh identity and recorded surface metadata, or `null` for a miss.
+
+Active static physical meshes use a nonzero numeric name prefix and an unambiguous explicit surface key. Visibility/renderability flags do not remove physical support. Positive near-LOD meshes, skinned geometry and WALL meshes are omitted with diagnostics. The supported model translations and composed KN5 node transforms apply before querying. Nonzero model rotations remain fatal errors. The BVH stores double-precision physical positions independently of the float32 render buffers.
+
+The JSON summary reports triangle/mesh counts, skipped vertical or degenerate triangles, diagnostics, BVH readiness and `simulation_ready: false`. This is contact preparation: no chassis equilibrium, suspension or tyre forces, wall response, procedural surface bumps, audio or FFB are calculated. Surface friction is recorded metadata. See [native ground scope and validation](FORMATS.md#native-static-ground-path).
+
 ## Native vehicle configuration
 
 The native reader accepts the selected car directory independently of Python or a GPU:

@@ -72,3 +72,13 @@ Start with an [issue](https://github.com/openASC-project/openASC/issues) describ
 Before committing, check that neither `assettocorsa/` nor `reports/` is tracked. These directories are ignored intentionally. Do not include original executable files, copyrighted game content, or third-party mods.
 
 New source code and website files use the MIT license. Dependencies and any future third-party additions must retain their own license notices.
+
+## Validate native ground preparation
+
+The workspace tests include original analytic geometry and surface fixtures. The existing native parity script also checks static ground preparation in CI without an installed game. For optional local validation, supply track directories:
+
+```sh
+python tools/check_native_parity.py --native target/debug/openasc.exe --ground ./assettocorsa/content/tracks/drift --ground ./assettocorsa/content/tracks/magione
+```
+
+The command compares complete mesh/surface metadata and 1000 deterministic centroid support queries plus two misses on each track, in bounded batches. No source content is extracted or modified. This checks agreement with the research implementation; it does not validate the original game's contact or tyre model.

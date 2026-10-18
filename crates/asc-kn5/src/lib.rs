@@ -103,6 +103,7 @@ struct Reader<R> {
     size: u64,
     strings: usize,
     geometry: usize,
+    physical_geometry: usize,
 }
 impl<R: Read + Seek> Reader<R> {
     fn new(mut stream: R) -> Result<Self, Error> {
@@ -117,6 +118,7 @@ impl<R: Read + Seek> Reader<R> {
             size,
             strings: 0,
             geometry: 0,
+            physical_geometry: 0,
         };
         if size > 2 * 1024 * 1024 * 1024 {
             return r.fail("kn5_limit", "File exceeds 2 GiB.");
@@ -220,7 +222,39 @@ pub fn load(path: &Path) -> Result<Scene, Error> {
     parse(BufReader::with_capacity(256 * 1024, file))
 }
 
+/// Active static meshes with a nonzero numeric physical prefix, independent of render flags.
+pub struct PhysicalMesh {
+    pub name: String,
+    pub lod: [f32; 2],
+    pub positions: Vec<[f64; 3]>,
+    pub indices: Vec<u32>,
+}
+pub struct Collision {
+    pub meshes: Vec<PhysicalMesh>,
+    pub summary: Summary,
+}
+pub fn load_collision(path: &Path) -> Result<Collision, Error> {
+    let file = File::open(path).map_err(|e| Error {
+        code: "kn5_io",
+        byte_offset: 0,
+        message: e.to_string(),
+    })?;
+    parse_collision(BufReader::with_capacity(256 * 1024, file))
+}
+pub fn parse_collision<R: Read + Seek>(stream: R) -> Result<Collision, Error> {
+    let (scene, meshes) = parse_inner(stream, true)?;
+    Ok(Collision {
+        meshes,
+        summary: scene.summary,
+    })
+}
 pub fn parse<R: Read + Seek>(stream: R) -> Result<Scene, Error> {
+    Ok(parse_inner(stream, false)?.0)
+}
+fn parse_inner<R: Read + Seek>(
+    stream: R,
+    collision: bool,
+) -> Result<(Scene, Vec<PhysicalMesh>), Error> {
     let mut r = Reader::new(stream)?;
     if &r.bytes::<6>()? != b"sc6969" {
         return r.fail("kn5_signature", "Unsupported/protected KN5 signature.");
@@ -352,7 +386,16 @@ pub fn parse<R: Read + Seek>(stream: R) -> Result<Scene, Error> {
         textures: embedded,
         draws: Vec::new(),
     };
-    node(&mut r, &mut scene, &colours, DMat4::IDENTITY, true, 0)?;
+    let mut physical = collision.then(Vec::new);
+    node(
+        &mut r,
+        &mut scene,
+        &colours,
+        DMat4::IDENTITY,
+        true,
+        0,
+        &mut physical,
+    )?;
     if r.offset != r.size {
         return r.fail("kn5_trailing_data", "Unexplained trailing bytes.");
     }
@@ -362,7 +405,7 @@ pub fn parse<R: Read + Seek>(stream: R) -> Result<Scene, Error> {
             .diagnostics
             .push("Skinned meshes validated structurally but omitted from rendering.".into());
     }
-    Ok(scene)
+    Ok((scene, physical.unwrap_or_default()))
 }
 
 fn node<R: Read + Seek>(
@@ -372,6 +415,7 @@ fn node<R: Read + Seek>(
     parent: DMat4,
     ancestor_active: bool,
     depth: usize,
+    physical: &mut Option<Vec<PhysicalMesh>>,
 ) -> Result<(), Error> {
     scene.summary.nodes += 1;
     if scene.summary.nodes > 200_000 || depth > 128 {
@@ -413,6 +457,10 @@ fn node<R: Read + Seek>(
             let count = r.count(2_000_000)?;
             let stride = if kind == 2 { 44 } else { 76 };
             r.geometry(count * stride)?;
+            let prefix: String = name.chars().take_while(char::is_ascii_digit).collect();
+            let capture =
+                physical.is_some() && kind == 2 && active && prefix.bytes().any(|c| c != b'0');
+            let mut collision_positions = Vec::new();
             let mut positions = Vec::with_capacity(if kind == 2 { count } else { 0 });
             let mut attributes = Vec::with_capacity(if kind == 2 { count } else { 0 });
             let linear = DMat3::from_cols(
@@ -443,6 +491,15 @@ fn node<R: Read + Seek>(
                     if !p.is_finite() || p.abs().max_element() > f32::MAX as f64 {
                         return r
                             .fail("kn5_transform", "Transformed vertex exceeds float32 range.");
+                    }
+                    if capture {
+                        if p.abs().max_element() > 10_000_000. {
+                            return r.fail(
+                                "ground_range",
+                                "Physical coordinates exceed +/-10000000 metres.",
+                            );
+                        }
+                        collision_positions.push(p.to_array());
                     }
                     positions.push(p.as_vec3().to_array());
                     let normal = if normals_valid {
@@ -495,7 +552,26 @@ fn node<R: Read + Seek>(
                     grow_bounds(&mut scene.summary.road_focus_bounds, position);
                 }
             }
-            if kind == 2 && active && visible && renderable && lod[0] <= 0. && !indices.is_empty() {
+            if capture {
+                r.physical_geometry +=
+                    collision_positions.len() * size_of::<[f64; 3]>() + indices.len() * 4;
+                if r.physical_geometry > MAX_GEOMETRY {
+                    return r.fail("kn5_limit", "Retained physical geometry exceeds 256 MiB.");
+                }
+                physical.as_mut().unwrap().push(PhysicalMesh {
+                    name: name.clone(),
+                    lod,
+                    positions: collision_positions,
+                    indices,
+                });
+            } else if physical.is_none()
+                && kind == 2
+                && active
+                && visible
+                && renderable
+                && lod[0] <= 0.
+                && !indices.is_empty()
+            {
                 if (scene.vertices.len() + count) * size_of::<Vertex>()
                     + (scene.indices.len() + indices.len()) * 4
                     > MAX_GEOMETRY
@@ -536,7 +612,7 @@ fn node<R: Read + Seek>(
         }
     }
     for _ in 0..children {
-        node(r, scene, colours, world, active, depth + 1)?;
+        node(r, scene, colours, world, active, depth + 1, physical)?;
     }
     Ok(())
 }

@@ -34,9 +34,67 @@ fn load_input(path: &Path, diagnostic: bool) -> Result<Input, Box<dyn Error>> {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    let usage = "Usage: openasc car CAR_DIRECTORY [--data auto|packed|unpacked] [--compound N] | acd FILE.acd CAR_ID | inspect SCENE | materials SCENE | render SCENE NEW.png [--fallback] [--diagnostic] [--rgba-textures] | view SCENE [--fallback] [--diagnostic] [--rgba-textures] [--captures DIR] [--capture NEW.png] [--smoke] | ini FILE.ini | lut FILE.lut [--sample X]. SCENE is a KN5 file or an explicit models.ini/models_LAYOUT.ini path.";
+    let usage = "Usage: openasc ground MODELS.ini SURFACES.ini [--defaults SURFACES.ini] [--probe X Y Z]... [--distance D] | car CAR_DIRECTORY [--data auto|packed|unpacked] [--compound N] | acd FILE.acd CAR_ID | inspect SCENE | materials SCENE | render SCENE NEW.png [--fallback] [--diagnostic] [--rgba-textures] | view SCENE [--fallback] [--diagnostic] [--rgba-textures] [--captures DIR] [--capture NEW.png] [--smoke] | ini FILE.ini | lut FILE.lut [--sample X]. SCENE is a KN5 file or an explicit models.ini/models_LAYOUT.ini path.";
     let command = args.first().and_then(|v| v.to_str()).ok_or(usage)?;
     match command {
+        "ground" if args.len() >= 3 => {
+            let config = Path::new(&args[1]);
+            let selected = Path::new(&args[2]);
+            let mut defaults = None;
+            let mut probes = Vec::new();
+            let mut distance = 1000.;
+            let mut flags = args[3..].iter();
+            while let Some(flag) = flags.next() {
+                match flag.to_str() {
+                    Some("--defaults") => defaults = Some(Path::new(flags.next().ok_or(usage)?)),
+                    Some("--distance") => {
+                        distance = asc_config::finite_number(
+                            flags.next().and_then(|v| v.to_str()).ok_or(usage)?,
+                            "<ground query>",
+                            0,
+                        )?
+                    }
+                    Some("--probe") => {
+                        let mut point = [0.; 3];
+                        for axis in &mut point {
+                            *axis = asc_config::finite_number(
+                                flags.next().and_then(|v| v.to_str()).ok_or(usage)?,
+                                "<ground query>",
+                                0,
+                            )?;
+                        }
+                        if probes.len() >= 4096 {
+                            return Err("Ground command exceeds 4096 probes.".into());
+                        }
+                        probes.push(point);
+                    }
+                    _ => return Err(usage.into()),
+                }
+            }
+            if !distance.is_finite() || !(0. ..=10_000_000.).contains(&distance) {
+                return Err("ground_query_range: distance must be in 0..10000000.".into());
+            }
+            let mut paths = Vec::new();
+            if let Some(path) = defaults {
+                paths.push(path);
+            }
+            paths.push(selected);
+            let ground = asc_ground::load(config, &paths)?;
+            let hits = probes
+                .into_iter()
+                .map(|origin| {
+                    ground
+                        .probe(origin, distance)
+                        .map(|hit| serde_json::json!({"origin":origin,"hit":hit}))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &serde_json::json!({"summary":ground.summary(),"probes":hits})
+                )?
+            );
+        }
         "acd" if args.len() == 3 => {
             let path = Path::new(&args[1]);
             let archive = asc_acd::Archive::open(
