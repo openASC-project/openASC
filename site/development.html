@@ -92,7 +92,13 @@ python -m http.server 4173 --directory site --bind 127.0.0.1</code></pre>
 <h2 id="validate-the-native-physics-kernel">Validate the native physics kernel</h2>
 <pre><code>cargo test --locked -p asc-physics
 cargo run --locked -p asc-physics --example free_body</code></pre>
-<p>Both are covered by CI: the ordinary workspace tests include analytic motion/conservation/clock fixtures, and a separate step executes the original free-body example on Windows and Linux. It needs no game assets, Python or GPU. The native session bridge additionally checks explicit centre-of-mass and spawn-basis initialization. Preserve error/convergence bounds and reject partial state mutation; no original vehicle-force compatibility is implied by these kernel checks.</p><a class="edit-link" href="https://github.com/openASC-project/openASC/blob/main/docs/DEVELOPMENT.md">View this document on GitHub ↗</a></article>
+<p>Both are covered by CI: the ordinary workspace tests include analytic motion/conservation/clock fixtures, and a separate step executes the original free-body example on Windows and Linux. It needs no game assets, Python or GPU. The native session bridge additionally checks explicit centre-of-mass and spawn-basis initialization. Preserve error/convergence bounds and reject partial state mutation; no original vehicle-force compatibility is implied by these kernel checks.</p>
+<h2 id="validate-suspension-records-and-independent-force-links">Validate suspension records and independent force links</h2>
+<pre><code>cargo test --locked -p asc-physics --test spring
+cargo run --locked -p asc-physics --example spring_pair
+cargo test --locked -p asc-vehicle --test suspension
+python tools/check_native_parity.py --native target/debug/openasc.exe --suspension ./assettocorsa/content/cars/bmw_m3_e30</code></pre>
+<p>CI runs the original coupled example on Windows/Linux and compares packed/unpacked suspension source records without game files. The optional local comparison checks all consumed fields and their provenance; it does not compare the original suspension solver. For multiple links sharing a body, aggregate through step_springs rather than repeatedly advancing isolated pairs. Keep automatic source-to-force mapping disabled until source frames, units and original laws have been validated.</p><a class="edit-link" href="https://github.com/openASC-project/openASC/blob/main/docs/DEVELOPMENT.md">View this document on GitHub ↗</a></article>
     </main>
     <footer class="footer">openASC is an independent project, not affiliated with Kunos Simulazioni. Game content is not included.<br><a href="https://github.com/openASC-project/openASC/blob/main/LICENSE">MIT license</a><span aria-hidden="true"> · </span><a href="https://openomsi.org/">Inspired by openOMSI</a></footer>
   </div>

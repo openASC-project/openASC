@@ -18,10 +18,10 @@ sys.path.insert(0, str(ROOT / 'tests'))
 from openasc.kn5 import IDENTITY, load_kn5
 from openasc.config import ContentError, parse_ini, parse_lut
 from openasc.scene import inspect_scene
-from openasc.vehicle import load_vehicle
+from openasc.vehicle import CarData, load_vehicle
 from openasc.ground import load_ground
 from openasc.placement import inspect_spawns, inspect_placement
-from vehicle_fixtures import FILES, archive_bytes, install_car
+from vehicle_fixtures import FILES, archive_bytes, install_car, suspension_source
 from kn5_fixtures import base, file_bytes, mesh
 
 
@@ -385,6 +385,71 @@ def placement_contracts(native):
         return {'compared_reports': reports, 'ambiguous_selection_rejected': True}
 
 
+def compare_suspension(native, car):
+    data = CarData(car.parents[2], car.name)
+    document = data.ini('suspensions.ini')
+    actual = json.loads(subprocess.run([str(native), 'suspension', str(car)], capture_output=True, text=True, check=True, timeout=20).stdout)
+    if actual['header_version'] != int(document.sections['HEADER'].values['VERSION']):
+        raise AssertionError('Suspension source header version differs')
+    if actual['data_source'] != data.mode or actual['simulation_ready'] is not False or actual['has_errors'] is not False:
+        raise AssertionError('Suspension source selection/readiness differs')
+    expected_keys = {'HEADER.VERSION', 'BASIC.WHEELBASE', 'BASIC.CG_LOCATION'}
+    def scalar(section, key, value):
+        expected_keys.add(f'{section}.{key}')
+        if not math.isclose(float(document.sections[section].values[key]), value, abs_tol=1e-12, rel_tol=1e-12):
+            raise AssertionError(f'Suspension value differs: {section}.{key}')
+    scalar('BASIC', 'WHEELBASE', actual['wheelbase_m'])
+    scalar('BASIC', 'CG_LOCATION', actual['front_weight_fraction'])
+    numeric = {'SPRING_RATE', 'PROGRESSIVE_SPRING_RATE', 'BUMP_STOP_RATE', 'BUMPSTOP_UP', 'BUMPSTOP_DN', 'PACKER_RANGE',
+               'DAMP_BUMP', 'DAMP_FAST_BUMP', 'DAMP_FAST_BUMPTHRESHOLD', 'DAMP_REBOUND', 'DAMP_FAST_REBOUND',
+               'DAMP_FAST_REBOUNDTHRESHOLD', 'TOE_OUT', 'STATIC_CAMBER'}
+    for section in ('FRONT', 'REAR'):
+        axle = actual['axles'][section.lower()]
+        kind = document.sections[section].values['TYPE']
+        if axle['type'] != kind:
+            raise AssertionError('Suspension kind differs')
+        expected_keys.add(f'{section}.TYPE')
+        for key, field in [('TRACK', 'track_m'), ('BASEY', 'base_y_m'), ('ROD_LENGTH', 'rod_length_m'), ('HUB_MASS', 'hub_mass_kg')]:
+            scalar(section, key, axle[field])
+        names = {'WBCAR_BOTTOM_FRONT', 'WBCAR_BOTTOM_REAR', 'WBTYRE_BOTTOM', 'WBCAR_STEER', 'WBTYRE_STEER'}
+        names |= {'STRUT_CAR', 'STRUT_TYRE'} if kind == 'STRUT' else {'WBCAR_TOP_FRONT', 'WBCAR_TOP_REAR', 'WBTYRE_TOP'}
+        if axle['hardpoints'].keys() != names or axle['source_parameters'].keys() != numeric:
+            raise AssertionError('Suspension record fields differ')
+        for name in names:
+            expected_keys.add(f'{section}.{name}')
+            values = [float(v) for v in document.sections[section].values[name].split(',')]
+            if values != axle['hardpoints'][name]:
+                raise AssertionError(f'Suspension hardpoint differs: {section}.{name}')
+        for name in numeric:
+            scalar(section, name, axle['source_parameters'][name])
+    expected_arb = {name: float(document.sections['ARB'].values[name]) for name in ('FRONT', 'REAR')} if 'ARB' in document.sections else {}
+    if actual['antiroll_source_parameters'] != expected_arb:
+        raise AssertionError('Suspension ARB source values differ')
+    expected_keys.update(f'ARB.{name}' for name in expected_arb)
+    if actual['field_sources'].keys() != expected_keys:
+        raise AssertionError('Suspension source-field coverage differs')
+    for field, source in actual['field_sources'].items():
+        section, key = field.split('.')
+        if source != {'source': data.source('suspensions.ini'), 'line': document.sections[section].lines[key]}:
+            raise AssertionError(f'Suspension provenance differs: {field}')
+    return {'car': car.name, 'data_source': actual['data_source'], 'front_type': actual['axles']['front']['type'],
+            'rear_type': actual['axles']['rear']['type'], 'validated_source_fields': len(expected_keys),
+            'comparison': 'source configuration only; no original suspension solver or force law'}
+
+
+def suspension_contracts(native):
+    with tempfile.TemporaryDirectory(prefix='openasc-native-suspension-') as directory:
+        root = Path(directory)
+        files = {**FILES, 'suspensions.ini': suspension_source()}
+        unpacked = install_car(root, files=files)
+        packed = install_car(root, 'packed_fixture', packed=True, files=files)
+        before = set(root.rglob('*'))
+        reports = [compare_suspension(native, unpacked), compare_suspension(native, packed)]
+        if set(root.rglob('*')) != before:
+            raise AssertionError('Suspension inspection wrote into source content')
+        return reports
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--native', required=True, type=Path)
@@ -392,6 +457,7 @@ def main():
     parser.add_argument('--car', action='append', default=[], type=Path, help='Optional local content/cars/CAR directory; configuration only.')
     parser.add_argument('--ground', action='append', default=[], type=Path, help='Optional local content/tracks/TRACK directory; static support only.')
     parser.add_argument('--placement', nargs=2, metavar=('CAR_DIRECTORY', 'TRACK_DIRECTORY'), type=Path, help='Optional local geometric placement comparison at AC_PIT_0.')
+    parser.add_argument('--suspension', action='append', default=[], type=Path, help='Optional local DWB/STRUT suspension source-record comparison.')
     args = parser.parse_args()
     native = args.native.resolve(strict=True)
     report = fixtures(native)
@@ -399,10 +465,12 @@ def main():
     report['vehicle_contracts'] = vehicle_contracts(native)
     report['ground_contracts'] = ground_contracts(native)
     report['placement_contracts'] = placement_contracts(native)
+    report['suspension_contracts'] = suspension_contracts(native)
     report['local_models'] = [{'source': path.name, **compare(native, path)} for path in args.model]
     report['local_cars'] = [compare_vehicle(native, path.resolve(strict=True)) for path in args.car]
     report['local_ground'] = [compare_ground(native, path.resolve(strict=True).parents[2], path.name) for path in args.ground]
     report['local_placement'] = compare_placement(native, *(path.resolve(strict=True) for path in args.placement)) if args.placement else None
+    report['local_suspension'] = [compare_suspension(native, path.resolve(strict=True)) for path in args.suspension]
     print(json.dumps(report, indent=2, allow_nan=False))
 
 

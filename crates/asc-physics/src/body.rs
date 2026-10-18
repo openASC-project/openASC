@@ -146,6 +146,12 @@ impl Body {
                 * (self.linear_momentum.dot(velocity) + self.angular_momentum.dot(omega)),
         }
     }
+    /// Transform a body-local point relative to the centre of mass into world space.
+    pub fn world_point(&self, point_body_m: [f64; 3]) -> Result<[f64; 3]> {
+        let point = vector(point_body_m, MAX_POSITION, "physics_position")?;
+        let world = self.position + self.orientation * point;
+        Ok(vector(world.to_array(), MAX_POSITION, "physics_position")?.to_array())
+    }
     /// Force at an absolute world point; no state mutation or implicit gravity.
     pub fn force_at_world_point(
         &self,

@@ -99,3 +99,14 @@ cargo run --locked -p asc-physics --example free_body
 ```
 
 Both are covered by CI: the ordinary workspace tests include analytic motion/conservation/clock fixtures, and a separate step executes the original free-body example on Windows and Linux. It needs no game assets, Python or GPU. The native session bridge additionally checks explicit centre-of-mass and spawn-basis initialization. Preserve error/convergence bounds and reject partial state mutation; no original vehicle-force compatibility is implied by these kernel checks.
+
+## Validate suspension records and independent force links
+
+```sh
+cargo test --locked -p asc-physics --test spring
+cargo run --locked -p asc-physics --example spring_pair
+cargo test --locked -p asc-vehicle --test suspension
+python tools/check_native_parity.py --native target/debug/openasc.exe --suspension ./assettocorsa/content/cars/bmw_m3_e30
+```
+
+CI runs the original coupled example on Windows/Linux and compares packed/unpacked suspension source records without game files. The optional local comparison checks all consumed fields and their provenance; it does not compare the original suspension solver. For multiple links sharing a body, aggregate through step_springs rather than repeatedly advancing isolated pairs. Keep automatic source-to-force mapping disabled until source frames, units and original laws have been validated.

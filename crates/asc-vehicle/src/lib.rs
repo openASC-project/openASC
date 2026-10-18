@@ -1,6 +1,7 @@
 //! Typed vehicle configuration loading, not original vehicle physics.
 pub mod data;
 mod fields;
+pub mod suspension;
 use fields::Fields;
 use serde::Serialize;
 use std::{collections::BTreeMap, io::Read, path::Path};

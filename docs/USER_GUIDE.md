@@ -69,6 +69,22 @@ cargo run --locked -p asc-app -- lut ./assettocorsa/content/cars/CAR/data/CURVE.
 
 Replace the standalone LUT example with an existing unpacked file. Native vehicle loading can also read ordinary data.acd records in memory, as described below. Native text input is UTF-8 with an optional BOM, with strict duplicate/quote checks and source lines. LUT interpolation is linear with clamped endpoints and finite-number/range checks. Legacy encodings, includes and inline expressions are unsupported. The Python research tools retain their separate explicit encoding support.
 
+## Native suspension records and spring links
+
+Inspect the source suspension records without Python or a GPU:
+
+```sh
+cargo run --locked -p asc-app -- suspension ./assettocorsa/content/cars/bmw_m3_e30
+cargo run --locked -p asc-app -- suspension ./assettocorsa/content/cars/bmw_m3_e30 --data packed
+cargo run --locked -p asc-physics --example spring_pair
+```
+
+The `suspension` command reads a complete selected packed/unpacked source. It supports explicit STRUT/DWB hardpoint records, wheelbase/track/base offsets, rod length, recorded hub mass, spring/damper/stop numbers, toe/camber and optional ARB values. Every consumed field has a source and line number. Missing data is not filled from another source. Unknown fields remain diagnostic; the report is configuration-only with simulation_ready false.
+
+Source parameter names and numeric values are preserved. The reader does not solve hardpoint coordinate frames/mirroring, linkage constraints, unsprung masses, ride-height preload or original progressive/bump-stop/damper laws. In particular, raw DAMP_*THRESHOLD values are not automatically treated as the independent element's velocity knees.
+
+The original spring_pair example exercises a separate Rust mechanical element: two bodies, a linear spring and a passive damper. It checks coupled motion against a closed-form damped oscillator, not against the original game. The kernel can also sum multiple spring links at common midpoint states and commit every body once per tick. Link sampling returns forces, moments, stored energy and dissipated power. It does not provide a tyre, ground-contact or full vehicle suspension solver. See the [force-link and source-record contract](FORMATS.md#native-spring-links-and-suspension-records).
+
 ## Native physics foundation
 
 The Rust physics kernel implements unconstrained three-dimensional rigid-body motion. Run its original numerical example without a game installation, Python or a GPU:

@@ -2,9 +2,11 @@
 mod body;
 mod clock;
 mod inertia;
+mod spring;
 pub use body::{Body, State, Wrench};
 pub use clock::{Batch, FixedClock, Tick};
 pub use inertia::MassProperties;
+pub use spring::{Damper, DamperBranch, SpringConnection, SpringLink, SpringSample, step_springs};
 use std::fmt;
 
 #[derive(Debug, Clone, PartialEq)]

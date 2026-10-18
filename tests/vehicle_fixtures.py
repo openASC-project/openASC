@@ -17,6 +17,21 @@ FILES = {
 }
 
 
+def suspension_source():
+    """Original typed-record fixture; hardpoints are not a solved linkage."""
+    text = '[HEADER]\nVERSION=1\n[BASIC]\nWHEELBASE=3\nCG_LOCATION=.4\n[ARB]\nFRONT=3000\nREAR=1500\n'
+    for section, kind in [('FRONT', 'STRUT'), ('REAR', 'DWB')]:
+        text += f'[{section}]\nTYPE={kind}\nTRACK=1.5\nBASEY=-.2\nROD_LENGTH=-.02\nHUB_MASS=30\n'
+        for name in ['WBCAR_BOTTOM_FRONT', 'WBCAR_BOTTOM_REAR', 'WBTYRE_BOTTOM', 'WBCAR_STEER', 'WBTYRE_STEER']:
+            text += f'{name}=0.3,-0.1,0.2\n'
+        for name in (['STRUT_CAR', 'STRUT_TYRE'] if kind == 'STRUT' else ['WBCAR_TOP_FRONT', 'WBCAR_TOP_REAR', 'WBTYRE_TOP']):
+            text += f'{name}=0.1,0.2,0\n'
+        text += ('SPRING_RATE=0\nPROGRESSIVE_SPRING_RATE=100\nBUMP_STOP_RATE=50000\nBUMPSTOP_UP=.1\nBUMPSTOP_DN=.08\nPACKER_RANGE=.15\n'
+                 'DAMP_BUMP=2000\nDAMP_FAST_BUMP=1000\nDAMP_FAST_BUMPTHRESHOLD=.12\nDAMP_REBOUND=3000\n'
+                 'DAMP_FAST_REBOUND=1500\nDAMP_FAST_REBOUNDTHRESHOLD=.15\nTOE_OUT=-.001\nSTATIC_CAMBER=-2\n')
+    return text
+
+
 def archive_bytes(files, identifier='fixture', header=None):
     """Test-only encoder. Independent fixed key/record vectors also test the reader."""
     result = b'' if header is None else struct.pack('<ii', -1111, header)
