@@ -110,3 +110,13 @@ python tools/check_native_parity.py --native target/debug/openasc.exe --suspensi
 ```
 
 CI runs the original coupled example on Windows/Linux and compares packed/unpacked suspension source records without game files. The optional local comparison checks all consumed fields and their provenance; it does not compare the original suspension solver. For multiple links sharing a body, aggregate through step_springs rather than repeatedly advancing isolated pairs. Keep automatic source-to-force mapping disabled until source frames, units and original laws have been validated.
+
+## Validate native car/track roots
+
+The normal workspace suite includes rigid-pose and application-assembly fixtures. Explicit GPU/window checks include root-transformed normals, persistent pose updates with world transparency sorting, and a two-root native presentation fixture. They run in the existing Linux software Vulkan/Xvfb jobs.
+
+```sh
+cargo run --locked -p asc-app -- preview ./assettocorsa/content/cars/bmw_m3_e30 ./assettocorsa/content/tracks/drift/models.ini --smoke
+```
+
+The optional real-content smoke verifies native presentation/camera/resize/readback, not actual keyboard driving or independent physical mouse gestures. New source/capture names must remain outside tracked game content; publish only selected flattened frames with accurate scope captions.

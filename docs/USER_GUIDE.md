@@ -69,6 +69,21 @@ cargo run --locked -p asc-app -- lut ./assettocorsa/content/cars/CAR/data/CURVE.
 
 Replace the standalone LUT example with an existing unpacked file. Native vehicle loading can also read ordinary data.acd records in memory, as described below. Native text input is UTF-8 with an optional BOM, with strict duplicate/quote checks and source lines. LUT interpolation is linear with clamped endpoints and finite-number/range checks. Legacy encodings, includes and inline expressions are unsupported. The Python research tools retain their separate explicit encoding support.
 
+## Native car and track inspection
+
+Open a static native session preview, or save a flattened offscreen capture:
+
+```sh
+cargo run --locked -p asc-app -- preview ./assettocorsa/content/cars/bmw_m3_e30 ./assettocorsa/content/tracks/drift/models.ini
+cargo run --locked -p asc-app -- preview ./assettocorsa/content/cars/bmw_m3_e30 ./assettocorsa/content/tracks/drift/models.ini --capture reports/native-session.png
+```
+
+The output directory must already exist and the PNG name must be new. `--capture` renders offscreen and exits. Without it, the normal orbit/pan/zoom inspection window opens; `--captures DIR` enables F12 captures and `--smoke` exercises presentation/resize/readback. `--spawn NAME`, `--data auto|packed|unpacked`, `--compound N`, `--fallback`, `--diagnostic` and `--rgba-textures` are supported. Select the matching models_LAYOUT.ini for a layout. This command does not accept driving controls.
+
+The track and vehicle share geometry/material/texture budgets and one render pass. Car meshes retain their source geometry with a separate rigid GPU root. The initial visual root uses the selected marker basis/position, then GRAPHICS_OFFSET and GRAPHICS_PITCH_ROTATION. Its camera starts at the car bounds. The marker plane is an inspection pose, not solved chassis CG or suspension equilibrium. The report retains source marker errors even when the selected marker is usable; a preview can render that pose while reporting has_errors true. Missing/ambiguous selected markers and unsupported model data fail.
+
+On local BMW M3 E30/Drift, the preview renders 166 car draws and 254 track draws with 72 embedded textures. The native window also passes presentation, resize and readback checks. Body paint/skins, glass/reflections, lighting/shadows, wheel animation and original material behavior remain incomplete. The report states driving false and simulation_ready false. See the [rigid-instance/session scope](FORMATS.md#native-rigid-instances-and-session-preview).
+
 ## Native suspension records and spring links
 
 Inspect the source suspension records without Python or a GPU:

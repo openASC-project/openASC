@@ -30,6 +30,103 @@ enum TextureMode {
 fn native_window_presents_and_toggles_multilayer_base_colour() {
     run_window(false, TextureMode::Layers);
 }
+
+#[test]
+#[ignore = "Requires desktop/GPU; Linux CI executes under Xvfb."]
+fn native_session_window_presents_independent_car_and_track_roots() {
+    let root = fixture::temp_path("preview-window");
+    let car = root.join("fixture");
+    std::fs::create_dir_all(car.join("data")).unwrap();
+    for (name, text) in fixture::vehicle_files() {
+        std::fs::write(car.join("data").join(name), text).unwrap();
+    }
+    let mesh = fixture::mesh(
+        &[[0., 0., 0.], [1., 0., 0.], [0., 0., 1.]],
+        &[0, 2, 1],
+        2,
+        1,
+        1,
+        0.,
+        0,
+    );
+    std::fs::write(
+        car.join("original.kn5"),
+        fixture::file_texture(
+            fixture::base(
+                std::slice::from_ref(&mesh),
+                Mat4::IDENTITY.to_cols_array(),
+                1,
+            ),
+            6,
+            &fixture::bc1(0xf800),
+        ),
+    )
+    .unwrap();
+    let marker = fixture::named(
+        fixture::base(
+            &[],
+            Mat4::from_translation(glam::Vec3::new(0., 0.5, 0.)).to_cols_array(),
+            1,
+        ),
+        "AC_PIT_0",
+    );
+    std::fs::write(
+        root.join("track.kn5"),
+        fixture::file_texture(
+            fixture::base(&[mesh, marker], Mat4::IDENTITY.to_cols_array(), 1),
+            6,
+            &fixture::bc1(0x001f),
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("models.ini"),
+        "[MODEL_0]\nFILE=track.kn5\nPOSITION=0,0,0\nROTATION=0,0,0\n",
+    )
+    .unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_openasc"));
+    command
+        .arg("preview")
+        .arg(&car)
+        .arg(root.join("models.ini"))
+        .arg("--smoke");
+    if std::env::var_os("OPENASC_TEST_FALLBACK").is_some() {
+        command.arg("--fallback");
+    }
+    let output = command.output().unwrap();
+    let _ = std::fs::remove_dir_all(&root);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        output.status.success(),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let native: serde_json::Value = serde_json::from_str(
+        stdout
+            .lines()
+            .find(|v| v.starts_with("{\"native_window\":"))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(native["native_window"]["root_instances"], 2);
+    let metadata: serde_json::Value = serde_json::from_str(
+        stdout
+            .lines()
+            .find(|v| v.starts_with("{\"session_preview\":"))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(metadata["session_preview"]["simulation_ready"], false);
+    let smoke: serde_json::Value = serde_json::from_str(
+        stdout
+            .lines()
+            .find(|v| v.starts_with("{\"window_smoke\":"))
+            .unwrap(),
+    )
+    .unwrap();
+    assert_eq!(smoke["window_smoke"]["presented_frames"], 5);
+    assert_eq!(smoke["window_smoke"]["toggle_changed_pixels"], true);
+}
 fn run_window(composed: bool, mode: TextureMode) {
     let rgba = matches!(mode, TextureMode::Rgba);
     let layered = matches!(mode, TextureMode::Layers);

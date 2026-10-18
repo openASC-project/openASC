@@ -34,9 +34,118 @@ fn load_input(path: &Path, diagnostic: bool) -> Result<Input, Box<dyn Error>> {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    let usage = "Usage: openasc suspension CAR_DIRECTORY [--data auto|packed|unpacked] | spawns MODELS.ini | place CAR_DIRECTORY MODELS.ini SURFACES.ini [--defaults SURFACES.ini] [--spawn NAME] [--data auto|packed|unpacked] [--compound N] | ground MODELS.ini SURFACES.ini [--defaults SURFACES.ini] [--probe X Y Z]... [--distance D] | car CAR_DIRECTORY [--data auto|packed|unpacked] [--compound N] | acd FILE.acd CAR_ID | inspect SCENE | materials SCENE | render SCENE NEW.png [--fallback] [--diagnostic] [--rgba-textures] | view SCENE [--fallback] [--diagnostic] [--rgba-textures] [--captures DIR] [--capture NEW.png] [--smoke] | ini FILE.ini | lut FILE.lut [--sample X]. SCENE is a KN5 file or an explicit models.ini/models_LAYOUT.ini path.";
+    let usage = "Usage: openasc preview CAR_DIRECTORY MODELS.ini [--spawn NAME] [--data auto|packed|unpacked] [--compound N] [--capture NEW.png | --smoke | --captures DIR] [--fallback] [--diagnostic] [--rgba-textures] | suspension CAR_DIRECTORY [--data auto|packed|unpacked] | spawns MODELS.ini | place CAR_DIRECTORY MODELS.ini SURFACES.ini [--defaults SURFACES.ini] [--spawn NAME] [--data auto|packed|unpacked] [--compound N] | ground MODELS.ini SURFACES.ini [--defaults SURFACES.ini] [--probe X Y Z]... [--distance D] | car CAR_DIRECTORY [--data auto|packed|unpacked] [--compound N] | acd FILE.acd CAR_ID | inspect SCENE | materials SCENE | render SCENE NEW.png [--fallback] [--diagnostic] [--rgba-textures] | view SCENE [--fallback] [--diagnostic] [--rgba-textures] [--captures DIR] [--capture NEW.png] [--smoke] | ini FILE.ini | lut FILE.lut [--sample X]. SCENE is a KN5 file or an explicit models.ini/models_LAYOUT.ini path.";
     let command = args.first().and_then(|v| v.to_str()).ok_or(usage)?;
     match command {
+        "preview" if args.len() >= 3 => {
+            let (mut fallback, mut diagnostic, mut rgba, mut smoke) = (false, false, false, false);
+            let (mut capture, mut captures) = (None, None);
+            let mut mode = asc_vehicle::data::Mode::Auto;
+            let mut compound = None;
+            let mut spawn = "AC_PIT_0";
+            let mut flags = args[3..].iter();
+            while let Some(flag) = flags.next() {
+                match flag.to_str() {
+                    Some("--fallback") => fallback = true,
+                    Some("--diagnostic") => diagnostic = true,
+                    Some("--rgba-textures") => rgba = true,
+                    Some("--smoke") => smoke = true,
+                    Some("--capture") => {
+                        capture = Some(std::path::PathBuf::from(flags.next().ok_or(usage)?))
+                    }
+                    Some("--captures") => {
+                        captures = Some(std::path::PathBuf::from(flags.next().ok_or(usage)?))
+                    }
+                    Some("--spawn") => {
+                        spawn = flags.next().and_then(|v| v.to_str()).ok_or(usage)?
+                    }
+                    Some("--compound") => {
+                        compound = Some(
+                            flags
+                                .next()
+                                .and_then(|v| v.to_str())
+                                .ok_or(usage)?
+                                .parse::<u32>()?,
+                        )
+                    }
+                    Some("--data") => {
+                        mode = match flags.next().and_then(|v| v.to_str()) {
+                            Some("auto") => asc_vehicle::data::Mode::Auto,
+                            Some("packed") => asc_vehicle::data::Mode::Packed,
+                            Some("unpacked") => asc_vehicle::data::Mode::Unpacked,
+                            _ => return Err(usage.into()),
+                        }
+                    }
+                    _ => return Err(usage.into()),
+                }
+            }
+            if capture.is_some() && (smoke || captures.is_some()) {
+                return Err(
+                    "Offscreen --capture cannot be combined with window --smoke/--captures.".into(),
+                );
+            }
+            if capture.as_ref().is_some_and(|p| p.exists()) {
+                return Err("Output already exists; choose a new PNG path.".into());
+            }
+            let preview = app::session::load(
+                Path::new(&args[1]),
+                Path::new(&args[2]),
+                spawn,
+                mode,
+                compound,
+            )?;
+            let mut resources =
+                (!diagnostic).then(|| render::prepare_track_textures(&preview.track));
+            if let Some(r) = &mut resources {
+                r.allow_bc = !rgba;
+            }
+            if let Some(path) = capture {
+                let camera = render::scene::orbit::Orbit::new(
+                    preview.focus,
+                    preview
+                        .track
+                        .scene
+                        .summary
+                        .bounds
+                        .ok_or("No preview bounds.")?,
+                )?;
+                let frame = pollster::block_on(render::gpu::capture::render_with_view(
+                    &preview.track.scene,
+                    resources.as_ref(),
+                    std::slice::from_ref(&preview.instance),
+                    camera.view(1240, 900, !diagnostic)?,
+                    (1240, 900),
+                    fallback,
+                ))?;
+                if frame.report.non_background_pixels == 0 {
+                    return Err("GPU produced no non-background session pixels.".into());
+                }
+                render::save_png(&frame, &path)?;
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(
+                        &serde_json::json!({"session_preview":preview.metadata,"render":frame.report})
+                    )?
+                );
+            } else {
+                println!(
+                    "{}",
+                    serde_json::json!({"session_preview":preview.metadata})
+                );
+                viewer::run_instanced(
+                    preview.track.scene,
+                    resources,
+                    viewer::Options {
+                        fallback,
+                        smoke,
+                        captures,
+                        first_capture: None,
+                    },
+                    vec![preview.instance],
+                    Some(preview.focus),
+                )?;
+            }
+        }
         "suspension" if args.len() == 2 || (args.len() == 4 && args[2] == "--data") => {
             let mode = if args.len() == 2 {
                 asc_vehicle::data::Mode::Auto

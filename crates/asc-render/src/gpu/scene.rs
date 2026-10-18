@@ -1,4 +1,6 @@
 //! Persistent GPU scene shared by offscreen captures and native presentation.
+pub use super::instances::InstanceDescriptor;
+use crate::scene::pose::RigidPose;
 use crate::{pipelines::material as materials, resources::texture::Resources};
 use asc_kn5::{Draw, Scene};
 use serde::Serialize;
@@ -64,8 +66,9 @@ pub struct Statistics {
 }
 pub struct GpuScene {
     prepared: materials::Prepared,
-    camera_buffer: wgpu::Buffer,
-    camera_bind: wgpu::BindGroup,
+    instances: Vec<super::instances::Instance>,
+    draw_instances: Vec<usize>,
+    local_centers: Vec<[f32; 3]>,
     vertices: wgpu::Buffer,
     indices: wgpu::Buffer,
     draws: Vec<Draw>,
@@ -78,6 +81,15 @@ impl GpuScene {
         resources: Option<&Resources>,
         format: wgpu::TextureFormat,
     ) -> Result<Self> {
+        Self::with_instances(context, scene, resources, format, &[]).await
+    }
+    pub async fn with_instances(
+        context: &Context,
+        scene: &Scene,
+        resources: Option<&Resources>,
+        format: wgpu::TextureFormat,
+        descriptors: &[InstanceDescriptor],
+    ) -> Result<Self> {
         let device = &context.device;
         let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -86,19 +98,8 @@ impl GpuScene {
         });
         let prepared =
             materials::prepare(device, &context.queue, &shader, scene, resources, format)?;
-        let camera_buffer = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("Mutable camera"),
-            contents: bytemuck::cast_slice(&[0_f32; 16]),
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-        });
-        let camera_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Camera"),
-            layout: &prepared.camera_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: camera_buffer.as_entire_binding(),
-            }],
-        });
+        let (instances, draw_instances) =
+            super::instances::create(device, &prepared.camera_layout, scene, descriptors)?;
         let vertices = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
             label: Some("Static world vertices"),
             contents: bytemuck::cast_slice(&scene.vertices),
@@ -143,15 +144,42 @@ impl GpuScene {
         if let Some(error) = scope.pop().await {
             return Err(error.into());
         }
-        Ok(Self {
+        let mut result = Self {
             prepared,
-            camera_buffer,
-            camera_bind,
+            instances,
+            draw_instances,
+            local_centers: scene.draws.iter().map(|d| d.center).collect(),
             vertices,
             indices,
             draws: scene.draws.clone(),
             statistics,
-        })
+        };
+        for id in 0..result.instances.len() {
+            let pose = result.instances[id].pose;
+            result.set_instance_pose(id, pose)?;
+        }
+        Ok(result)
+    }
+    pub fn instance_count(&self) -> usize {
+        self.instances.len()
+    }
+    pub fn set_instance_pose(&mut self, id: usize, pose: RigidPose) -> Result<()> {
+        let instance = self.instances.get(id).ok_or("Unknown root instance.")?;
+        if let Some(bounds) = instance.bounds {
+            pose.bounds(bounds)?;
+        }
+        for (i, center) in self.local_centers.iter().enumerate() {
+            if self.draw_instances[i] == id {
+                pose.point(*center)?;
+            }
+        }
+        for (i, draw) in self.draws.iter_mut().enumerate() {
+            if self.draw_instances[i] == id {
+                draw.center = pose.point(self.local_centers[i])?;
+            }
+        }
+        self.instances[id].pose = pose;
+        Ok(())
     }
     pub fn encode(
         &self,
@@ -161,9 +189,14 @@ impl GpuScene {
         depth: &wgpu::TextureView,
         view: &View,
     ) {
-        context
-            .queue
-            .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&view.matrix));
+        for instance in &self.instances {
+            let mut matrices = [0f32; 32];
+            matrices[..16].copy_from_slice(&view.matrix);
+            matrices[16..].copy_from_slice(&instance.pose.matrix());
+            context
+                .queue
+                .write_buffer(&instance.buffer, 0, bytemuck::cast_slice(&matrices));
+        }
         let linear = |byte: u8| {
             let c = byte as f64 / 255.;
             if c <= 0.04045 {
@@ -200,10 +233,10 @@ impl GpuScene {
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        pass.set_bind_group(0, &self.camera_bind, &[]);
         pass.set_vertex_buffer(0, self.vertices.slice(..));
         pass.set_index_buffer(self.indices.slice(..), wgpu::IndexFormat::Uint32);
         for index in materials::draw_order(&self.draws, &self.prepared, view.direction) {
+            pass.set_bind_group(0, &self.instances[self.draw_instances[index]].bind, &[]);
             let draw = &self.draws[index];
             let material = &self.prepared.materials[draw.material];
             pass.set_pipeline(&self.prepared.pipelines[material.pipeline]);

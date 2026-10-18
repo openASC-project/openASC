@@ -6,6 +6,9 @@ The implemented project contains a first native Rust KN5 reader and wgpu offscre
 
 | Location | Responsibility |
 | --- | --- |
+| `crates/asc-app/src/app/session.rs` | Native static track/car assembly, source namespace rebasing and inspection-pose metadata |
+| `crates/asc-render/src/scene/pose.rs` | Bounded rigid root composition and transformed bounds |
+| `crates/asc-render/src/gpu/instances.rs` | Persistent root uniforms and disjoint draw-group binding |
 | `crates/asc-vehicle/src/suspension.rs` | Source-aware STRUT/DWB hardpoints and numeric records without force-law inference |
 | `crates/asc-physics/src/spring.rs` | Passive spring/damper loads and atomic common-midpoint multibody stepping |
 | `crates/asc-physics/` | Explicit 3D mass/inertia, world momenta, forces/impulses and fixed-step scheduling |

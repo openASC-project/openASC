@@ -475,3 +475,255 @@ fn multilayer_gpu_distinguishes_world_planar_and_source_uv_coordinates() {
         "Diffuse-first upload scheduling must preserve resource identities."
     );
 }
+
+#[test]
+#[ignore = "Requires GPU/software Vulkan; explicitly executed in GPU CI."]
+fn instance_root_matches_baked_geometry_and_rotates_lighting_normals() {
+    use asc_render::{
+        gpu::scene::{InstanceDescriptor, View},
+        scene::pose::RigidPose,
+    };
+    let mesh = support::mesh(
+        &[
+            [-0.5, -0.5, 0.],
+            [0.5, -0.5, 0.],
+            [0.5, 0.5, 0.],
+            [-0.5, 0.5, 0.],
+        ],
+        &[0, 1, 2, 0, 2, 3],
+        2,
+        1,
+        1,
+        0.,
+        0,
+    );
+    let bytes = support::file(
+        support::base(&[mesh.clone(), mesh], Mat4::IDENTITY.to_cols_array(), 1),
+        6,
+    );
+    let mut scene = kn5::parse(Cursor::new(&bytes)).unwrap();
+    for v in &mut scene.vertices[..4] {
+        v.colour = [0.01, 0.9, 0.01];
+    }
+    for v in &mut scene.vertices[4..] {
+        v.colour = [0.9, 0.01, 0.01];
+    }
+    let pose = RigidPose::new(
+        [1.5, 0., 0.],
+        glam::DQuat::from_rotation_z(std::f64::consts::FRAC_PI_2).to_array(),
+    )
+    .unwrap();
+    let mut baked = kn5::parse(Cursor::new(bytes)).unwrap();
+    for (v, source) in baked.vertices.iter_mut().zip(&scene.vertices) {
+        *v = *source;
+    }
+    let matrix = Mat4::from_cols_array(&pose.matrix());
+    for v in &mut baked.vertices[4..] {
+        v.position = matrix
+            .transform_point3(Vec3::from_array(v.position))
+            .to_array();
+        v.normal = matrix
+            .transform_vector3(Vec3::from_array(v.normal))
+            .to_array();
+    }
+    let vp = [
+        0.25, 0., 0., 0., 0., 0.5, 0., 0., 0., 0., -0.05, 0., 0., 0., 0.5, 1.,
+    ];
+    let fallback = std::env::var_os("OPENASC_TEST_FALLBACK").is_some();
+    let instanced = pollster::block_on(render::gpu::capture::render_with_view(
+        &scene,
+        None,
+        &[InstanceDescriptor { draws: 1..2, pose }],
+        View {
+            matrix: vp,
+            direction: [0., 0., 1.],
+            textures: false,
+        },
+        (256, 128),
+        fallback,
+    ))
+    .unwrap();
+    let reference = pollster::block_on(render::gpu::capture::render_with_view(
+        &baked,
+        None,
+        &[],
+        View {
+            matrix: vp,
+            direction: [0., 0., 1.],
+            textures: false,
+        },
+        (256, 128),
+        fallback,
+    ))
+    .unwrap();
+    assert_eq!(instanced.report.root_instances, 2);
+    assert!(
+        instanced
+            .rgba
+            .chunks_exact(4)
+            .filter(|p| p[0] > p[1].saturating_mul(2) && p[0] > 100)
+            .count()
+            > 500
+    );
+    let differences = instanced
+        .rgba
+        .iter()
+        .zip(&reference.rgba)
+        .filter(|(a, b)| a.abs_diff(**b) > 2)
+        .count();
+    assert!(
+        differences < 10,
+        "{differences} transformed pixel differences"
+    );
+}
+
+#[test]
+#[ignore = "Requires GPU/software Vulkan; explicitly executed in GPU CI."]
+fn persistent_instance_updates_world_transparency_sort_without_geometry_reupload() {
+    use asc_render::{
+        gpu::{
+            Readback,
+            scene::{Context, GpuScene, InstanceDescriptor, View},
+        },
+        scene::pose::RigidPose,
+    };
+    pollster::block_on(async {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::PRIMARY,
+            ..wgpu::InstanceDescriptor::new_without_display_handle()
+        });
+        let context = Context::request(
+            &instance,
+            None,
+            std::env::var_os("OPENASC_TEST_FALLBACK").is_some(),
+            false,
+        )
+        .await
+        .unwrap();
+        let mut scene = plane_scene(&[0., 0.]);
+        let mut red = scene.materials[0].clone();
+        red.blend = 1;
+        red.depth = 1;
+        red.opacity = 0.5;
+        red.diffuse = 1.;
+        let mut green = red.clone();
+        green.name = "green".into();
+        scene.materials = vec![red, green];
+        scene.draws[1].material = 1;
+        for v in &mut scene.vertices[..4] {
+            v.colour = [0.9, 0.01, 0.01];
+        }
+        for v in &mut scene.vertices[4..] {
+            v.colour = [0.01, 0.9, 0.01];
+        }
+        let mut gpu = GpuScene::with_instances(
+            &context,
+            &scene,
+            None,
+            wgpu::TextureFormat::Rgba8UnormSrgb,
+            &[InstanceDescriptor {
+                draws: 1..2,
+                pose: RigidPose::new([0., 0.2, 0.], [0., 0., 0., 1.]).unwrap(),
+            }],
+        )
+        .await
+        .unwrap();
+        let target = context.device.create_texture(&wgpu::TextureDescriptor {
+            label: None,
+            size: wgpu::Extent3d {
+                width: 128,
+                height: 128,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let depth = render::gpu::scene::depth(&context.device, 128, 128);
+        let vp = [
+            1. / 3.,
+            0.,
+            0.,
+            0.,
+            0.,
+            0.,
+            -0.05,
+            0.,
+            0.,
+            1. / 3.,
+            0.,
+            0.,
+            0.,
+            0.,
+            0.5,
+            1.,
+        ];
+        let view = View {
+            matrix: vp,
+            direction: [0., 1., 0.],
+            textures: false,
+        };
+        let mut images = Vec::new();
+        for y in [0.2, -0.2] {
+            gpu.set_instance_pose(1, RigidPose::new([0., y, 0.], [0., 0., 0., 1.]).unwrap())
+                .unwrap();
+            let readback = Readback::new(
+                &context.device,
+                128,
+                128,
+                wgpu::TextureFormat::Rgba8UnormSrgb,
+            );
+            let mut encoder = context.device.create_command_encoder(&Default::default());
+            gpu.encode(
+                &context,
+                &mut encoder,
+                &target.create_view(&Default::default()),
+                &depth.create_view(&Default::default()),
+                &view,
+            );
+            readback.encode(&mut encoder, &target);
+            images.push(
+                readback
+                    .finish(&context.device, context.queue.submit([encoder.finish()]))
+                    .unwrap(),
+            );
+        }
+        let centre = (64 * 128 + 64) * 4;
+        assert!(
+            images[0][centre + 1] > images[0][centre],
+            "Near green instance should blend last."
+        );
+        assert!(
+            images[1][centre] > images[1][centre + 1],
+            "Moved green instance should blend before red."
+        );
+        assert_eq!(gpu.statistics.triangles, 4);
+        assert_eq!(gpu.statistics.uploaded_textures, 0);
+        assert_eq!(gpu.instance_count(), 2);
+        assert!(gpu.set_instance_pose(99, RigidPose::default()).is_err());
+        let invalid = [
+            InstanceDescriptor {
+                draws: 0..2,
+                pose: RigidPose::default(),
+            },
+            InstanceDescriptor {
+                draws: 1..2,
+                pose: RigidPose::default(),
+            },
+        ];
+        assert!(
+            GpuScene::with_instances(
+                &context,
+                &scene,
+                None,
+                wgpu::TextureFormat::Rgba8UnormSrgb,
+                &invalid
+            )
+            .await
+            .is_err()
+        );
+    });
+}

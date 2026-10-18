@@ -1,7 +1,7 @@
 //! Offscreen native wgpu diagnostic rendering; no original shader/material parity.
 use super::{
     readback::Readback,
-    scene::{self, BACKGROUND, Context, GpuScene, Result, View},
+    scene::{self, BACKGROUND, Context, GpuScene, InstanceDescriptor, Result, View},
 };
 use crate::{resources::texture::Resources, scene::camera::camera};
 use asc_kn5::Scene;
@@ -30,6 +30,7 @@ pub struct Report {
     pub diffuse_enabled: bool,
     pub scope: &'static str,
     pub camera_focus: &'static str,
+    pub root_instances: usize,
 }
 pub struct Frame {
     pub rgba: Vec<u8>,
@@ -56,6 +57,39 @@ pub async fn render_with_textures(
         width,
         height,
     )?;
+    render_with_view(
+        scene,
+        resources,
+        &[],
+        View {
+            matrix,
+            direction: [0.7, 1., 0.8],
+            textures: true,
+        },
+        (width, height),
+        fallback,
+    )
+    .await
+}
+
+pub async fn render_with_view(
+    scene: &Scene,
+    resources: Option<&Resources>,
+    instances: &[InstanceDescriptor],
+    view: View,
+    size: (u32, u32),
+    fallback: bool,
+) -> Result<Frame> {
+    let (width, height) = size;
+    if width == 0
+        || height == 0
+        || width > 4096
+        || height > 4096
+        || view.matrix.iter().any(|v| !v.is_finite())
+        || view.direction.iter().any(|v| !v.is_finite())
+    {
+        return Err("Invalid explicit capture view or dimensions.".into());
+    }
     let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
         backends: wgpu::Backends::PRIMARY,
         ..wgpu::InstanceDescriptor::new_without_display_handle()
@@ -67,11 +101,12 @@ pub async fn render_with_textures(
         resources.is_some_and(|r| r.allow_bc),
     )
     .await?;
-    let gpu = GpuScene::new(
+    let gpu = GpuScene::with_instances(
         &context,
         scene,
         resources,
         wgpu::TextureFormat::Rgba8UnormSrgb,
+        instances,
     )
     .await?;
     let target = context.device.create_texture(&wgpu::TextureDescriptor {
@@ -104,11 +139,7 @@ pub async fn render_with_textures(
         &mut encoder,
         &target.create_view(&Default::default()),
         &depth.create_view(&Default::default()),
-        &View {
-            matrix,
-            direction: [0.7, 1., 0.8],
-            textures: true,
-        },
+        &view,
     );
     readback.encode(&mut encoder, &target);
     let rgba = readback.finish(&context.device, context.queue.submit([encoder.finish()]))?;
@@ -127,9 +158,11 @@ pub async fn render_with_textures(
             } else {
                 "native_static_material_diagnostics"
             },
-            true,
+            view.textures,
         ),
-        if scene.summary.road_focus_bounds.is_some() {
+        if !instances.is_empty() {
+            "explicit_instance_view"
+        } else if scene.summary.road_focus_bounds.is_some() {
             "road_bounds"
         } else {
             "scene_bounds"
@@ -174,6 +207,7 @@ pub(super) fn frame(
             diffuse_enabled: scope.1 && stats.uploaded_textures > 0,
             scope: scope.0,
             camera_focus: focus,
+            root_instances: gpu.instance_count(),
         },
     }
 }

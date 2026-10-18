@@ -22,10 +22,10 @@ asc-kn5.workspace = true
 asc-render.workspace = true
 pollster.workspace = true
 serde_json.workspace = true
+glam.workspace = true
 wgpu.workspace = true
 winit.workspace = true
 
 [dev-dependencies]
 asc-test-support.workspace = true
-glam.workspace = true
 png.workspace = true

@@ -58,6 +58,8 @@ struct State {
 }
 struct App {
     scene: Scene,
+    instances: Vec<asc_render::gpu::scene::InstanceDescriptor>,
+    focus: Option<[[f32; 3]; 2]>,
     resources: Option<Resources>,
     options: Options,
     state: Option<State>,
@@ -67,6 +69,15 @@ struct App {
 }
 
 pub fn run(scene: Scene, resources: Option<Resources>, options: Options) -> Result<()> {
+    run_instanced(scene, resources, options, Vec::new(), None)
+}
+pub fn run_instanced(
+    scene: Scene,
+    resources: Option<Resources>,
+    options: Options,
+    instances: Vec<asc_render::gpu::scene::InstanceDescriptor>,
+    focus: Option<[[f32; 3]; 2]>,
+) -> Result<()> {
     if scene.summary.bounds.is_none() {
         return Err("No visible indexed static geometry to display.".into());
     }
@@ -74,6 +85,8 @@ pub fn run(scene: Scene, resources: Option<Resources>, options: Options) -> Resu
     let smoke = options.smoke;
     let mut app = App {
         scene,
+        instances,
+        focus,
         resources,
         options,
         state: None,
@@ -123,17 +136,20 @@ impl App {
         });
         let surface = instance.create_surface(window.clone())?;
         let actual = window.inner_size();
-        let presenter = pollster::block_on(Presenter::new(
+        let presenter = pollster::block_on(Presenter::with_instances(
             instance,
             surface,
             &self.scene,
             self.resources.as_ref(),
             (actual.width, actual.height),
             self.options.fallback,
+            &self.instances,
         ))?;
         let bounds = self.scene.summary.bounds.unwrap();
         let camera = Orbit::new(
-            self.scene.summary.road_focus_bounds.unwrap_or(bounds),
+            self.focus
+                .or(self.scene.summary.road_focus_bounds)
+                .unwrap_or(bounds),
             bounds,
         )?;
         let state = State {
@@ -158,7 +174,7 @@ impl App {
         };
         println!(
             "{}",
-            serde_json::json!({"native_window":{"adapter":state.presenter.context.info.name,"backend":format!("{:?}",state.presenter.context.info.backend),"format":format!("{:?}",state.presenter.format()),"scene":state.presenter.scene.statistics}})
+            serde_json::json!({"native_window":{"adapter":state.presenter.context.info.name,"backend":format!("{:?}",state.presenter.context.info.backend),"format":format!("{:?}",state.presenter.format()),"scene":state.presenter.scene.statistics,"root_instances":state.presenter.scene.instance_count()}})
         );
         state.title();
         state.window.request_redraw();

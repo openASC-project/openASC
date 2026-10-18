@@ -1,4 +1,4 @@
-struct Camera { view_projection: mat4x4<f32> };
+struct Camera { view_projection: mat4x4<f32>, model: mat4x4<f32> };
 struct Material { flags: vec4<f32>, lighting: vec4<f32>, layers:vec4<f32>, uv_rg:vec4<f32>, uv_ba:vec4<f32> };
 @group(0) @binding(0) var<uniform> camera: Camera;
 @group(1) @binding(0) var diffuse_texture: texture_2d<f32>;
@@ -18,9 +18,10 @@ struct Surface {
 };
 @vertex fn vertex(@location(0) position: vec3<f32>, @location(1) normal: vec3<f32>, @location(2) uv: vec2<f32>, @location(3) colour: vec3<f32>) -> Surface {
     var out: Surface;
-    out.clip = camera.view_projection * vec4<f32>(position, 1.0);
-    out.position = position;
-    out.normal = normal;
+    let world = camera.model * vec4<f32>(position, 1.0);
+    out.clip = camera.view_projection * world;
+    out.position = world.xyz;
+    out.normal = (camera.model * vec4<f32>(normal, 0.0)).xyz;
     out.uv = uv;
     out.colour = colour;
     return out;

@@ -2,7 +2,7 @@
 use super::{
     capture::{self, Frame},
     readback::Readback,
-    scene::{self, Context, GpuScene, Result, View},
+    scene::{self, Context, GpuScene, InstanceDescriptor, Result, View},
 };
 use crate::resources::texture::Resources;
 use asc_kn5::Scene;
@@ -34,6 +34,17 @@ impl Presenter {
         size: (u32, u32),
         fallback: bool,
     ) -> Result<Self> {
+        Self::with_instances(instance, surface, scene, resources, size, fallback, &[]).await
+    }
+    pub async fn with_instances(
+        instance: wgpu::Instance,
+        surface: wgpu::Surface<'static>,
+        scene: &Scene,
+        resources: Option<&Resources>,
+        size: (u32, u32),
+        fallback: bool,
+        instances: &[InstanceDescriptor],
+    ) -> Result<Self> {
         let context = Context::request(
             &instance,
             Some(&surface),
@@ -62,7 +73,8 @@ impl Presenter {
             })
             .ok_or("No SDR RGBA/BGRA surface format.")?;
         let view_format = format.add_srgb_suffix();
-        let gpu = GpuScene::new(&context, scene, resources, view_format).await?;
+        let gpu =
+            GpuScene::with_instances(&context, scene, resources, view_format, instances).await?;
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                 | if caps.usages.contains(wgpu::TextureUsages::COPY_SRC) {
