@@ -34,9 +34,59 @@ fn load_input(path: &Path, diagnostic: bool) -> Result<Input, Box<dyn Error>> {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    let usage = "Usage: openasc preview CAR_DIRECTORY MODELS.ini [--spawn NAME] [--data auto|packed|unpacked] [--compound N] [--capture NEW.png | --smoke | --captures DIR] [--fallback] [--diagnostic] [--rgba-textures] | suspension CAR_DIRECTORY [--data auto|packed|unpacked] | spawns MODELS.ini | place CAR_DIRECTORY MODELS.ini SURFACES.ini [--defaults SURFACES.ini] [--spawn NAME] [--data auto|packed|unpacked] [--compound N] | ground MODELS.ini SURFACES.ini [--defaults SURFACES.ini] [--probe X Y Z]... [--distance D] | car CAR_DIRECTORY [--data auto|packed|unpacked] [--compound N] | acd FILE.acd CAR_ID | inspect SCENE | materials SCENE | render SCENE NEW.png [--fallback] [--diagnostic] [--rgba-textures] | view SCENE [--fallback] [--diagnostic] [--rgba-textures] [--captures DIR] [--capture NEW.png] [--smoke] | ini FILE.ini | lut FILE.lut [--sample X]. SCENE is a KN5 file or an explicit models.ini/models_LAYOUT.ini path.";
+    let usage = "Usage: openasc suspension-motion CAR_DIRECTORY AXLE TRAVEL_M AXIS_X AXIS_Y AXIS_Z [--rack X Y Z] [--data auto|packed|unpacked] | preview CAR_DIRECTORY MODELS.ini [--spawn NAME] [--data auto|packed|unpacked] [--compound N] [--capture NEW.png | --smoke | --captures DIR] [--fallback] [--diagnostic] [--rgba-textures] | suspension CAR_DIRECTORY [--data auto|packed|unpacked] | spawns MODELS.ini | place CAR_DIRECTORY MODELS.ini SURFACES.ini [--defaults SURFACES.ini] [--spawn NAME] [--data auto|packed|unpacked] [--compound N] | ground MODELS.ini SURFACES.ini [--defaults SURFACES.ini] [--probe X Y Z]... [--distance D] | car CAR_DIRECTORY [--data auto|packed|unpacked] [--compound N] | acd FILE.acd CAR_ID | inspect SCENE | materials SCENE | render SCENE NEW.png [--fallback] [--diagnostic] [--rgba-textures] | view SCENE [--fallback] [--diagnostic] [--rgba-textures] [--captures DIR] [--capture NEW.png] [--smoke] | ini FILE.ini | lut FILE.lut [--sample X]. SCENE is a KN5 file or an explicit models.ini/models_LAYOUT.ini path.";
     let command = args.first().and_then(|v| v.to_str()).ok_or(usage)?;
     match command {
+        "suspension-motion" if args.len() >= 7 => {
+            let axle = args[2].to_str().ok_or(usage)?;
+            if !["front", "rear"].contains(&axle) {
+                return Err("Choose front or rear for suspension-motion".into());
+            }
+            let number = |value: &std::ffi::OsString| -> Result<f64, Box<dyn Error>> {
+                Ok(value.to_str().ok_or(usage)?.parse()?)
+            };
+            let travel = number(&args[3])?;
+            let axis = [number(&args[4])?, number(&args[5])?, number(&args[6])?];
+            let mut mode = asc_vehicle::data::Mode::Auto;
+            let mut rack = [0.; 3];
+            let mut flags = args[7..].iter();
+            let mut seen = std::collections::HashSet::new();
+            while let Some(flag) = flags.next() {
+                let flag = flag.to_str().ok_or(usage)?;
+                if !seen.insert(flag) {
+                    return Err("Duplicate suspension-motion option".into());
+                }
+                match flag {
+                    "--rack" => {
+                        rack = [
+                            number(flags.next().ok_or(usage)?)?,
+                            number(flags.next().ok_or(usage)?)?,
+                            number(flags.next().ok_or(usage)?)?,
+                        ];
+                    }
+                    "--data" => {
+                        mode = match flags.next().and_then(|v| v.to_str()) {
+                            Some("auto") => asc_vehicle::data::Mode::Auto,
+                            Some("packed") => asc_vehicle::data::Mode::Packed,
+                            Some("unpacked") => asc_vehicle::data::Mode::Unpacked,
+                            _ => return Err(usage.into()),
+                        };
+                    }
+                    _ => return Err(usage.into()),
+                }
+            }
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&app::suspension::motion(
+                    Path::new(&args[1]),
+                    axle,
+                    travel,
+                    axis,
+                    rack,
+                    mode
+                )?)?
+            );
+        }
         "preview" if args.len() >= 3 => {
             let (mut fallback, mut diagnostic, mut rgba, mut smoke) = (false, false, false, false);
             let (mut capture, mut captures) = (None, None);

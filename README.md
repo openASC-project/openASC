@@ -26,6 +26,7 @@ cargo run --locked -p asc-app -- render ./assettocorsa/content/tracks/drift/drif
 cargo run --locked -p asc-app -- car ./assettocorsa/content/cars/bmw_m3_e30
 cargo run --locked -p asc-app -- spawns ./assettocorsa/content/tracks/drift/models.ini
 cargo run --locked -p asc-app -- suspension ./assettocorsa/content/cars/bmw_m3_e30
+cargo run --locked -p asc-app -- suspension-motion ./assettocorsa/content/cars/bmw_m3_e30 rear 0.025 0 1 0
 cargo run --locked -p asc-app -- preview ./assettocorsa/content/cars/bmw_m3_e30 ./assettocorsa/content/tracks/drift/models.ini
 ```
 
@@ -34,6 +35,8 @@ The native view command opens a desktop window with orbit, pan, zoom and perspec
 Native `spawns` and `place` provide geometric preparation only. Drift has a duplicate `AC_START_3`, so its reports retain `has_errors: true` and a nonzero process status even when the selected pit footprint has support; see the [placement guide](docs/USER_GUIDE.md#native-spawn-and-placement-preflight).
 
 Native car/track `preview` opens a static inspection session with a separate car root and graphics correction. It reports source-marker errors but does not run native driving physics; see the [session preview guide](docs/USER_GUIDE.md#native-car-and-track-inspection).
+
+Native `suspension-motion` solves a DWB upright's raw design geometry for an explicit travel axis and optional steering-anchor displacement. It preserves five link lengths; source frame/setup interpretation and original-game kinematics remain unvalidated. See the [kinematics guide](docs/USER_GUIDE.md#native-dwb-design-geometry).
 
 The existing content tools, browser viewer and keyboard-driving prototype require Python 3.10+. No third-party Python packages are needed.
 

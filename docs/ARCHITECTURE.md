@@ -12,6 +12,8 @@ The implemented project contains a first native Rust KN5 reader and wgpu offscre
 | `crates/asc-vehicle/src/suspension.rs` | Source-aware STRUT/DWB hardpoints and numeric records without force-law inference |
 | `crates/asc-physics/src/spring.rs` | Passive spring/damper loads and atomic common-midpoint multibody stepping |
 | `crates/asc-physics/` | Explicit 3D mass/inertia, world momenta, forces/impulses and fixed-step scheduling |
+| `crates/asc-physics/src/linkage.rs` | Bounded five-distance rigid-upright inverse kinematics with an explicit travel axis |
+| `crates/asc-session/src/kinematics.rs` | Explicit DWB hardpoint binding in the uncorrected raw design frame |
 | `crates/asc-session/src/body.rs` | Rigid-body seed using a spawn basis and explicitly supplied centre of mass/tensor |
 | `crates/asc-session/` | Native geometric vehicle/spawn preparation and four-wheel support preflight |
 | `crates/asc-scene/src/spawns.rs` | Canonical rigid spawn bases, active ancestry and ambiguity diagnostics |
@@ -125,3 +127,15 @@ Static WALL triangles are collected alongside ground geometry and receive their 
 The website uses a shared documentation layout inspired by [openomsi.org](https://openomsi.org/): persistent navigation, a project overview, and dedicated documentation pages. Its original visual styling uses a charcoal, red, and white motorsport palette, italic branding, and a dark default theme. The implementation and content are original to openASC.
 
 Documentation pages are generated from the same Markdown files that appear on GitHub. Run `python tools/build_site.py` after editing documentation or the shared template, then commit the generated HTML. Relative assets work beneath `/openASC/` on GitHub Pages.
+
+## Rigid upright kinematics
+
+`asc-physics::FiveLink` receives five fixed chassis anchors, five upright-local attachments, a reference pose and a unit travel axis. Two attachments may represent the same upper joint, two the same lower joint, and the fifth the steering joint. Each reference length is computed from that explicit pose. The origin is the caller's chosen travel point; this generic solver does not infer a wheel centre from a mesh.
+
+For each link, `d = t + R*r - anchor` and the residual is `length(d) - reference_length`. The final constraint is `axis dot (t - reference_t) - travel`. With `u = d / length(d)`, translation derivatives are `u`; derivatives for a left-applied incremental rotation are `(R*r) cross u`. Rotational columns are scaled by the largest attachment radius, with a 0.001 m floor. Only the fifth chassis anchor receives the explicit steering displacement.
+
+The implementation uses an independently written partial-pivot 6-by-6 elimination and damped Newton updates. A scaled pivot below 1e-10 rejects the local system, including an already zero-residual reference; this is a numerical gate, not a formal condition-number estimate. Updates are bounded to 0.05 m and 0.15 rad, with at most twelve residual-decreasing backtracking attempts per update and forty updates. Every final residual must be within 1e-10 m. Position inputs/outputs are bounded to +/-100 m, reference lengths to 1e-6..100 m, and commands to 0.25 m. The local pose remains within 0.5 m and 1 rad of its reference. Seeds guide nearby solutions but do not establish uniqueness or guarantee a global assembly branch. Failure does not mutate the mechanism or seed.
+
+This geometric distance-constraint description of wishbones is also documented by [Project Chrono](https://api.projectchrono.org/wheeled_suspension.html). No Chrono implementation code or Assetto Corsa solver was copied. This module supplies position kinematics only; control-arm inertia, constraint reactions and spring/tyre forces are outside this solver.
+
+`asc-session::dwb_geometry` binds the eight explicit DWB point names to the five links at the raw zero/identity design pose. The `suspension-motion` CLI exposes this assumption and requires an explicit travel axis. It does not infer the AC coordinate/mirroring convention or apply source setup corrections. Those mappings need original-game measurements before use in a complete vehicle simulation.
