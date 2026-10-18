@@ -154,6 +154,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "asc-physics"
+version = "0.1.0"
+dependencies = [
+ "glam",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "asc-render"
 version = "0.1.0"
 dependencies = [
@@ -188,6 +197,7 @@ dependencies = [
  "asc-config",
  "asc-ground",
  "asc-kn5",
+ "asc-physics",
  "asc-scene",
  "asc-test-support",
  "asc-vehicle",

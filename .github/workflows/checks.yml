@@ -33,6 +33,8 @@ jobs:
       - run: cargo +stable clippy --workspace --all-targets --locked -- -D warnings
       - run: cargo +stable test --workspace --locked
       - run: cargo +stable build --workspace --locked
+      - name: Verify native free-body physics fixture
+        run: cargo +stable run --locked -p asc-physics --example free_body
       - name: Compare native and Python contracts on original fixtures
         shell: bash
         run: |

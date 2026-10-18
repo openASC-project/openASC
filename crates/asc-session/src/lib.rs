@@ -1,5 +1,7 @@
 //! Geometric session preparation. Native driving simulation remains unimplemented.
+mod body;
 use asc_scene::spawns::{Diagnostic, Spawn};
+pub use body::body_with_spawn_basis;
 use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet},

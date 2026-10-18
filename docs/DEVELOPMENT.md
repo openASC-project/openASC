@@ -90,3 +90,12 @@ python tools/check_native_parity.py --native target/debug/openasc.exe --placemen
 ```
 
 The ordinary CI invocation also compares original spawn/placement fixtures, packed/unpacked car loading, complete contacts, report error flags and CLI exit statuses. The optional local comparison checks every retained marker and four wheel contacts without extracting or changing content. Drift's unrelated duplicate start marker remains an error even when AC_PIT_0 has four hits. This preparation does not validate a native driving solver.
+
+## Validate the native physics kernel
+
+```sh
+cargo test --locked -p asc-physics
+cargo run --locked -p asc-physics --example free_body
+```
+
+Both are covered by CI: the ordinary workspace tests include analytic motion/conservation/clock fixtures, and a separate step executes the original free-body example on Windows and Linux. It needs no game assets, Python or GPU. The native session bridge additionally checks explicit centre-of-mass and spawn-basis initialization. Preserve error/convergence bounds and reject partial state mutation; no original vehicle-force compatibility is implied by these kernel checks.

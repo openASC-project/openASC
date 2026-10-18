@@ -69,6 +69,21 @@ cargo run --locked -p asc-app -- lut ./assettocorsa/content/cars/CAR/data/CURVE.
 
 Replace the standalone LUT example with an existing unpacked file. Native vehicle loading can also read ordinary data.acd records in memory, as described below. Native text input is UTF-8 with an optional BOM, with strict duplicate/quote checks and source lines. LUT interpolation is linear with clamped endpoints and finite-number/range checks. Legacy encodings, includes and inline expressions are unsupported. The Python research tools retain their separate explicit encoding support.
 
+## Native physics foundation
+
+The Rust physics kernel implements unconstrained three-dimensional rigid-body motion. Run its original numerical example without a game installation, Python or a GPU:
+
+```sh
+cargo run --locked -p asc-physics --example free_body
+cargo test --locked -p asc-physics
+```
+
+The example starts a 2 kg body at (0,10,0), supplies an explicit body-space inertia tensor and constant world force/torque, and advances one second at 120 Hz. Its checked final position is (0.5,5.095,0.75) metres; angular momentum is (1,0.5,0.25) kg m2/s. Output contains the initial/final state and reports original_physics_validated false, simulation_ready false. Its eight-step work budget retains and drains the remaining 112 ticks rather than dropping elapsed time.
+
+`asc-physics` exposes full inertia tensors, unit-quaternion orientation, world linear/angular momenta, loads at world/body points, point velocity and instantaneous impulses. Gravity is an explicit force supplied by the caller. A rejected operation leaves the body unchanged. `FixedClock` schedules integer tick credits independently of rendering; callbacks supply each tick's loads. Retained backlog and callback failures remain observable.
+
+`asc-session::body_with_spawn_basis` accepts an explicit centre-of-mass position and mass/inertia properties with the selected spawn basis. It does not treat marker height as solved chassis height or convert car.ini dimensions into a confirmed physical tensor. Native suspension equilibrium, tyre/drivetrain forces, collision response and a controlled car-driving loop still need implementation and validation. See the [native kernel contract](FORMATS.md#native-rigid-body-and-fixed-step-path).
+
 ## Native spawn and placement preflight
 
 Read canonical track markers, then check a vehicle footprint against static road geometry:

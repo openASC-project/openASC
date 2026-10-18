@@ -160,3 +160,47 @@ fn ambiguous_or_absent_selected_spawn_is_fatal_instead_of_arbitrarily_selected()
         assert!(error.to_string().contains("spawn_missing"));
     }
 }
+
+#[test]
+fn physics_seed_uses_explicit_com_and_tensor_with_the_validated_spawn_basis() {
+    let dir = fixture(10., false);
+    let report = asc_scene::spawns::load(&dir.0.join("models.ini")).unwrap();
+    let spawn = &report.spawns[0];
+    let properties =
+        asc_physics::MassProperties::new(900., [[200., 0., 0.], [0., 300., 0.], [0., 0., 400.]])
+            .unwrap();
+    let mut body = asc_session::body_with_spawn_basis(properties, [15., 3.8, 0.], spawn).unwrap();
+    assert_eq!(body.state().position_m, [15., 3.8, 0.]);
+    assert_ne!(body.state().position_m, spawn.position);
+    let force = body.force_at_body_point([0., 0., 900.], [0.; 3]).unwrap();
+    assert!((force.force_world_n()[0] - 900.).abs() < 1e-10);
+    body.step(1. / 120., force).unwrap();
+    assert!((body.state().velocity_world_m_s[0] - 1. / 120.).abs() < 1e-12);
+    assert_eq!(body.state().position_m[1], 3.8);
+}
+
+#[test]
+fn physics_seed_rejects_skew_nonfinite_or_reflected_public_spawn_data() {
+    let dir = fixture(10., false);
+    let report = asc_scene::spawns::load(&dir.0.join("models.ini")).unwrap();
+    let original = &report.spawns[0];
+    for change in [0, 1, 2] {
+        let mut spawn = original.clone();
+        match change {
+            0 => spawn.left[0] += 0.0001,
+            1 => spawn.left[0] = f64::NAN,
+            _ => spawn.left = spawn.left.map(|v| -v),
+        }
+        let properties = asc_physics::MassProperties::new(
+            900.,
+            [[200., 0., 0.], [0., 300., 0.], [0., 0., 400.]],
+        )
+        .unwrap();
+        assert_eq!(
+            asc_session::body_with_spawn_basis(properties, [0.; 3], &spawn)
+                .unwrap_err()
+                .code,
+            "physics_spawn_basis"
+        );
+    }
+}

@@ -6,6 +6,8 @@ The implemented project contains a first native Rust KN5 reader and wgpu offscre
 
 | Location | Responsibility |
 | --- | --- |
+| `crates/asc-physics/` | Explicit 3D mass/inertia, world momenta, forces/impulses and fixed-step scheduling |
+| `crates/asc-session/src/body.rs` | Rigid-body seed using a spawn basis and explicitly supplied centre of mass/tensor |
 | `crates/asc-session/` | Native geometric vehicle/spawn preparation and four-wheel support preflight |
 | `crates/asc-scene/src/spawns.rs` | Canonical rigid spawn bases, active ancestry and ambiguity diagnostics |
 | `crates/asc-ground/` | Explicit surface definitions, independent static physical geometry and vertical support BVH |

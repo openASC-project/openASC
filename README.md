@@ -99,6 +99,8 @@ The native Rust/wgpu path now renders real Drift geometry with 25 embedded diffu
 
 Native static support queries are also available without Python or a GPU; see the [ground command guide](docs/USER_GUIDE.md#native-static-ground-support). Original native vehicle dynamics remain unimplemented.
 
+The native rigid-body foundation is available as `asc-physics`, with an original [numerical example and validation guide](docs/USER_GUIDE.md#native-physics-foundation). Native vehicle force laws and a controlled driving loop remain work ahead.
+
 ## License and independence
 
 New source code, original branding and website code use the [MIT license](LICENSE). Progress screenshots depict locally loaded game content; MIT does not relicense that underlying content. This does not grant rights to Assetto Corsa or third-party content. Game binaries, cars, tracks, textures, and audio are not distributed here. Use your own installed copy for local research.
