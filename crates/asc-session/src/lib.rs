@@ -3,7 +3,7 @@ mod body;
 mod kinematics;
 use asc_scene::spawns::{Diagnostic, Spawn};
 pub use body::body_with_spawn_basis;
-pub use kinematics::dwb_geometry;
+pub use kinematics::{dwb_geometry, strut_geometry};
 use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet},

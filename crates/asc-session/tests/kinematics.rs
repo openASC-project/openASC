@@ -1,4 +1,4 @@
-use asc_session::dwb_geometry;
+use asc_session::{dwb_geometry, strut_geometry};
 use asc_vehicle::suspension::Axle;
 use std::collections::BTreeMap;
 
@@ -23,6 +23,56 @@ fn axle() -> Axle {
         .map(|(k, v)| (k.into(), v))
         .collect(),
         source_parameters: BTreeMap::new(),
+    }
+}
+
+fn strut_axle() -> Axle {
+    let mut source = axle();
+    source.kind = "STRUT".into();
+    source.hardpoints.insert("STRUT_CAR".into(), [0., 0.6, 0.]);
+    source.hardpoints.insert("STRUT_TYRE".into(), [0.; 3]);
+    source.hardpoints.insert("WBTYRE_BOTTOM".into(), [0.; 3]);
+    source
+        .hardpoints
+        .insert("WBCAR_BOTTOM_FRONT".into(), [-0.3, 0., 0.12]);
+    source
+        .hardpoints
+        .insert("WBCAR_BOTTOM_REAR".into(), [-0.3, 0., -0.12]);
+    source
+}
+#[test]
+fn strut_adapter_preserves_named_geometry_and_ignores_unverified_setup_corrections() {
+    let mut source = strut_axle();
+    let result = strut_geometry(&source, [0., 1., 0.])
+        .unwrap()
+        .solve(0.05, [0.; 3], None)
+        .unwrap();
+    assert!((result.position_m[0] - (-0.3 + (0.09_f64 - 0.0025).sqrt())).abs() < 1e-9);
+    assert!((result.strut_length_m - result.position_m[0].hypot(0.55)).abs() < 1e-9);
+    source.base_y_m = -0.8;
+    source.rod_length_m = 0.3;
+    let same = strut_geometry(&source, [0., 1., 0.])
+        .unwrap()
+        .solve(0.05, [0.; 3], None)
+        .unwrap();
+    assert_eq!(result.position_m, same.position_m);
+    assert_eq!(result.orientation_xyzw, same.orientation_xyzw);
+}
+#[test]
+fn strut_adapter_rejects_wrong_type_and_each_missing_required_point() {
+    assert!(strut_geometry(&axle(), [0., 1., 0.]).is_err());
+    for key in [
+        "WBCAR_BOTTOM_FRONT",
+        "WBCAR_BOTTOM_REAR",
+        "WBTYRE_BOTTOM",
+        "WBCAR_STEER",
+        "WBTYRE_STEER",
+        "STRUT_CAR",
+        "STRUT_TYRE",
+    ] {
+        let mut source = strut_axle();
+        source.hardpoints.remove(key);
+        assert!(strut_geometry(&source, [0., 1., 0.]).is_err(), "{key}");
     }
 }
 #[test]

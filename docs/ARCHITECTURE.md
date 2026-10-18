@@ -12,8 +12,9 @@ The implemented project contains a first native Rust KN5 reader and wgpu offscre
 | `crates/asc-vehicle/src/suspension.rs` | Source-aware STRUT/DWB hardpoints and numeric records without force-law inference |
 | `crates/asc-physics/src/spring.rs` | Passive spring/damper loads and atomic common-midpoint multibody stepping |
 | `crates/asc-physics/` | Explicit 3D mass/inertia, world momenta, forces/impulses and fixed-step scheduling |
-| `crates/asc-physics/src/linkage.rs` | Bounded five-distance rigid-upright inverse kinematics with an explicit travel axis |
-| `crates/asc-session/src/kinematics.rs` | Explicit DWB hardpoint binding in the uncorrected raw design frame |
+| `crates/asc-physics/src/linkage.rs` | Five-distance upright constraints and shared bounded local Newton iteration |
+| `crates/asc-physics/src/strut.rs` | Three-distance upright with a telescoping coaxial strut |
+| `crates/asc-session/src/kinematics.rs` | Explicit DWB/STRUT hardpoint binding in the uncorrected raw design frame |
 | `crates/asc-session/src/body.rs` | Rigid-body seed using a spawn basis and explicitly supplied centre of mass/tensor |
 | `crates/asc-session/` | Native geometric vehicle/spawn preparation and four-wheel support preflight |
 | `crates/asc-scene/src/spawns.rs` | Canonical rigid spawn bases, active ancestry and ambiguity diagnostics |
@@ -139,3 +140,11 @@ The implementation uses an independently written partial-pivot 6-by-6 eliminatio
 This geometric distance-constraint description of wishbones is also documented by [Project Chrono](https://api.projectchrono.org/wheeled_suspension.html). No Chrono implementation code or Assetto Corsa solver was copied. This module supplies position kinematics only; control-arm inertia, constraint reactions and spring/tyre forces are outside this solver.
 
 `asc-session::dwb_geometry` binds the eight explicit DWB point names to the five links at the raw zero/identity design pose. The `suspension-motion` CLI exposes this assumption and requires an explicit travel axis. It does not infer the AC coordinate/mirroring convention or apply source setup corrections. Those mappings need original-game measurements before use in a complete vehicle simulation.
+
+## Telescoping strut kinematics
+
+`asc-physics::StrutLink` constrains one rigid upright with three distances: two lower-arm legs and a steering link. Its fixed chassis top lies on an upright-local line through an explicit strut attachment. The reference pose determines that line's positive direction; two orthogonal local normals span its perpendicular plane. This is an independently written geometric idealization, separate from the multibody MacPherson template documented by [Project Chrono](https://api.projectchrono.org/classchrono_1_1vehicle_1_1_ch_mac_pherson_strut.html), and is not a reconstruction of AC's solver.
+
+For a local normal `n`, upright point `s`, fixed top `A` and pose `(t,R)`, each coaxial residual is `(R*n) dot (A-t-R*s)`. Its translation Jacobian is `-R*n`; its left-rotation Jacobian is `(R*n) cross (A-t)`. Both residuals have metre units. Signed axial length is `(R*axis) dot (A-t-R*s)` and must remain within 1e-6..100 m; collapse or reversal fails. The column scale includes the attachment radii and reference top lever arm. The same bounded Newton loop, travel constraint and tolerances serve DWB and STRUT; only the topology-specific constraints differ.
+
+`StrutSolution` keeps its three length errors separate from its two perpendicular errors and reports axial length and geometric extension from the reference. `asc-session::strut_geometry` binds the seven explicit source points at zero/identity design pose. The CLI dispatches by the source TYPE while retaining the DWB report shape for DWB. No spring-law, unsprung-mass, side/setup conversion or renderer animation is introduced by this position solve.

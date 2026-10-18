@@ -27,6 +27,7 @@ cargo run --locked -p asc-app -- car ./assettocorsa/content/cars/bmw_m3_e30
 cargo run --locked -p asc-app -- spawns ./assettocorsa/content/tracks/drift/models.ini
 cargo run --locked -p asc-app -- suspension ./assettocorsa/content/cars/bmw_m3_e30
 cargo run --locked -p asc-app -- suspension-motion ./assettocorsa/content/cars/bmw_m3_e30 rear 0.025 0 1 0
+cargo run --locked -p asc-app -- suspension-motion ./assettocorsa/content/cars/bmw_m3_e30 front 0.025 0 1 0
 cargo run --locked -p asc-app -- preview ./assettocorsa/content/cars/bmw_m3_e30 ./assettocorsa/content/tracks/drift/models.ini
 ```
 
@@ -36,7 +37,7 @@ Native `spawns` and `place` provide geometric preparation only. Drift has a dupl
 
 Native car/track `preview` opens a static inspection session with a separate car root and graphics correction. It reports source-marker errors but does not run native driving physics; see the [session preview guide](docs/USER_GUIDE.md#native-car-and-track-inspection).
 
-Native `suspension-motion` solves a DWB upright's raw design geometry for an explicit travel axis and optional steering-anchor displacement. It preserves five link lengths; source frame/setup interpretation and original-game kinematics remain unvalidated. See the [kinematics guide](docs/USER_GUIDE.md#native-dwb-design-geometry).
+Native `suspension-motion` solves DWB or STRUT raw design geometry for an explicit travel axis and optional steering-anchor displacement. DWB preserves five link lengths; STRUT preserves three lengths and a telescoping coaxial constraint. Source frame/setup interpretation and original-game kinematics remain unvalidated. See the [DWB](docs/USER_GUIDE.md#native-dwb-design-geometry) and [STRUT](docs/USER_GUIDE.md#native-strut-design-geometry) guides.
 
 The existing content tools, browser viewer and keyboard-driving prototype require Python 3.10+. No third-party Python packages are needed.
 

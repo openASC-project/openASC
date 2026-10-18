@@ -6,8 +6,8 @@ use serde::Serialize;
 const TOLERANCE: f64 = 1e-10;
 #[derive(Clone, Copy, Debug)]
 pub struct LinkPose {
-    position: DVec3,
-    rotation: DQuat,
+    pub(super) position: DVec3,
+    pub(super) rotation: DQuat,
 }
 impl LinkPose {
     pub fn new(position_m: [f64; 3], orientation_xyzw: [f64; 4]) -> Result<Self> {
@@ -57,10 +57,10 @@ pub struct FiveLink {
     axis: DVec3,
     rotational_scale: f64,
 }
-fn error(message: &str) -> Error {
+pub(super) fn error(message: &str) -> Error {
     Error::new("physics_linkage", message)
 }
-fn point(value: [f64; 3]) -> Result<DVec3> {
+pub(super) fn point(value: [f64; 3]) -> Result<DVec3> {
     let value = DVec3::from_array(value);
     if !value.is_finite() || value.abs().max_element() > 100. {
         return Err(error(
@@ -69,7 +69,7 @@ fn point(value: [f64; 3]) -> Result<DVec3> {
     }
     Ok(value)
 }
-type System = ([f64; 6], [[f64; 6]; 6]);
+pub(super) type System = ([f64; 6], [[f64; 6]; 6]);
 impl FiveLink {
     pub fn new(
         anchors_m: [[f64; 3]; 5],
@@ -149,68 +149,88 @@ impl FiveLink {
         steering_anchor_offset_m: [f64; 3],
         seed: Option<LinkPose>,
     ) -> Result<LinkSolution> {
-        let steering = point(steering_anchor_offset_m)?;
-        if !travel_m.is_finite() || travel_m.abs() > 0.25 || steering.length() > 0.25 {
+        let (pose, residual, iterations) = solve_local(
+            self.reference,
+            self.rotational_scale,
+            travel_m,
+            steering_anchor_offset_m,
+            seed,
+            |pose, travel, steering| self.system(pose, travel, steering),
+        )?;
+        Ok(LinkSolution {
+            position_m: pose.position_m(),
+            orientation_xyzw: pose.orientation_xyzw(),
+            link_length_errors_m: residual[..5].try_into().unwrap(),
+            travel_error_m: residual[5],
+            iterations,
+        })
+    }
+}
+
+/// Shared bounded Newton iteration; each topology supplies its own constraints.
+pub(super) fn solve_local(
+    reference: LinkPose,
+    rotational_scale: f64,
+    travel_m: f64,
+    steering_anchor_offset_m: [f64; 3],
+    seed: Option<LinkPose>,
+    system: impl Fn(LinkPose, f64, DVec3) -> Result<System>,
+) -> Result<(LinkPose, [f64; 6], u32)> {
+    let steering = point(steering_anchor_offset_m)?;
+    if !travel_m.is_finite() || travel_m.abs() > 0.25 || steering.length() > 0.25 {
+        return Err(error(
+            "Travel and steering anchor displacement are limited to +/-0.25 metres",
+        ));
+    }
+    let mut pose = seed.unwrap_or(reference);
+    for iteration in 0..=40 {
+        if !pose.position.is_finite()
+            || pose.position.abs().max_element() > 100.
+            || (pose.position - reference.position).length() > 0.5
+            || pose.rotation.angle_between(reference.rotation) > 1.
+        {
             return Err(error(
-                "Travel and steering anchor displacement are limited to +/-0.25 metres",
+                "Solution/seed exceeds the local 0.5 m / 1 radian assembly branch",
             ));
         }
-        let mut pose = seed.unwrap_or(self.reference);
-        for iteration in 0..=40 {
-            if !pose.position.is_finite()
-                || pose.position.abs().max_element() > 100.
-                || (pose.position - self.reference.position).length() > 0.5
-                || pose.rotation.angle_between(self.reference.rotation) > 1.
-            {
-                return Err(error(
-                    "Solution/seed exceeds the local 0.5 m / 1 radian assembly branch",
-                ));
-            }
-            let (residual, jacobian) = self.system(pose, travel_m, steering)?;
-            let step = linear(jacobian, residual.map(|r| -r))?;
-            if residual.iter().all(|r| r.abs() <= TOLERANCE) {
-                return Ok(LinkSolution {
-                    position_m: pose.position_m(),
-                    orientation_xyzw: pose.orientation_xyzw(),
-                    link_length_errors_m: residual[..5].try_into().unwrap(),
-                    travel_error_m: residual[5],
-                    iterations: iteration,
-                });
-            }
-            if iteration == 40 {
-                break;
-            }
-            let translation = DVec3::new(step[0], step[1], step[2]);
-            let rotation = DVec3::new(step[3], step[4], step[5]) / self.rotational_scale;
-            let mut fraction =
-                (0.05 / translation.length().max(0.05)).min(0.15 / rotation.length().max(0.15));
-            let objective: f64 = residual.iter().map(|v| v * v).sum();
-            let mut accepted = None;
-            for _ in 0..12 {
-                let candidate = LinkPose {
-                    position: pose.position + fraction * translation,
-                    rotation: (DQuat::from_scaled_axis(fraction * rotation) * pose.rotation)
-                        .normalize(),
-                };
-                if let Ok((candidate_residual, _)) = self.system(candidate, travel_m, steering) {
-                    let next: f64 = candidate_residual.iter().map(|v| v * v).sum();
-                    if next < objective {
-                        accepted = Some(candidate);
-                        break;
-                    }
-                }
-                fraction *= 0.5;
-            }
-            pose = accepted
-                .ok_or_else(|| error("Local linkage Newton search made no residual progress"))?;
+        let (residual, jacobian) = system(pose, travel_m, steering)?;
+        let step = linear(jacobian, residual.map(|r| -r))?;
+        if residual.iter().all(|r| r.abs() <= TOLERANCE) {
+            return Ok((pose, residual, iteration));
         }
-        Err(error("Local linkage solve exceeded 40 iterations"))
+        if iteration == 40 {
+            break;
+        }
+        let translation = DVec3::new(step[0], step[1], step[2]);
+        let rotation = DVec3::new(step[3], step[4], step[5]) / rotational_scale;
+        let mut fraction =
+            (0.05 / translation.length().max(0.05)).min(0.15 / rotation.length().max(0.15));
+        let objective: f64 = residual.iter().map(|v| v * v).sum();
+        let mut accepted = None;
+        for _ in 0..12 {
+            let candidate = LinkPose {
+                position: pose.position + fraction * translation,
+                rotation: (DQuat::from_scaled_axis(fraction * rotation) * pose.rotation)
+                    .normalize(),
+            };
+            if let Ok((candidate_residual, _)) = system(candidate, travel_m, steering) {
+                let next: f64 = candidate_residual.iter().map(|v| v * v).sum();
+                if next < objective {
+                    accepted = Some(candidate);
+                    break;
+                }
+            }
+            fraction *= 0.5;
+        }
+        pose = accepted
+            .ok_or_else(|| error("Local linkage Newton search made no residual progress"))?;
     }
+    Err(error("Local linkage solve exceeded 40 iterations"))
 }
 
 /// Partial-pivot elimination of column-scaled constraints; small pivots reject
 /// singular/near-singular mechanisms instead of inventing a fallback pose.
-fn linear(mut matrix: [[f64; 6]; 6], mut rhs: [f64; 6]) -> Result<[f64; 6]> {
+pub(super) fn linear(mut matrix: [[f64; 6]; 6], mut rhs: [f64; 6]) -> Result<[f64; 6]> {
     for col in 0..6 {
         let row = (col..6)
             .max_by(|a, b| matrix[*a][col].abs().total_cmp(&matrix[*b][col].abs()))

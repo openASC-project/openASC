@@ -62,8 +62,32 @@ fn cli_solves_original_source_fixture_and_rejects_unsupported_or_ambiguous_reque
         .abs()
             < 1e-9
     );
+    let front = Command::new(env!("CARGO_BIN_EXE_openasc"))
+        .arg("suspension-motion")
+        .arg(&fixture.0)
+        .args(["front", "0.025", "0", "1", "0", "--rack", "0.002", "0", "0"])
+        .output()
+        .unwrap();
+    assert!(
+        front.status.success(),
+        "{}",
+        String::from_utf8_lossy(&front.stderr)
+    );
+    let front: serde_json::Value = serde_json::from_slice(&front.stdout).unwrap();
+    assert_eq!(front["type"], "STRUT");
+    assert_eq!(front["scope"], "native_strut_raw_design_geometry");
+    assert_eq!(front["rest_link_lengths_m"].as_array().unwrap().len(), 3);
+    assert!(
+        front["solution"]["coaxial_errors_m"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|v| v.as_f64().unwrap().abs() <= 1e-10)
+    );
+    assert!(front["solution"]["strut_length_m"].as_f64().unwrap() > 0.);
+    assert_eq!(front["original_kinematics_validated"], false);
     for args in [
-        vec!["front", "0.05", "0", "1", "0"],
+        vec!["unknown", "0.05", "0", "1", "0"],
         vec!["rear", "0.05", "0", "0", "0"],
         vec!["rear", "NaN", "0", "1", "0"],
         vec![

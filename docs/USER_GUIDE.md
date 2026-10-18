@@ -349,10 +349,21 @@ cargo run --locked -p asc-app -- suspension-motion ./assettocorsa/content/cars/b
 cargo run --locked -p asc-app -- suspension-motion ./assettocorsa/content/cars/ferrari_458 front -0.02 0 1 0 --rack 0.002 0 0 --data packed
 ```
 
-Arguments are car directory, explicit `front` or `rear`, signed travel in metres, and three components of a unit travel axis in raw source coordinates. `--rack X Y Z` moves the inner steering anchor in that same frame; it is not a steering-wheel angle or a validated AC steering-rack conversion. `--data auto|packed|unpacked` uses the existing whole-source selection. Duplicate options, invalid numbers, unsupported types and missing hardpoints fail explicitly. The BMW front is STRUT, which this geometry command rejects.
+Arguments are car directory, explicit `front` or `rear`, signed travel in metres, and three components of a unit travel axis in raw source coordinates. `--rack X Y Z` moves the inner steering anchor in that same frame; it is not a steering-wheel angle or a validated AC steering-rack conversion. `--data auto|packed|unpacked` uses the existing whole-source selection. Duplicate options, invalid numbers, unsupported types and missing hardpoints fail explicitly. The source TYPE selects DWB or [STRUT geometry](#native-strut-design-geometry).
 
 The design upright initially has position zero and identity orientation. Two lengths locate its upper joint relative to the upper chassis mounts, two locate its lower joint, and one locates its steering joint. The solver finds a rigid upright pose preserving those lengths while setting the origin's displacement along the supplied axis. It reports a quaternion, position, each length residual and the travel residual. Reference lengths come from the unmodified source design, not guessed spring dimensions.
 
-This is a position-level geometry diagnostic. It assumes the source hardpoints describe one rigid design upright in common coordinates. It does not apply side mirroring, static camber/toe, track, BASEY or rod-length corrections, solve STRUT motion, derive wheel forces or establish chassis equilibrium. `simulation_ready` and `original_kinematics_validated` remain false. No wheel or suspension animation is connected to `preview` yet.
+This is a position-level geometry diagnostic. It assumes the source hardpoints describe one rigid design upright in common coordinates. It does not apply side mirroring, static camber/toe, track, BASEY or rod-length corrections, derive wheel forces or establish chassis equilibrium. `simulation_ready` and `original_kinematics_validated` remain false. No wheel or suspension animation is connected to `preview` yet.
 
 Travel and steering-anchor displacement are bounded to 0.25 m; the local pose must stay within 0.5 m and 1 radian of its reference. Singular, unreachable or nonconverging requests produce an error rather than a fallback pose. A command within these bounds can still be unreachable. See [solver details](ARCHITECTURE.md#rigid-upright-kinematics) and the [validation record](FORMATS.md#native-dwb-geometry-validation).
+
+## Native STRUT design geometry
+
+```sh
+cargo run --locked -p asc-app -- suspension-motion ./assettocorsa/content/cars/bmw_m3_e30 front 0.025 0 1 0
+cargo run --locked -p asc-app -- suspension-motion ./assettocorsa/content/cars/bmw_1m front -0.02 0 1 0 --rack 0.002 0 0
+```
+
+STRUT uses two lower-arm lengths and one steering-link length. The fixed `STRUT_CAR` top must lie on a line attached to the upright through `STRUT_TYRE`; that line's reference direction is defined from the explicit zero/identity design pose. Two perpendicular constraints keep the top on the line while allowing telescoping and steering rotation. `STRUT_TYRE` is independent of `WBTYRE_BOTTOM`; they need not coincide. Travel moves the chosen upright origin along the supplied axis, as for DWB.
+
+The report's TYPE is `STRUT`, with three `rest_link_lengths_m`, a separate `reference_strut_length_m`, and a solution containing position/quaternion, three link residuals, two `coaxial_errors_m`, travel residual, positive `strut_length_m`, signed `strut_length_change_m` and iteration count. Length change is geometric extension from the reference, not spring compression or force. Collapsed/reversed strut axes are rejected. The common numeric bounds, source-frame/setup limitations and readiness flags remain the same as for DWB. See [STRUT implementation](ARCHITECTURE.md#telescoping-strut-kinematics) and [validation](FORMATS.md#native-strut-geometry-validation).
