@@ -79,9 +79,16 @@ web/                      Website template and overview source
 site/                     Generated HTML and shared static assets
 tools/inspect_content.py  Local content inventory
 crates/asc-app/           Native openasc executable
+crates/asc-config/        Source-aware INI/LUT readers
+crates/asc-acd/           Bounded in-memory car-data archive reader
 crates/asc-kn5/           Bounded KN5 format reader and model data
+crates/asc-scene/         Static model composition and spawn markers
 crates/asc-texture/       Bounded legacy DDS decoder
 crates/asc-render/        wgpu GPU work, pipelines, resources, scene and shaders
+crates/asc-ground/        Physical surfaces and static support queries
+crates/asc-vehicle/       Typed car configuration and suspension records
+crates/asc-physics/       Independent rigid bodies, springs and fixed clock
+crates/asc-session/       Vehicle/spawn placement and explicit body seeding
 tools/test-support/      Original shared Rust fixtures
 tools/prototype/openasc/ Python research readers and driving model
 tools/prototype/viewer/  Research WebGL preview interface
@@ -92,6 +99,8 @@ Cargo.toml / Cargo.lock   Native workspace and locked dependencies
 .github/workflows/        CI and GitHub Pages
 assettocorsa/             Local game installation, ignored by Git
 ```
+
+The source layout follows the subsystem workspace used by [openOMSI](https://github.com/openOMSI-org/openOMSI/blob/main/Cargo.toml). Each engine subsystem has its own crate, with the executable assembling them in `asc-app`. Python research stays under `tools/prototype/`. See [workspace boundaries](docs/ARCHITECTURE.md#workspace-and-subsystem-boundaries) before adding a subsystem.
 
 ## Next milestone
 

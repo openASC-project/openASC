@@ -61,18 +61,26 @@ The implemented project contains a first native Rust KN5 reader and wgpu offscre
 
 ## Workspace and subsystem boundaries
 
-The workspace follows the subsystem-crate organisation of [openOMSI](https://github.com/openOMSI-org/openOMSI/tree/main/crates), with original openASC implementation code. `asc-app` composes `asc-config`, `asc-scene`, `asc-kn5`, `asc-render`, `asc-acd` and `asc-vehicle`. The vehicle crate depends only on the configuration and ACD readers; it does not depend on wgpu or launch a simulation. `asc-scene` depends on the configuration and KN5 readers; `asc-render` consumes scene source ranges alongside KN5 geometry and DDS resources. Format and scene crates have no wgpu dependency and can be tested independently of a GPU. Renderer sources are divided into `gpu/`, `pipelines/`, `resources/`, `scene/` and `shaders/`. The shared original fixture crate lives under `tools/test-support/` and is a development dependency. Additional simulation, input and audio crates belong alongside these as their implementations arrive.
+The workspace follows the subsystem-crate organisation of [openOMSI](https://github.com/openOMSI-org/openOMSI/blob/main/Cargo.toml), with original openASC implementation code. `asc-app` assembles the native content, rendering and session subsystems. Workspace dependency versions and local crate paths are declared in the root `Cargo.toml`; `Cargo.lock` pins the resolved build. Each subsystem keeps its implementation in its own `src/` and its integration tests in its own `tests/` where needed.
+
+The vehicle crate depends on the configuration and ACD readers. `asc-scene` depends on the configuration and KN5 readers; `asc-ground` builds physical support queries from those source records. `asc-physics` contains independent rigid-body, spring and clock calculations without depending on content readers or rendering. `asc-session` combines vehicle, scene, ground and explicit physics inputs for preparation. These crates have no wgpu dependency and can be tested independently of a GPU. `asc-render` consumes scene source ranges alongside KN5 geometry and DDS resources; its sources are divided into `gpu/`, `pipelines/`, `resources/`, `scene/` and `shaders/`. The shared original fixture crate lives under `tools/test-support/` and is a development dependency. Future input and audio implementations belong in sibling crates when implemented.
 
 The earlier Python/WebGL research implementation lives under `tools/prototype/`. The root `openasc/__init__.py` only redirects package discovery there, preserving `python -m openasc` and existing Python imports. Website sources and documentation remain separate under `web/`, `docs/` and `site/`. No openOMSI implementation files are included.
 
 | openOMSI responsibility | openASC source location |
 | --- | --- |
 | `crates/omsi-app` application | `crates/asc-app` |
+| `crates/omsi-cfg` configuration | `crates/asc-config` for AC INI/LUT records |
 | `crates/omsi-o3d` model-format reader | `crates/asc-kn5` for AC's model format |
+| `crates/omsi-scene` scene assembly | `crates/asc-scene`; physical support in `crates/asc-ground` |
+| `crates/omsi-vehicle` vehicle data | `crates/asc-vehicle`; session preparation in `crates/asc-session` |
 | `crates/omsi-texture` texture formats | `crates/asc-texture` |
 | `crates/omsi-render` rendering subsystems | `crates/asc-render` |
+| `crates/omsi-sim` simulation | `crates/asc-physics` independent mathematical kernel; full vehicle simulation remains incomplete |
 | `tools/test-support` test utilities | `tools/test-support` |
 | `docs` and `site` documentation/publishing | `docs` and `site` |
+
+The table maps responsibilities, not APIs or compatibility levels. Assetto Corsa-specific formats retain their own crate names. Platform packaging, launcher and network-service directories can be added when those components exist.
 
 - **Content:** configuration readers, resource resolution, metadata, and precise loading diagnostics.
 - **Scene:** geometry, material definitions, transforms, surfaces, and collision data independent of a renderer.
