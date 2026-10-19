@@ -129,6 +129,40 @@ impl StrutLink {
         (pose.rotation * self.strut_axis)
             .dot(self.top - pose.position - pose.rotation * self.strut_point)
     }
+    pub fn acceleration(
+        &self,
+        travel_m: f64,
+        rack_m: [f64; 3],
+        pose: LinkPose,
+        rates: [f64; 4],
+        accelerations: [f64; 4],
+    ) -> Result<crate::RelativeAcceleration> {
+        let map = self.differential(travel_m, rack_m, pose)?;
+        let velocity = map.velocity(rates[0], rates[1..].try_into().unwrap())?;
+        let v = DVec3::from_array(velocity.velocity_m_s());
+        let w = DVec3::from_array(velocity.angular_velocity_rad_s());
+        let rack = DVec3::from_array(rack_m);
+        let rack_v = DVec3::from_slice(&rates[1..]);
+        let bias = std::array::from_fn(|i| {
+            if i < 3 {
+                let lever = pose.rotation * self.attachments[i];
+                let delta = pose.position + lever
+                    - self.anchors[i]
+                    - if i == 2 { rack } else { DVec3::ZERO };
+                crate::differential::rod_bias(
+                    lever,
+                    delta,
+                    v,
+                    w,
+                    if i == 2 { rack_v } else { DVec3::ZERO },
+                )
+            } else {
+                let normal = pose.rotation * self.normals[i - 3];
+                w.cross(w.cross(normal)).dot(self.top - pose.position) - 2. * w.cross(normal).dot(v)
+            }
+        });
+        map.solve_acceleration(rates, accelerations, bias)
+    }
     fn system(&self, pose: LinkPose, travel: f64, steering: DVec3) -> Result<System> {
         let mut residual = [0.; 6];
         let mut jacobian = [[0.; 6]; 6];

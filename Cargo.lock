@@ -119,6 +119,7 @@ dependencies = [
  "glam",
  "png",
  "pollster",
+ "serde",
  "serde_json",
  "wgpu",
  "winit",

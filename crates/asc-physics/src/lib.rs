@@ -1,5 +1,5 @@
-//! Native rigid bodies, spring forces and position-level suspension geometry.
-//! Original Assetto Corsa force models and dynamic constraint response remain unimplemented.
+//! Native rigid bodies, spring forces and fixed-frame constrained upright dynamics.
+//! Original Assetto Corsa force models and moving-chassis constraint response remain unimplemented.
 mod body;
 mod clock;
 mod differential;
@@ -8,11 +8,12 @@ mod link_spring;
 mod linkage;
 mod spring;
 mod strut;
+mod travel;
 pub use body::{Body, State, Wrench};
 pub use clock::{Batch, FixedClock, Tick};
 pub use differential::{
-    ConstraintBalance, GeneralizedLoads, LinkDifferential, LinkLoad, RelativeVelocity,
-    TangentColumn,
+    ConstraintBalance, GeneralizedLoads, LinkDifferential, LinkLoad, RelativeAcceleration,
+    RelativeVelocity, TangentColumn,
 };
 pub use inertia::MassProperties;
 pub use link_spring::{LinkSpring, LinkSpringSample};
@@ -20,6 +21,7 @@ pub use linkage::{FiveLink, LinkPose, LinkSolution};
 pub use spring::{Damper, DamperBranch, SpringConnection, SpringLink, SpringSample, step_springs};
 use std::fmt;
 pub use strut::{StrutLink, StrutSolution};
+pub use travel::{TravelMechanism, TravelSample, TravelState, TravelSystem};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Error {

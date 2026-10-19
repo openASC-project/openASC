@@ -47,6 +47,15 @@ impl LinkLoad {
     pub fn torque_about_upright_origin_nm(&self) -> [f64; 3] {
         self.torque_about_upright_origin_nm
     }
+    pub fn add(&mut self, other: Self) -> Result<()> {
+        *self = Self::new(
+            (DVec3::from_array(self.force_n) + DVec3::from_array(other.force_n)).to_array(),
+            (DVec3::from_array(self.torque_about_upright_origin_nm)
+                + DVec3::from_array(other.torque_about_upright_origin_nm))
+            .to_array(),
+        )?;
+        Ok(())
+    }
 }
 #[derive(Debug, Clone, Copy, Serialize)]
 pub struct TangentColumn {
@@ -73,6 +82,31 @@ impl RelativeVelocity {
             + DVec3::from_array(self.angular_velocity_rad_s).cross(lever);
         Ok(bounded(result, 1e6)?.to_array())
     }
+}
+#[derive(Debug, Clone, Copy, Serialize)]
+pub struct RelativeAcceleration {
+    pub acceleration_m_s2: [f64; 3],
+    pub angular_acceleration_rad_s2: [f64; 3],
+    #[serde(skip)]
+    pose: LinkPose,
+    #[serde(skip)]
+    omega: DVec3,
+}
+impl RelativeAcceleration {
+    pub fn point_acceleration_m_s2(&self, upright_local_point_m: [f64; 3]) -> Result<[f64; 3]> {
+        let r = self.pose.rotation * point(upright_local_point_m)?;
+        let value = DVec3::from_array(self.acceleration_m_s2)
+            + DVec3::from_array(self.angular_acceleration_rad_s2).cross(r)
+            + self.omega.cross(self.omega.cross(r));
+        Ok(bounded(value, 1e13)?.to_array())
+    }
+}
+
+pub(super) fn rod_bias(lever: DVec3, delta: DVec3, v: DVec3, w: DVec3, anchor_v: DVec3) -> f64 {
+    let length = delta.length();
+    let n = delta / length;
+    let relative = v + w.cross(lever) - anchor_v;
+    n.dot(w.cross(w.cross(lever))) + (relative.length_squared() - n.dot(relative).powi(2)) / length
 }
 #[derive(Debug, Serialize)]
 pub struct GeneralizedLoads {
@@ -160,6 +194,38 @@ impl LinkDifferential {
     }
     pub fn pose(&self) -> LinkPose {
         self.pose
+    }
+    pub(super) fn solve_acceleration(
+        &self,
+        rates: [f64; 4],
+        accelerations: [f64; 4],
+        bias: [f64; 5],
+    ) -> Result<RelativeAcceleration> {
+        let velocity = self.velocity(rates[0], rates[1..].try_into().unwrap())?;
+        if accelerations
+            .iter()
+            .any(|v| !v.is_finite() || v.abs() > 1e6)
+            || bias.iter().any(|v| !v.is_finite())
+        {
+            return Err(error(
+                "Expected finite control accelerations within +/-1e6 m/s^2",
+            ));
+        }
+        let mut rhs = std::array::from_fn(|i| if i < 5 { -bias[i] } else { accelerations[0] });
+        for i in 0..3 {
+            rhs[self.steering_row] += self.jacobian[self.steering_row][i] * accelerations[i + 1];
+        }
+        let result = linear(self.jacobian, rhs)?;
+        Ok(RelativeAcceleration {
+            acceleration_m_s2: bounded(DVec3::from_slice(&result[..3]), 1e9)?.to_array(),
+            angular_acceleration_rad_s2: bounded(
+                DVec3::from_slice(&result[3..]) / self.rotational_scale,
+                1e9,
+            )?
+            .to_array(),
+            pose: self.pose,
+            omega: DVec3::from_array(velocity.angular_velocity_rad_s()),
+        })
     }
     /// Velocities are relative to a fixed linkage frame, not world/body motion.
     pub fn velocity(

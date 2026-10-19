@@ -286,3 +286,113 @@ fn cli_samples_explicit_spring_mounts_and_rejects_incomplete_or_invalid_laws() {
         assert!(output.stdout.is_empty());
     }
 }
+
+#[test]
+fn cli_runs_bounded_fixed_frame_dynamics_for_both_topologies_without_changing_source() {
+    let fixture = fixture();
+    let configuration = fixture.0.join("explicit-run.json");
+    let text = include_str!("../../../examples/suspension-travel.json");
+    fs::write(&configuration, text).unwrap();
+    let source = fixture.0.join("data/suspensions.ini");
+    let original = fs::read(&source).unwrap();
+    for axle in ["front", "rear"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_openasc"))
+            .arg("suspension-run")
+            .arg(&fixture.0)
+            .arg(axle)
+            .arg(&configuration)
+            .args(["--data", "unpacked"])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(report["scope"], "native_fixed_frame_upright_dynamics");
+        assert_eq!(report["simulation_ready"], false);
+        assert_eq!(report["automatic_source_mass_or_force_parameters"], false);
+        assert_eq!(report["fixed_frame"], true);
+        assert_eq!(report["fixed_rack"], true);
+        let records = report["records"].as_array().unwrap();
+        assert_eq!(records.len(), 26);
+        assert_eq!(records.last().unwrap()["step"], 250);
+        assert_eq!(records.last().unwrap()["time_s"], 0.25);
+        let first = &records[0]["sample"];
+        let last = &records.last().unwrap()["sample"];
+        assert!((last["state"]["travel_m"].as_f64().unwrap() - 0.025).abs() > 0.001);
+        let energy = |s: &serde_json::Value| {
+            s["kinetic_energy_j"].as_f64().unwrap() + s["potential_energy_j"].as_f64().unwrap()
+        };
+        assert!(energy(last) < energy(first));
+        for record in records {
+            assert!(
+                record["sample"]["constraint_balance"]["travel_actuator_n"]
+                    .as_f64()
+                    .unwrap()
+                    .abs()
+                    < 1e-7
+            );
+        }
+    }
+    assert_eq!(fs::read(source).unwrap(), original);
+}
+
+#[test]
+fn cli_rejects_bad_dynamic_schema_resource_limits_and_failed_runs_without_partial_json() {
+    let fixture = fixture();
+    let configuration = fixture.0.join("explicit-run.json");
+    let template: serde_json::Value =
+        serde_json::from_str(include_str!("../../../examples/suspension-travel.json")).unwrap();
+    let mutations: Vec<(&str, serde_json::Value)> = vec![
+        ("schema_version", 2.into()),
+        ("record_every", 0.into()),
+        ("steps", 10001.into()),
+        ("step_s", 0.1.into()),
+        ("unrecognized", true.into()),
+        ("mass_kg", (-1).into()),
+        (
+            "inertia_rows_kg_m2",
+            serde_json::json!([[1, 0, 0], [0, 1, 0], [0, 0, 10]]),
+        ),
+        (
+            "springs",
+            serde_json::Value::Array(vec![template["springs"][0].clone(); 17]),
+        ),
+    ];
+    let mut cases = Vec::new();
+    for (key, value) in mutations {
+        let mut config = template.clone();
+        config[key] = value;
+        cases.push(config.to_string());
+    }
+    let mut missing = template.clone();
+    missing.as_object_mut().unwrap().remove("gravity_m_s2");
+    cases.push(missing.to_string());
+    let mut records = template.clone();
+    records["steps"] = 10000.into();
+    records["record_every"] = 1.into();
+    cases.push(records.to_string());
+    let mut failed = template.clone();
+    failed["springs"] = serde_json::json!([]);
+    failed["initial_travel_m"] = 0.into();
+    failed["step_s"] = 0.02.into();
+    failed["steps"] = 1.into();
+    failed["record_every"] = 1.into();
+    failed["external_force_n"] = serde_json::json!([0, 100000, 0]);
+    cases.push(failed.to_string());
+    cases.push(" ".repeat(16385));
+    for text in cases {
+        fs::write(&configuration, text).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_openasc"))
+            .arg("suspension-run")
+            .arg(&fixture.0)
+            .arg("front")
+            .arg(&configuration)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+    }
+}

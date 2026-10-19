@@ -34,9 +34,31 @@ fn load_input(path: &Path, diagnostic: bool) -> Result<Input, Box<dyn Error>> {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    let usage = "Usage: openasc suspension-motion CAR_DIRECTORY AXLE TRAVEL_M AXIS_X AXIS_Y AXIS_Z [--rack X Y Z] [--differential] [--spring AX AY AZ BX BY BZ REST K] [--damping CS CF CK RS RF RK] [--rates HDOT RXDOT RYDOT RZDOT] [--load FX FY FZ TX TY TZ] [--data auto|packed|unpacked] | preview CAR_DIRECTORY MODELS.ini [--spawn NAME] [--data auto|packed|unpacked] [--compound N] [--capture NEW.png | --smoke | --captures DIR] [--fallback] [--diagnostic] [--rgba-textures] | suspension CAR_DIRECTORY [--data auto|packed|unpacked] | spawns MODELS.ini | place CAR_DIRECTORY MODELS.ini SURFACES.ini [--defaults SURFACES.ini] [--spawn NAME] [--data auto|packed|unpacked] [--compound N] | ground MODELS.ini SURFACES.ini [--defaults SURFACES.ini] [--probe X Y Z]... [--distance D] | car CAR_DIRECTORY [--data auto|packed|unpacked] [--compound N] | acd FILE.acd CAR_ID | inspect SCENE | materials SCENE | render SCENE NEW.png [--fallback] [--diagnostic] [--rgba-textures] | view SCENE [--fallback] [--diagnostic] [--rgba-textures] [--captures DIR] [--capture NEW.png] [--smoke] | ini FILE.ini | lut FILE.lut [--sample X]. SCENE is a KN5 file or an explicit models.ini/models_LAYOUT.ini path.";
+    let usage = "Usage: openasc suspension-run CAR_DIRECTORY AXLE CONFIG.json [--data auto|packed|unpacked] | suspension-motion CAR_DIRECTORY AXLE TRAVEL_M AXIS_X AXIS_Y AXIS_Z [--rack X Y Z] [--differential] [--spring AX AY AZ BX BY BZ REST K] [--damping CS CF CK RS RF RK] [--rates HDOT RXDOT RYDOT RZDOT] [--load FX FY FZ TX TY TZ] [--data auto|packed|unpacked] | preview CAR_DIRECTORY MODELS.ini [--spawn NAME] [--data auto|packed|unpacked] [--compound N] [--capture NEW.png | --smoke | --captures DIR] [--fallback] [--diagnostic] [--rgba-textures] | suspension CAR_DIRECTORY [--data auto|packed|unpacked] | spawns MODELS.ini | place CAR_DIRECTORY MODELS.ini SURFACES.ini [--defaults SURFACES.ini] [--spawn NAME] [--data auto|packed|unpacked] [--compound N] | ground MODELS.ini SURFACES.ini [--defaults SURFACES.ini] [--probe X Y Z]... [--distance D] | car CAR_DIRECTORY [--data auto|packed|unpacked] [--compound N] | acd FILE.acd CAR_ID | inspect SCENE | materials SCENE | render SCENE NEW.png [--fallback] [--diagnostic] [--rgba-textures] | view SCENE [--fallback] [--diagnostic] [--rgba-textures] [--captures DIR] [--capture NEW.png] [--smoke] | ini FILE.ini | lut FILE.lut [--sample X]. SCENE is a KN5 file or an explicit models.ini/models_LAYOUT.ini path.";
     let command = args.first().and_then(|v| v.to_str()).ok_or(usage)?;
     match command {
+        "suspension-run" if args.len() == 4 || args.len() == 6 => {
+            let axle = args[2].to_str().ok_or(usage)?;
+            if !["front", "rear"].contains(&axle) {
+                return Err("Choose front or rear for suspension-run".into());
+            }
+            let mode = if args.len() == 4 {
+                asc_vehicle::data::Mode::Auto
+            } else {
+                if args[4] != "--data" {
+                    return Err(usage.into());
+                }
+                match args[5].to_str() {
+                    Some("auto") => asc_vehicle::data::Mode::Auto,
+                    Some("packed") => asc_vehicle::data::Mode::Packed,
+                    Some("unpacked") => asc_vehicle::data::Mode::Unpacked,
+                    _ => return Err(usage.into()),
+                }
+            };
+            let report =
+                app::suspension_run::run(Path::new(&args[1]), axle, Path::new(&args[3]), mode)?;
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
         "suspension-motion" if args.len() >= 7 => {
             let axle = args[2].to_str().ok_or(usage)?;
             if !["front", "rear"].contains(&axle) {

@@ -28,6 +28,7 @@ cargo run --locked -p asc-app -- spawns ./assettocorsa/content/tracks/drift/mode
 cargo run --locked -p asc-app -- suspension ./assettocorsa/content/cars/bmw_m3_e30
 cargo run --locked -p asc-app -- suspension-motion ./assettocorsa/content/cars/bmw_m3_e30 rear 0.025 0 1 0
 cargo run --locked -p asc-app -- suspension-motion ./assettocorsa/content/cars/bmw_m3_e30 front 0.025 0 1 0
+cargo run --locked -p asc-app -- suspension-run ./assettocorsa/content/cars/bmw_m3_e30 front examples/suspension-travel.json
 cargo run --locked -p asc-app -- preview ./assettocorsa/content/cars/bmw_m3_e30 ./assettocorsa/content/tracks/drift/models.ini
 ```
 
@@ -42,6 +43,8 @@ Native `suspension-motion` solves DWB or STRUT raw design geometry for an explic
 Optional `--rates HDOT RXDOT RYDOT RZDOT` and `--load FX FY FZ TX TY TZ` probes calculate relative upright velocity, virtual-work load projection and ideal massless reactions at a held pose. These explicit diagnostic loads do not generate tyre/spring forces or advance the vehicle. See [velocity and load probes](docs/USER_GUIDE.md#native-suspension-velocity-and-load-probes).
 
 An explicit `--spring AX AY AZ BX BY BZ REST K` mount, with optional `--damping CS CF CK RS RF RK`, connects the native spring/damper element to that mechanism. It reports attachment velocity, length gradients, forces, energy and projected travel/rack loads. Mounting and law parameters are supplied by the caller; automatic AC spring mapping and constrained vehicle dynamics remain incomplete. See [spring probes](docs/USER_GUIDE.md#native-suspension-spring-probes).
+
+Native `suspension-run` now advances one massive DWB/STRUT upright on a fixed frame and fixed rack, with an explicit COM/tensor, gravity and spring mounts. The example configuration uses synthetic parameters. It reports constrained motion, energy and dynamic support reactions; moving-chassis coupling, tyres, wheel spin and a native driving session remain incomplete. See the [dynamic workbench](docs/USER_GUIDE.md#native-fixed-frame-suspension-dynamics).
 
 The existing content tools, browser viewer and keyboard-driving prototype require Python 3.10+. No third-party Python packages are needed.
 
@@ -95,7 +98,7 @@ crates/asc-texture/       Bounded legacy DDS decoder
 crates/asc-render/        wgpu GPU work, pipelines, resources, scene and shaders
 crates/asc-ground/        Physical surfaces and static support queries
 crates/asc-vehicle/       Typed car configuration and suspension records
-crates/asc-physics/       Independent rigid bodies, springs and fixed clock
+crates/asc-physics/       Rigid bodies, springs, constrained upright and fixed clock
 crates/asc-session/       Vehicle/spawn placement and explicit body seeding
 tools/test-support/      Original shared Rust fixtures
 tools/asc-telemetry/     Read-only Windows original-game measurement tool
