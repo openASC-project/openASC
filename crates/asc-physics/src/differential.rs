@@ -158,6 +158,9 @@ impl LinkDifferential {
     pub fn columns(&self) -> &[TangentColumn; 4] {
         &self.columns
     }
+    pub fn pose(&self) -> LinkPose {
+        self.pose
+    }
     /// Velocities are relative to a fixed linkage frame, not world/body motion.
     pub fn velocity(
         &self,

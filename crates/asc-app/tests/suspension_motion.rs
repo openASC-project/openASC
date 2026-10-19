@@ -180,3 +180,109 @@ fn cli_exposes_explicit_rates_loads_and_massless_balance_for_both_topologies() {
         assert!(output.stdout.is_empty());
     }
 }
+
+#[test]
+fn cli_samples_explicit_spring_mounts_and_rejects_incomplete_or_invalid_laws() {
+    let fixture = fixture();
+    for axle in ["front", "rear"] {
+        for damping in [
+            vec![],
+            vec!["--damping", "80", "20", "0.05", "140", "30", "0.07"],
+        ] {
+            let output = Command::new(env!("CARGO_BIN_EXE_openasc"))
+                .arg("suspension-motion")
+                .arg(&fixture.0)
+                .args([
+                    axle, "0.03", "0", "1", "0", "--rates", "0.17", "0.025", "-0.012", "0.009",
+                    "--spring", "0", "0.6", "0", "0.07", "-0.08", "0.1", "0.65", "12000",
+                ])
+                .args(&damping)
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
+            let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+            let probe = &report["differential_probe"];
+            let spring = &probe["explicit_spring_probe"];
+            assert_eq!(probe["generated_tyre_or_spring_loads"], true);
+            assert_eq!(probe["dynamic_vehicle_simulation"], false);
+            assert_eq!(spring["automatic_source_parameters"], false);
+            assert_eq!(spring["source_force_mapping_validated"], false);
+            assert_eq!(spring["separate_from_explicit_probe_load"], true);
+            assert!(spring["sample"]["length_m"].as_f64().unwrap() > 0.);
+            let sample = &spring["sample"];
+            let rate = sample["extension_rate_m_s"].as_f64().unwrap();
+            let power = sample["generalized_loads"]["travel_n"].as_f64().unwrap() * 0.17
+                + [0.025, -0.012, 0.009]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, v)| {
+                        sample["generalized_loads"]["steering_anchor_n"][i]
+                            .as_f64()
+                            .unwrap()
+                            * v
+                    })
+                    .sum::<f64>();
+            let dissipated = sample["dissipated_power_w"].as_f64().unwrap();
+            assert!(
+                (power + sample["elastic_tension_n"].as_f64().unwrap() * rate + dissipated).abs()
+                    < 1e-8
+            );
+            if damping.is_empty() {
+                assert_eq!(dissipated, 0.);
+            } else {
+                assert!(dissipated > 0.);
+            }
+            for key in ["force_balance_residual_n", "torque_balance_residual_nm"] {
+                assert!(
+                    spring["held_massless_balance"][key]
+                        .as_array()
+                        .unwrap()
+                        .iter()
+                        .all(|v| v.as_f64().unwrap().abs() < 1e-8)
+                );
+            }
+        }
+    }
+    for extra in [
+        vec!["--damping", "1", "1", "0", "1", "1", "0"],
+        vec!["--spring", "0", "0.6", "0", "0", "0", "0", "0.6", "-1"],
+        vec!["--spring", "0", "0.6", "0"],
+        vec!["--spring", "NaN", "0.6", "0", "0", "0", "0", "0.6", "1"],
+        vec![
+            "--spring",
+            "0",
+            "0.6",
+            "0",
+            "0",
+            "0",
+            "0",
+            "0.6",
+            "1",
+            "--damping",
+            "-1",
+            "1",
+            "0",
+            "1",
+            "1",
+            "0",
+        ],
+        vec![
+            "--spring", "0", "0.6", "0", "0", "0", "0", "0.6", "1", "--spring", "0", "0.6", "0",
+            "0", "0", "0", "0.6", "1",
+        ],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_openasc"))
+            .arg("suspension-motion")
+            .arg(&fixture.0)
+            .args(["front", "0.03", "0", "1", "0"])
+            .args(extra)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+    }
+}

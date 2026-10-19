@@ -4,6 +4,7 @@ mod body;
 mod clock;
 mod differential;
 mod inertia;
+mod link_spring;
 mod linkage;
 mod spring;
 mod strut;
@@ -14,6 +15,7 @@ pub use differential::{
     TangentColumn,
 };
 pub use inertia::MassProperties;
+pub use link_spring::{LinkSpring, LinkSpringSample};
 pub use linkage::{FiveLink, LinkPose, LinkSolution};
 pub use spring::{Damper, DamperBranch, SpringConnection, SpringLink, SpringSample, step_springs};
 use std::fmt;

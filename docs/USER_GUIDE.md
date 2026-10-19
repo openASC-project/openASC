@@ -390,4 +390,20 @@ Support force and torque on the upright exclude the abstract travel actuator. Fr
 
 Input rates must be finite and within +/-1000 m/s per component. Output origin/point velocities are bounded to 1e6 m/s per component, angular velocities to 1e5 rad/s, and input/projected loads, multipliers and reactions to 1e18 in their reported units. Invalid, unconverged, singular or excessively amplified requests fail before a JSON report is printed. The Rust API also supports velocity at an explicit upright-local point and a point force converted to torque about the upright origin; local point components are bounded to +/-100 m.
 
-Without probe flags, the position report retains its existing shape. A probe does not integrate time, add chassis motion, generate tyre/spring/damping/gravity loads or assign unsprung inertia. `simulation_ready`, `original_kinematics_validated` and `dynamic_vehicle_simulation` remain false. See the [validation record](FORMATS.md#suspension-differential-validation).
+Without probe flags, the position report retains its existing shape. These load probes do not integrate time, add chassis motion or generate tyre/gravity loads or unsprung inertia. Spring/damping generation requires the separate explicit spring option below. `simulation_ready`, `original_kinematics_validated` and `dynamic_vehicle_simulation` remain false. See the [validation record](FORMATS.md#suspension-differential-validation).
+
+## Native suspension spring probes
+
+```sh
+cargo run --locked -p asc-app -- suspension-motion ./assettocorsa/content/cars/bmw_m3_e30 front 0.025 0 1 0 --rates 0.17 0.025 -0.012 0.009 --spring 0 0.6 0 0.07 -0.08 0.1 0.65 12000 --damping 80 20 0.05 140 30 0.07
+```
+
+The mount and law in this example are synthetic diagnostic inputs, not an Assetto Corsa suspension calibration. `--spring AX AY AZ BX BY BZ REST K` supplies a fixed-frame anchor A, upright-local attachment B, rest length in metres and stiffness in N/m. It enables the differential probe and adds `explicit_spring_probe`. The spring is a bilateral linear element: it can push or pull. No unilateral spring seat, bump stop, preload correction, linkage-arm mounting or ARB is inferred.
+
+`--damping CS CF CK RS RF RK` sets compression slow/fast slopes in N s/m and knee speed in m/s, followed by the corresponding rebound values. Compression means decreasing element length. The continuous piecewise law uses the slow slope up to its knee and the fast slope beyond it. Omitting this option explicitly selects zero damping. Supplying damping without a spring, duplicate options, malformed values or negative slopes/stiffness fails.
+
+The sample reports the attachment in the fixed frame, its velocity, actual element length/extension/rate, four length gradients in travel/rack-X/rack-Y/rack-Z order, elastic/damping tension, potential energy, dissipated power, upright force/torque and generalized loads. Positive tension pulls the upright toward A. Point velocity includes upright rotation, so the length gradients and resulting force ratios depend on the pose and mounting. `parameters` records the supplied rest length, stiffness and both damper branches.
+
+The spring sample's frame force/moment is the direct reaction at A only. Its sibling `held_massless_balance` contains the separate linkage support and abstract travel-actuator loads required to hold that spring load. Direct spring reactions exclude linkage supports; support reactions exclude the travel actuator. The spring probe is evaluated separately from the manually supplied `--load` probe; those reports are not summed. Neither is a physical vehicle equilibrium or a dynamic step.
+
+Mount coordinates are bounded to +/-100 m per component; rest length to 1e-6..10000 m; stiffness/slopes to 0..1e9 in their units; damper knees to 0..1000 m/s. Coincident endpoints (separation below 1e-9 m), separation above 10000 m, out-of-range rates/loads and singular linkage states fail explicitly. With a spring, `generated_tyre_or_spring_loads` is true, while `automatic_source_parameters`, `source_force_mapping_validated` and `dynamic_vehicle_simulation` remain false. See [implementation](ARCHITECTURE.md#explicit-spring-linkage-coupling) and [validation](FORMATS.md#spring-linkage-coupling-validation).

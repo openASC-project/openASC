@@ -114,6 +114,24 @@ impl SpringLink {
     pub fn loads(&self, a: &Body, b: &Body) -> Result<(Wrench, Wrench, SpringSample)> {
         let pa = a.world_point(self.point_a)?;
         let pb = b.world_point(self.point_b)?;
+        let va = a.point_velocity_world(pa)?;
+        let vb = b.point_velocity_world(pb)?;
+        let sample = self.sample_between(pa, pb, va, vb)?;
+        let on_a = a.force_at_world_point(sample.force_on_a_world_n, pa)?;
+        let on_b = b.force_at_world_point(sample.force_on_b_world_n, pb)?;
+        Ok((on_a, on_b, sample))
+    }
+    pub(super) fn points(&self) -> ([f64; 3], [f64; 3]) {
+        (self.point_a, self.point_b)
+    }
+    /// Validated callers supply positions and point velocities in one common frame.
+    pub(super) fn sample_between(
+        &self,
+        pa: [f64; 3],
+        pb: [f64; 3],
+        va: [f64; 3],
+        vb: [f64; 3],
+    ) -> Result<SpringSample> {
         let delta = DVec3::from_array(pb) - DVec3::from_array(pa);
         let length = delta.length();
         if !(1e-9..=1e4).contains(&length) {
@@ -123,32 +141,24 @@ impl SpringLink {
             ));
         }
         let axis = delta / length;
-        let va = DVec3::from_array(a.point_velocity_world(pa)?);
-        let vb = DVec3::from_array(b.point_velocity_world(pb)?);
-        let rate = (vb - va).dot(axis);
+        let rate = (DVec3::from_array(vb) - DVec3::from_array(va)).dot(axis);
         let extension = length - self.rest;
         let elastic = self.stiffness * extension;
         let damping = self.damper.force_n(rate)?;
         let force = axis * (elastic + damping);
-        let on_a = a.force_at_world_point(force.to_array(), pa)?;
-        let on_b = b.force_at_world_point((-force).to_array(), pb)?;
-        Ok((
-            on_a,
-            on_b,
-            SpringSample {
-                point_a_world_m: pa,
-                point_b_world_m: pb,
-                length_m: length,
-                extension_m: extension,
-                extension_rate_m_s: rate,
-                elastic_tension_n: elastic,
-                damping_tension_n: damping,
-                force_on_a_world_n: force.to_array(),
-                force_on_b_world_n: (-force).to_array(),
-                potential_energy_j: 0.5 * self.stiffness * extension * extension,
-                dissipated_power_w: damping * rate,
-            },
-        ))
+        Ok(SpringSample {
+            point_a_world_m: pa,
+            point_b_world_m: pb,
+            length_m: length,
+            extension_m: extension,
+            extension_rate_m_s: rate,
+            elastic_tension_n: elastic,
+            damping_tension_n: damping,
+            force_on_a_world_n: force.to_array(),
+            force_on_b_world_n: (-force).to_array(),
+            potential_energy_j: 0.5 * self.stiffness * extension * extension,
+            dissipated_power_w: damping * rate,
+        })
     }
     /// Midpoint link forces, constant external world wrenches. Both bodies commit together.
     /// Returns the actual midpoint force sample, not a post-step endpoint sample.

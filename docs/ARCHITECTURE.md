@@ -15,6 +15,7 @@ The implemented project contains a first native Rust KN5 reader and wgpu offscre
 | `crates/asc-physics/src/linkage.rs` | Five-distance upright constraints and shared bounded local Newton iteration |
 | `crates/asc-physics/src/strut.rs` | Three-distance upright with a telescoping coaxial strut |
 | `crates/asc-physics/src/differential.rs` | Relative upright velocities, virtual-work load projection and ideal held-load reactions |
+| `crates/asc-physics/src/link_spring.rs` | Explicit fixed-anchor/upright spring mount, motion ratios and projected elastic/damping loads |
 | `crates/asc-session/src/kinematics.rs` | Explicit DWB/STRUT hardpoint binding in the uncorrected raw design frame |
 | `crates/asc-session/src/body.rs` | Rigid-body seed using a spawn basis and explicitly supplied centre of mass/tensor |
 | `crates/asc-session/` | Native geometric vehicle/spawn preparation and four-wheel support preflight |
@@ -164,4 +165,14 @@ Let `L` be the solver's fixed rotational column scale and `y = [v, L*omega]`. Fo
 
 The travel holding load is `-Q_travel`; the force on the steering anchor is `Q_rack`. Upright support torque is about its moving origin `t`. Support reaction on the fixed frame is `-support_force`, with moment `-support_torque - t cross support_force` about the frame origin. These support reactions explicitly exclude the travel actuator. The sum of support, actuator and applied loads is checked with a 1e-8 scaled relative residual tolerance. There is no physical actuator attachment or automatic full chassis reaction in this diagnostic.
 
-Finite input/output limits reject excessive velocities and loads. The map is immutable and does not advance body state. CLI reports distinguish explicit probes from generated forces and retain false simulation/original-validation flags. Source frame/setup interpretation, spring motion ratios/force laws, wheel-spin inertia, gravity/contact/tyre forces and a dynamically constrained multibody step remain separate work.
+Finite input/output limits reject excessive velocities and loads. The map is immutable and does not advance body state. CLI reports distinguish explicit probes from generated forces and retain false simulation/original-validation flags. Source frame/setup interpretation, validated source spring mounting/force laws, wheel-spin inertia, gravity/contact/tyre forces and a dynamically constrained multibody step remain separate work.
+
+## Explicit spring linkage coupling
+
+`LinkSpring` attaches the existing independent spring/damper element between a fixed linkage-frame point A and an explicitly supplied upright-local point B. `LinkDifferential::pose` returns the immutable converged pose used by the map. With `r = R*B`, `delta = t+r-A`, length `l = |delta|` and axis `n = delta/l`, each length gradient is `dl/dq_i = n dot (T_i.translation + T_i.angular cross r)`. The sample uses the full point velocity, including upright rotation; `ldot = gradient dot qdot`. This supports direct upright attachments, including an explicitly mounted telescoping strut. Springs attached to moving control arms or rocker/pushrod mechanisms require their own attachment kinematics.
+
+The scalar law and sign conventions are shared with `SpringLink` through one internal sampling path. Signed tension is `s = k*(l-l0) + D(ldot)`, upright point force is `-s*n` and upright-origin torque is `r cross force`. The differential map projects this load to `Q_i = -s*dl/dq_i`. Elastic energy is `U = 0.5*k*(l-l0)^2`; dissipated power is `D(ldot)*ldot >= 0`. Therefore `Q dot qdot = -dU/dt - dissipated_power`. The linear spring is bilateral. Damping remains the previously tested continuous asymmetric slow/fast law; no AC-specific nonlinear rule or unit conversion is inferred.
+
+The direct frame reaction is `s*n` at A with moment `A cross (s*n)` about the fixed frame origin. This excludes rod/coaxial support reactions and the abstract travel actuator. The CLI separately solves ideal held support reactions for the spring's upright load; its existing externally supplied load probe is preserved as a separate calculation. There is no automatic addition of either probe to the native body integrator.
+
+Sampling validates mounts, law, separation, rates and projected loads before returning. It does not mutate the map or advance state. `SpringLink::loads` still returns world-frame body wrenches, while `LinkSpringSample` explicitly names fixed-frame and upright-local quantities; their torque origins are not mixed. Source spring/damper records remain inspection data until mounting, units, preload, setup and motion conventions have been established. Original-game spring behavior, unsprung inertia/contact and dynamically constrained chassis coupling remain unvalidated.

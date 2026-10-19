@@ -41,6 +41,8 @@ Native `suspension-motion` solves DWB or STRUT raw design geometry for an explic
 
 Optional `--rates HDOT RXDOT RYDOT RZDOT` and `--load FX FY FZ TX TY TZ` probes calculate relative upright velocity, virtual-work load projection and ideal massless reactions at a held pose. These explicit diagnostic loads do not generate tyre/spring forces or advance the vehicle. See [velocity and load probes](docs/USER_GUIDE.md#native-suspension-velocity-and-load-probes).
 
+An explicit `--spring AX AY AZ BX BY BZ REST K` mount, with optional `--damping CS CF CK RS RF RK`, connects the native spring/damper element to that mechanism. It reports attachment velocity, length gradients, forces, energy and projected travel/rack loads. Mounting and law parameters are supplied by the caller; automatic AC spring mapping and constrained vehicle dynamics remain incomplete. See [spring probes](docs/USER_GUIDE.md#native-suspension-spring-probes).
+
 The existing content tools, browser viewer and keyboard-driving prototype require Python 3.10+. No third-party Python packages are needed.
 
 ```sh
