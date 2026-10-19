@@ -1,7 +1,9 @@
-//! Native rigid bodies, spring forces and fixed-frame constrained upright dynamics.
-//! Original Assetto Corsa force models and moving-chassis constraint response remain unimplemented.
+//! Native rigid bodies, springs and coupled chassis/upright constraint dynamics.
+//! Original Assetto Corsa force models, wheel spin and tyre/contact response remain unimplemented.
 mod body;
+mod chassis;
 mod clock;
+mod coupled_linear;
 mod differential;
 mod inertia;
 mod link_spring;
@@ -10,6 +12,7 @@ mod spring;
 mod strut;
 mod travel;
 pub use body::{Body, State, Wrench};
+pub use chassis::{ChassisSample, ChassisSystem, MountedUpright, UprightSample};
 pub use clock::{Batch, FixedClock, Tick};
 pub use differential::{
     ConstraintBalance, GeneralizedLoads, LinkDifferential, LinkLoad, RelativeAcceleration,

@@ -396,3 +396,130 @@ fn cli_rejects_bad_dynamic_schema_resource_limits_and_failed_runs_without_partia
         assert!(output.stdout.is_empty());
     }
 }
+
+fn coupled_configuration() -> serde_json::Value {
+    let mut config: serde_json::Value =
+        serde_json::from_str(include_str!("../../../examples/chassis-suspension.json")).unwrap();
+    for upright in config["uprights"].as_array_mut().unwrap() {
+        upright["car_directory"] = ".".into();
+    }
+    config
+}
+#[test]
+fn cli_runs_four_corner_chassis_recoil_with_explicit_relative_paths_and_mass_mapping() {
+    let fixture = fixture();
+    let config = fixture.0.join("coupled.json");
+    fs::write(&config, coupled_configuration().to_string()).unwrap();
+    let source = fixture.0.join("data/suspensions.ini");
+    let original = fs::read(&source).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_openasc"))
+        .arg("chassis-run")
+        .arg(&config)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["scope"], "native_coupled_chassis_upright_dynamics");
+    assert_eq!(report["moving_chassis"], true);
+    assert_eq!(report["simulation_ready"], false);
+    assert_eq!(
+        report["automatic_source_frames_mass_or_force_parameters"],
+        false
+    );
+    assert_eq!(report["source_geometry"].as_array().unwrap().len(), 4);
+    let records = report["records"].as_array().unwrap();
+    assert_eq!(records.len(), 26);
+    let first = &records[0]["sample"];
+    let last = &records.last().unwrap()["sample"];
+    assert_eq!(last["total_mass_kg"], 1140.);
+    assert!(last["chassis"]["position_m"][1].as_f64().unwrap().abs() > 1e-4);
+    let energy = |s: &serde_json::Value| {
+        s["kinetic_energy_j"].as_f64().unwrap() + s["potential_energy_j"].as_f64().unwrap()
+    };
+    assert!(energy(last) < energy(first));
+    for record in records {
+        let s = &record["sample"];
+        assert!(
+            s["linear_momentum_world_kg_m_s"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|v| v.as_f64().unwrap().abs() < 0.005)
+        );
+        for u in s["uprights"].as_array().unwrap() {
+            assert!(
+                u["constraint_balance_in_source_frame"]["travel_actuator_n"]
+                    .as_f64()
+                    .unwrap()
+                    .abs()
+                    < 1e-7
+            );
+        }
+    }
+    assert_eq!(fs::read(source).unwrap(), original);
+}
+
+#[test]
+fn cli_rejects_coupled_schema_frame_resource_limits_and_failed_run_without_partial_json() {
+    let fixture = fixture();
+    let path = fixture.0.join("coupled.json");
+    let template = coupled_configuration();
+    let mut cases = Vec::new();
+    for (key, value) in [
+        ("schema_version", 2.into()),
+        ("record_every", 0.into()),
+        ("steps", 10001.into()),
+        ("step_s", 0.1.into()),
+        ("unrecognized", true.into()),
+        ("uprights", serde_json::json!([])),
+    ] {
+        let mut c = template.clone();
+        c[key] = value;
+        cases.push(c);
+    }
+    let mut count = template.clone();
+    count["uprights"] = serde_json::Value::Array(vec![template["uprights"][0].clone(); 5]);
+    cases.push(count);
+    let mut frame = template.clone();
+    frame["uprights"][0]["frame_orientation_xyzw"] = serde_json::json!([0, 0, 0, 0]);
+    cases.push(frame);
+    let mut mode = template.clone();
+    mode["uprights"][0]["data"] = "other".into();
+    cases.push(mode);
+    let mut records = template.clone();
+    records["steps"] = 10000.into();
+    records["record_every"] = 1.into();
+    cases.push(records);
+    let mut missing = template.clone();
+    missing["chassis"]
+        .as_object_mut()
+        .unwrap()
+        .remove("mass_kg");
+    cases.push(missing);
+    let mut failed = template.clone();
+    failed["step_s"] = 0.02.into();
+    failed["steps"] = 1.into();
+    failed["record_every"] = 1.into();
+    for u in failed["uprights"].as_array_mut().unwrap() {
+        u["springs"] = serde_json::json!([]);
+        u["initial_travel_m"] = 0.into();
+    }
+    failed["uprights"][3]["external_force_world_n"] = serde_json::json!([0, 100000, 0]);
+    cases.push(failed);
+    let mut texts: Vec<_> = cases.into_iter().map(|c| c.to_string()).collect();
+    texts.push(" ".repeat(65537));
+    for text in texts {
+        fs::write(&path, text).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_openasc"))
+            .arg("chassis-run")
+            .arg(&path)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+    }
+}

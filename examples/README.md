@@ -7,3 +7,11 @@ cargo run --locked -p asc-app -- suspension-run ./assettocorsa/content/cars/bmw_
 ```
 
 The selected local car supplies raw DWB/STRUT geometry only. No game content is included in this directory. See the [configuration and limitations](../docs/USER_GUIDE.md#native-fixed-frame-suspension-dynamics) and [validation](../docs/FORMATS.md#fixed-frame-suspension-dynamics-validation).
+
+`chassis-suspension.json` supplies an explicitly mounted floating chassis and four uprights. Its masses, tensors, COM offsets, mounting positions/rotations and spring laws are synthetic. In particular, the right-side rotations are example proper rotations, not a verified Assetto Corsa mirroring/setup conversion. Gravity is zero and no tyres/ground are present, so this isolates internal recoil and momentum behavior.
+
+```sh
+cargo run --locked -p asc-app -- chassis-run examples/chassis-suspension.json
+```
+
+Car paths resolve relative to the JSON file. See the [coupled configuration guide](../docs/USER_GUIDE.md#native-coupled-chassis-dynamics) and [validation](../docs/FORMATS.md#coupled-chassis-dynamics-validation).

@@ -29,6 +29,7 @@ cargo run --locked -p asc-app -- suspension ./assettocorsa/content/cars/bmw_m3_e
 cargo run --locked -p asc-app -- suspension-motion ./assettocorsa/content/cars/bmw_m3_e30 rear 0.025 0 1 0
 cargo run --locked -p asc-app -- suspension-motion ./assettocorsa/content/cars/bmw_m3_e30 front 0.025 0 1 0
 cargo run --locked -p asc-app -- suspension-run ./assettocorsa/content/cars/bmw_m3_e30 front examples/suspension-travel.json
+cargo run --locked -p asc-app -- chassis-run examples/chassis-suspension.json
 cargo run --locked -p asc-app -- preview ./assettocorsa/content/cars/bmw_m3_e30 ./assettocorsa/content/tracks/drift/models.ini
 ```
 
@@ -44,7 +45,9 @@ Optional `--rates HDOT RXDOT RYDOT RZDOT` and `--load FX FY FZ TX TY TZ` probes 
 
 An explicit `--spring AX AY AZ BX BY BZ REST K` mount, with optional `--damping CS CF CK RS RF RK`, connects the native spring/damper element to that mechanism. It reports attachment velocity, length gradients, forces, energy and projected travel/rack loads. Mounting and law parameters are supplied by the caller; automatic AC spring mapping and constrained vehicle dynamics remain incomplete. See [spring probes](docs/USER_GUIDE.md#native-suspension-spring-probes).
 
-Native `suspension-run` now advances one massive DWB/STRUT upright on a fixed frame and fixed rack, with an explicit COM/tensor, gravity and spring mounts. The example configuration uses synthetic parameters. It reports constrained motion, energy and dynamic support reactions; moving-chassis coupling, tyres, wheel spin and a native driving session remain incomplete. See the [dynamic workbench](docs/USER_GUIDE.md#native-fixed-frame-suspension-dynamics).
+Native `suspension-run` advances one massive DWB/STRUT upright on a fixed frame and fixed rack, with an explicit COM/tensor, gravity and spring mounts. The example configuration uses synthetic parameters. It reports constrained motion, energy and dynamic support reactions; its frame stays fixed. See the [dynamic workbench](docs/USER_GUIDE.md#native-fixed-frame-suspension-dynamics) or the coupled workbench below.
+
+Native `chassis-run` couples a floating chassis to one to four massive uprights, solving chassis acceleration/rotation and suspension travel together. It reports spring recoil, dynamic supports, system momentum and energy. Masses, tensors and mounting frames are explicit synthetic inputs in the example; automatic AC side/setup mapping, wheel spin, tyres/contact and native rendered driving remain incomplete. See [coupled dynamics](docs/USER_GUIDE.md#native-coupled-chassis-dynamics).
 
 The existing content tools, browser viewer and keyboard-driving prototype require Python 3.10+. No third-party Python packages are needed.
 

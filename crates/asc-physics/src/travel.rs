@@ -21,13 +21,18 @@ pub enum TravelMechanism {
     Strut(StrutLink),
 }
 impl TravelMechanism {
-    fn map(&self, h: f64, rack: [f64; 3], seed: Option<LinkPose>) -> Result<LinkDifferential> {
+    pub(super) fn map(
+        &self,
+        h: f64,
+        rack: [f64; 3],
+        seed: Option<LinkPose>,
+    ) -> Result<LinkDifferential> {
         match self {
             Self::Dwb(m) => m.differential(h, rack, m.solve(h, rack, seed)?.pose()?),
             Self::Strut(m) => m.differential(h, rack, m.solve(h, rack, seed)?.pose()?),
         }
     }
-    fn acceleration(
+    pub(super) fn acceleration(
         &self,
         h: f64,
         rack: [f64; 3],
@@ -47,7 +52,7 @@ pub struct TravelState {
     pub rate_m_s: f64,
 }
 impl TravelState {
-    fn validate(self) -> Result<()> {
+    pub(super) fn validate(self) -> Result<()> {
         scalar(self.travel_m, 0.25)?;
         scalar(self.rate_m_s, 1e3)?;
         Ok(())
