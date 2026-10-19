@@ -1,6 +1,7 @@
 import contextlib
 import io
 import json
+import os
 from pathlib import Path
 import struct
 import tempfile
@@ -79,6 +80,73 @@ class VehicleTests(unittest.TestCase):
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
         self.car = install_car(self.root)
+
+    def test_nonportable_neighbors_warn_but_are_never_selected_as_aliases_or_fallbacks(self):
+        ignored = ['tyres (conflicted copy).ini', 'notes with spaces.txt', 'notes-λ.txt']
+        for name in ignored:
+            (self.car / 'data' / name).write_bytes(b'\xff\x00\xfe')
+        (self.car / 'data.acd').write_bytes(archive_bytes(FILES.items()))
+        value = load_vehicle(self.root, 'fixture').summary()
+        self.assertEqual(value['mass_kg'], 900)
+        self.assertEqual(value['data_source'], 'unpacked')
+        self.assertEqual(sum(d['code'] == 'car_data_name_ignored' for d in value['diagnostics']), 3)
+        for name in ignored:
+            with self.assertRaises(ContentError) as error:
+                CarData(self.root, 'fixture').text(name)
+            self.assertEqual(error.exception.diagnostic.code, 'car_data_name')
+            self.assertEqual((self.car / 'data' / name).read_bytes(), b'\xff\x00\xfe')
+        (self.car / 'data/tyres.ini').unlink()
+        with self.assertRaises(ContentError) as error:
+            load_vehicle(self.root, 'fixture')
+        self.assertEqual(error.exception.diagnostic.code, 'car_data_missing')
+        packed = load_vehicle(self.root, 'fixture', mode='packed').summary()
+        self.assertFalse(any(d['code'] == 'car_data_name_ignored' for d in packed['diagnostics']))
+
+    def test_unpacked_index_budget_counts_ignored_files_and_subdirectories(self):
+        initial = len(list((self.car / 'data').iterdir()))
+        (self.car / 'data/ignored (copy).txt').write_bytes(b'\xff')
+        (self.car / 'data/ignored directory').mkdir()
+        with patch('openasc.vehicle.MAX_ENTRIES', initial + 2):
+            self.assertEqual(CarData(self.root, 'fixture').mode, 'unpacked')
+            (self.car / 'data/overflow (copy).txt').write_bytes(b'\xff')
+            with self.assertRaises(ContentError) as error:
+                CarData(self.root, 'fixture')
+            self.assertEqual(error.exception.diagnostic.code, 'car_data_limit')
+
+    def test_unpacked_enumeration_stops_at_limit_plus_one_and_closes_scanner(self):
+        seen = []
+        def entries():
+            for index in range(100):
+                seen.append(index)
+                if len(seen) > 3:
+                    raise AssertionError('Directory enumeration consumed beyond its bound')
+                yield object()  # Budget rejection must precede metadata/filename work.
+        with patch('openasc.vehicle.MAX_ENTRIES', 2), patch('openasc.vehicle.os.scandir') as scanner:
+            scanner.return_value.__enter__.return_value = entries()
+            with self.assertRaises(ContentError) as error:
+                CarData(self.root, 'fixture')
+            self.assertEqual(error.exception.diagnostic.code, 'car_data_limit')
+            self.assertEqual(len(seen), 3)
+            scanner.return_value.__exit__.assert_called_once()
+
+    def test_portable_case_collisions_remain_fatal(self):
+        duplicate = self.car / 'data/CAR.INI'
+        if duplicate.exists():
+            self.skipTest('Filesystem aliases CAR.INI to car.ini')
+        duplicate.write_bytes(b'case collision fixture')
+        (self.car / 'data/ignored (copy).txt').write_bytes(b'\xff')
+        with self.assertRaises(ContentError) as error:
+            CarData(self.root, 'fixture')
+        self.assertEqual(error.exception.diagnostic.code, 'car_data_duplicate')
+
+    @unittest.skipUnless(os.name == 'posix', 'Non-UTF-8 filename fixture requires POSIX')
+    def test_non_unicode_neighbor_is_ignored_and_diagnostics_remain_utf8_serializable(self):
+        name = os.fsdecode(b'ignored-\xff.txt')
+        (self.car / 'data' / name).write_bytes(b'\xff')
+        data = CarData(self.root, 'fixture')
+        self.assertEqual(sum(d['code'] == 'car_data_name_ignored' for d in data.diagnostics), 1)
+        self.assertEqual(data.text('car.ini'), FILES['car.ini'])
+        json.dumps(data.diagnostics, ensure_ascii=False).encode('utf-8')
 
     def test_packed_and_unpacked_fields_wheel_positions_and_no_extraction(self):
         before = set(self.root.rglob('*'))

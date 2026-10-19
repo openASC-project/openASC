@@ -215,6 +215,111 @@ fn unpacked_text_encoding_and_loaded_file_budget_are_bounded() {
             .contains("car_data_limit")
     );
 }
+
+#[test]
+fn unrelated_nonportable_files_warn_without_becoming_aliases_or_archive_fallbacks() {
+    let (_root, car) = install(false);
+    let ignored = [
+        "tyres (conflicted copy).ini",
+        "notes with spaces.txt",
+        "notes-λ.txt",
+    ];
+    for name in ignored {
+        std::fs::write(car.join("data").join(name), [0xff, 0, 0xfe]).unwrap();
+    }
+    std::fs::write(car.join("data.acd"), archive(&files())).unwrap();
+    let vehicle = load(&car, Mode::Auto, None).unwrap();
+    assert_eq!(vehicle.mass_kg, 900.);
+    assert_eq!(vehicle.data_source, "unpacked");
+    assert_eq!(
+        vehicle
+            .diagnostics
+            .iter()
+            .filter(|d| d.code == "car_data_name_ignored")
+            .count(),
+        3
+    );
+    let mut data = CarData::open(&car, Mode::Unpacked).unwrap();
+    for name in ignored {
+        assert!(
+            data.text(name)
+                .err()
+                .unwrap()
+                .to_string()
+                .contains("car_data_name")
+        );
+        assert_eq!(
+            std::fs::read(car.join("data").join(name)).unwrap(),
+            [0xff, 0, 0xfe]
+        );
+    }
+    // A conflicted copy never supplies a missing required canonical file.
+    std::fs::remove_file(car.join("data/tyres.ini")).unwrap();
+    assert!(
+        load(&car, Mode::Auto, None)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("car_data_missing")
+    );
+    let packed = load(&car, Mode::Packed, None).unwrap();
+    assert_eq!(packed.data_source, "packed");
+    assert!(
+        !packed
+            .diagnostics
+            .iter()
+            .any(|d| d.code == "car_data_name_ignored")
+    );
+}
+
+#[test]
+fn all_directory_entries_count_toward_the_bounded_unpacked_index() {
+    let (_root, car) = install(false);
+    let directory = car.join("data");
+    let initial = std::fs::read_dir(&directory).unwrap().count();
+    for i in initial..asc_acd::MAX_ENTRIES {
+        let path = directory.join(format!("extra (copy) {i}"));
+        if i % 2 == 0 {
+            std::fs::create_dir(path).unwrap();
+        } else {
+            std::fs::write(path, [0xff]).unwrap();
+        }
+    }
+    assert!(CarData::open(&car, Mode::Unpacked).is_ok());
+    std::fs::write(directory.join("overflow (ignored)"), [0xff]).unwrap();
+    assert!(
+        CarData::open(&car, Mode::Unpacked)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("car_data_limit")
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn ignored_names_do_not_hide_case_duplicates_or_non_unicode_name_diagnostics() {
+    use std::os::unix::ffi::OsStringExt;
+    let (_root, car) = install(false);
+    let invalid = std::ffi::OsString::from_vec(b"ignored-\xff.txt".to_vec());
+    std::fs::write(car.join("data").join(invalid), [0xff]).unwrap();
+    let data = CarData::open(&car, Mode::Unpacked).unwrap();
+    assert_eq!(
+        data.diagnostics
+            .iter()
+            .filter(|d| d.code == "car_data_name_ignored")
+            .count(),
+        1
+    );
+    std::fs::write(car.join("data/CAR.INI"), "unrelated duplicate bytes").unwrap();
+    assert!(
+        CarData::open(&car, Mode::Unpacked)
+            .err()
+            .unwrap()
+            .to_string()
+            .contains("car_data_duplicate")
+    );
+}
 #[cfg(unix)]
 #[test]
 fn symlinked_model_and_data_file_cannot_escape_selected_roots() {

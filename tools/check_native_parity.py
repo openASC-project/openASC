@@ -165,6 +165,10 @@ def compare_vehicle(native, path, mode='auto', compound=None):
         args += ['--compound', str(compound)]
     result = subprocess.run(args, capture_output=True, text=True, check=True)
     actual = json.loads(result.stdout)
+    expected_ignored = sum(d['code'] == 'car_data_name_ignored' for d in expected['diagnostics'])
+    actual_ignored = sum(d['code'] == 'car_data_name_ignored' for d in actual['diagnostics'])
+    if expected_ignored != actual_ignored:
+        raise AssertionError(f'{path.name}: different ignored-name diagnostic counts')
     expected.pop('diagnostics')
     actual.pop('diagnostics')
     def compare_values(a, b, location):
@@ -201,6 +205,9 @@ def vehicle_contracts(native):
         packed = install_car(root, 'packed_fixture', packed=True)
         reports = [compare_vehicle(native, unpacked), compare_vehicle(native, packed),
                    compare_vehicle(native, unpacked, compound=1)]
+        for name in ['tyres (conflicted copy).ini', 'notes-λ.txt']:
+            (unpacked / 'data' / name).write_bytes(b'\xff\x00\xfe')
+        reports.append(compare_vehicle(native, unpacked))
         (unpacked / 'data.acd').write_bytes(archive_bytes(FILES.items()))
         (unpacked / 'data' / 'engine.ini').unlink()
         result = subprocess.run([str(native), 'car', str(unpacked)], capture_output=True, text=True)

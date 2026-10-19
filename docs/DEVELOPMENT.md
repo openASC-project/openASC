@@ -16,6 +16,8 @@ python tools/check_native_parity.py --native target/debug/openasc
 
 Use `target/debug/openasc.exe` on Windows. Native/Python contract checks compare original KN5 fixtures, selection, transforms/bounds, full material properties/sampler mappings, INI values/order/source lines, LUT samples, static model declarations, packed/unpacked vehicle configurations and rejection codes. Optional repeated `--model PATH` arguments compare locally installed models without copying them. `--car PATH/TO/content/cars/CAR` additionally compares complete local vehicle configuration values and field sources. Warning wording/order is not compared; Rust fixtures separately check warning codes. Agreement between two openASC implementations does not establish original-simulator parity.
 
+Unpacked-directory fixtures also compare `car_data_name_ignored` counts when unrelated conflict-copy/nonportable files accompany valid resources. Preserve strict validation of requested names and whole-source selection when changing this behavior. The directory-entry budget includes ignored files and subdirectories; enumeration must remain bounded before sorting. See [index validation](FORMATS.md#unpacked-directory-indexing).
+
 The separate GPU test is explicitly opt-in on a machine with a native adapter:
 
 ```sh

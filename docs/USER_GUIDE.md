@@ -86,6 +86,14 @@ The track and vehicle share geometry/material/texture budgets and one render pas
 
 On local BMW M3 E30/Drift, the preview renders 166 car draws and 254 track draws with 72 embedded textures. The native window also passes presentation, resize and readback checks. Body paint/skins, glass/reflections, lighting/shadows, wheel animation and original material behavior remain incomplete. The report states driving false and simulation_ready false. See the [rigid-instance/session scope](FORMATS.md#native-rigid-instances-and-session-preview).
 
+## Unpacked data directories
+
+An unrelated backup/conflict file in the selected `data/` directory no longer prevents loading valid car configuration. Nonportable filenames produce `car_data_name_ignored` warnings and are excluded from the selectable resource index. For example, `tyres (conflicted copy).ini` is ignored while the explicit `tyres.ini` is read. The source files are not renamed, removed or rewritten.
+
+Requested car-data references still require flat portable ASCII filenames; ignored files are never aliases for missing resources. Missing required files and case-insensitive collisions between selectable filenames remain errors. Auto mode still selects an unpacked directory as a whole and never fills missing files from `data.acd`. Explicit packed mode does not enumerate the unselected directory.
+
+Enumeration is bounded to 4096 immediate directory entries before sorting; files with ignored names and subdirectories count toward that limit. Selected-file byte/encoding/confinement checks remain in force. See the [index policy and local validation](FORMATS.md#unpacked-directory-indexing).
+
 ## Native suspension records and spring links
 
 Inspect the source suspension records without Python or a GPU:

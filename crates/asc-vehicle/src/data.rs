@@ -91,35 +91,46 @@ impl CarData {
         let source = if unpacked {
             let directory = confined(&root, "data", &source_name, 0)?;
             let mut names = BTreeMap::new();
+            // Bound enumeration before sorting or accumulating ignored-name diagnostics.
+            // All immediate entries count, including directories and ignored files.
+            let mut entries = Vec::new();
             for entry in std::fs::read_dir(&directory)? {
-                let path = entry?.path();
+                if entries.len() >= asc_acd::MAX_ENTRIES {
+                    return Err(Error::new(
+                        "car_data_limit",
+                        &source_name,
+                        0,
+                        "Unpacked data exceeds 4096 directory entries.",
+                    )
+                    .into());
+                }
+                entries.push(entry?);
+            }
+            entries.sort_by_key(|entry| entry.file_name());
+            for entry in entries {
+                let path = entry.path();
                 if !path.is_file() {
                     continue;
                 }
-                let name = path.file_name().and_then(|v| v.to_str()).ok_or_else(|| {
-                    Error::new(
-                        "car_data_name",
-                        &source_name,
-                        0,
-                        "Non-UTF-8 car data filename.",
-                    )
-                })?;
-                let key = asc_acd::data_name(name)?;
+                let Some(name) = path.file_name().and_then(|v| v.to_str()) else {
+                    diagnostics.push(Diagnostic::warning("car_data_name_ignored", &format!("{source_name}/data"),
+                        "Ignored unpacked file with a non-UTF-8 filename; it is not a selectable car-data resource."));
+                    continue;
+                };
+                let key = match asc_acd::data_name(name) {
+                    Ok(key) => key,
+                    Err(_) => {
+                        diagnostics.push(Diagnostic::warning("car_data_name_ignored", &format!("{source_name}/data"),
+                            &format!("Ignored unpacked file {name:?} with a nonportable filename; it is not a selectable car-data resource.")));
+                        continue;
+                    }
+                };
                 if names.insert(key, path).is_some() {
                     return Err(Error::new(
                         "car_data_duplicate",
                         &source_name,
                         0,
                         "Ambiguous case-insensitive unpacked filename.",
-                    )
-                    .into());
-                }
-                if names.len() > asc_acd::MAX_ENTRIES {
-                    return Err(Error::new(
-                        "car_data_limit",
-                        &source_name,
-                        0,
-                        "Unpacked data exceeds 4096 files.",
                     )
                     .into());
                 }

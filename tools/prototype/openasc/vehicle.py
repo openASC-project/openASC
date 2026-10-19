@@ -1,5 +1,7 @@
 """Read an explicit vehicle configuration subset; no original physics is executed."""
 from dataclasses import asdict, dataclass
+from itertools import islice
+import os
 from pathlib import Path
 
 from .acd import MAX_DECODED, MAX_ENTRIES, MAX_ENTRY, data_name, read_archive
@@ -27,15 +29,24 @@ class CarData:
         else:
             if not self.directory.is_dir():
                 raise ContentError('car_data_missing', 'Selected unpacked data directory is absent.', f'content/cars/{car}/data')
-            for file in sorted(self.directory.iterdir()):
+            # scandir streams entries; Path.iterdir may eagerly materialize them.
+            with os.scandir(self.directory) as scanner:
+                entries = list(islice(scanner, MAX_ENTRIES + 1))
+            if len(entries) > MAX_ENTRIES:
+                raise ContentError('car_data_limit', 'Unpacked data exceeds 4096 directory entries.', f'content/cars/{car}/data')
+            for file in sorted(entries, key=lambda entry: entry.name):
                 if not file.is_file():
                     continue
-                name = data_name(file.name)
+                try:
+                    name = data_name(file.name)
+                except ContentError:
+                    self.diagnostics.append(Diagnostic('car_data_name_ignored',
+                        f'Ignored unpacked file {file.name!r} with a nonportable filename; it is not a selectable car-data resource.',
+                        f'content/cars/{car}/data', severity='warning').as_dict())
+                    continue
                 if name in self.names:
                     raise ContentError('car_data_duplicate', f'Ambiguous case-insensitive file {file.name!r}.', f'content/cars/{car}/data')
                 self.names[name] = file.name
-                if len(self.names) > MAX_ENTRIES:
-                    raise ContentError('car_data_limit', 'Unpacked data exceeds 4096 files.', f'content/cars/{car}/data')
 
     def source(self, name):
         return f'content/cars/{self.car}/data.acd::{name}' if self.mode == 'packed' else f'content/cars/{self.car}/data/{name}'
