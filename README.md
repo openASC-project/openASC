@@ -39,6 +39,8 @@ Native car/track `preview` opens a static inspection session with a separate car
 
 Native `suspension-motion` solves DWB or STRUT raw design geometry for an explicit travel axis and optional steering-anchor displacement. DWB preserves five link lengths; STRUT preserves three lengths and a telescoping coaxial constraint. Source frame/setup interpretation and original-game kinematics remain unvalidated. See the [DWB](docs/USER_GUIDE.md#native-dwb-design-geometry) and [STRUT](docs/USER_GUIDE.md#native-strut-design-geometry) guides.
 
+Optional `--rates HDOT RXDOT RYDOT RZDOT` and `--load FX FY FZ TX TY TZ` probes calculate relative upright velocity, virtual-work load projection and ideal massless reactions at a held pose. These explicit diagnostic loads do not generate tyre/spring forces or advance the vehicle. See [velocity and load probes](docs/USER_GUIDE.md#native-suspension-velocity-and-load-probes).
+
 The existing content tools, browser viewer and keyboard-driving prototype require Python 3.10+. No third-party Python packages are needed.
 
 ```sh

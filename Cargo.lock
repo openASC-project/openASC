@@ -110,6 +110,7 @@ dependencies = [
  "asc-config",
  "asc-ground",
  "asc-kn5",
+ "asc-physics",
  "asc-render",
  "asc-scene",
  "asc-session",

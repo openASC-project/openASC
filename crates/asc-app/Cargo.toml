@@ -12,6 +12,7 @@ name = "openasc"
 path = "src/main.rs"
 
 [dependencies]
+asc-physics.workspace = true
 asc-session.workspace = true
 asc-ground.workspace = true
 asc-acd.workspace = true

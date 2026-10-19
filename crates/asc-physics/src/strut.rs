@@ -114,6 +114,17 @@ impl StrutLink {
     pub fn reference_strut_length_m(&self) -> f64 {
         self.reference_length
     }
+    pub fn differential(
+        &self,
+        travel_m: f64,
+        steering_anchor_offset_m: [f64; 3],
+        pose: LinkPose,
+    ) -> Result<crate::LinkDifferential> {
+        let steering = crate::linkage::command(travel_m, steering_anchor_offset_m)?;
+        crate::linkage::local_pose(self.reference, pose)?;
+        let (residual, jacobian) = self.system(pose, travel_m, steering)?;
+        crate::LinkDifferential::new(pose, self.rotational_scale, residual, jacobian, 2)
+    }
     fn axial_length(&self, pose: LinkPose) -> f64 {
         (pose.rotation * self.strut_axis)
             .dot(self.top - pose.position - pose.rotation * self.strut_point)

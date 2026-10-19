@@ -34,7 +34,7 @@ fn load_input(path: &Path, diagnostic: bool) -> Result<Input, Box<dyn Error>> {
 
 fn run() -> Result<(), Box<dyn Error>> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    let usage = "Usage: openasc suspension-motion CAR_DIRECTORY AXLE TRAVEL_M AXIS_X AXIS_Y AXIS_Z [--rack X Y Z] [--data auto|packed|unpacked] | preview CAR_DIRECTORY MODELS.ini [--spawn NAME] [--data auto|packed|unpacked] [--compound N] [--capture NEW.png | --smoke | --captures DIR] [--fallback] [--diagnostic] [--rgba-textures] | suspension CAR_DIRECTORY [--data auto|packed|unpacked] | spawns MODELS.ini | place CAR_DIRECTORY MODELS.ini SURFACES.ini [--defaults SURFACES.ini] [--spawn NAME] [--data auto|packed|unpacked] [--compound N] | ground MODELS.ini SURFACES.ini [--defaults SURFACES.ini] [--probe X Y Z]... [--distance D] | car CAR_DIRECTORY [--data auto|packed|unpacked] [--compound N] | acd FILE.acd CAR_ID | inspect SCENE | materials SCENE | render SCENE NEW.png [--fallback] [--diagnostic] [--rgba-textures] | view SCENE [--fallback] [--diagnostic] [--rgba-textures] [--captures DIR] [--capture NEW.png] [--smoke] | ini FILE.ini | lut FILE.lut [--sample X]. SCENE is a KN5 file or an explicit models.ini/models_LAYOUT.ini path.";
+    let usage = "Usage: openasc suspension-motion CAR_DIRECTORY AXLE TRAVEL_M AXIS_X AXIS_Y AXIS_Z [--rack X Y Z] [--differential] [--rates HDOT RXDOT RYDOT RZDOT] [--load FX FY FZ TX TY TZ] [--data auto|packed|unpacked] | preview CAR_DIRECTORY MODELS.ini [--spawn NAME] [--data auto|packed|unpacked] [--compound N] [--capture NEW.png | --smoke | --captures DIR] [--fallback] [--diagnostic] [--rgba-textures] | suspension CAR_DIRECTORY [--data auto|packed|unpacked] | spawns MODELS.ini | place CAR_DIRECTORY MODELS.ini SURFACES.ini [--defaults SURFACES.ini] [--spawn NAME] [--data auto|packed|unpacked] [--compound N] | ground MODELS.ini SURFACES.ini [--defaults SURFACES.ini] [--probe X Y Z]... [--distance D] | car CAR_DIRECTORY [--data auto|packed|unpacked] [--compound N] | acd FILE.acd CAR_ID | inspect SCENE | materials SCENE | render SCENE NEW.png [--fallback] [--diagnostic] [--rgba-textures] | view SCENE [--fallback] [--diagnostic] [--rgba-textures] [--captures DIR] [--capture NEW.png] [--smoke] | ini FILE.ini | lut FILE.lut [--sample X]. SCENE is a KN5 file or an explicit models.ini/models_LAYOUT.ini path.";
     let command = args.first().and_then(|v| v.to_str()).ok_or(usage)?;
     match command {
         "suspension-motion" if args.len() >= 7 => {
@@ -49,6 +49,7 @@ fn run() -> Result<(), Box<dyn Error>> {
             let axis = [number(&args[4])?, number(&args[5])?, number(&args[6])?];
             let mut mode = asc_vehicle::data::Mode::Auto;
             let mut rack = [0.; 3];
+            let mut probe: Option<app::suspension::MotionProbe> = None;
             let mut flags = args[7..].iter();
             let mut seen = std::collections::HashSet::new();
             while let Some(flag) = flags.next() {
@@ -57,6 +58,30 @@ fn run() -> Result<(), Box<dyn Error>> {
                     return Err("Duplicate suspension-motion option".into());
                 }
                 match flag {
+                    "--differential" => {
+                        probe.get_or_insert_with(Default::default);
+                    }
+                    "--rates" => {
+                        probe.get_or_insert_with(Default::default).rates_m_s = [
+                            number(flags.next().ok_or(usage)?)?,
+                            number(flags.next().ok_or(usage)?)?,
+                            number(flags.next().ok_or(usage)?)?,
+                            number(flags.next().ok_or(usage)?)?,
+                        ];
+                    }
+                    "--load" => {
+                        let p = probe.get_or_insert_with(Default::default);
+                        p.force_n = [
+                            number(flags.next().ok_or(usage)?)?,
+                            number(flags.next().ok_or(usage)?)?,
+                            number(flags.next().ok_or(usage)?)?,
+                        ];
+                        p.torque_about_upright_origin_nm = [
+                            number(flags.next().ok_or(usage)?)?,
+                            number(flags.next().ok_or(usage)?)?,
+                            number(flags.next().ok_or(usage)?)?,
+                        ];
+                    }
                     "--rack" => {
                         rack = [
                             number(flags.next().ok_or(usage)?)?,
@@ -83,7 +108,8 @@ fn run() -> Result<(), Box<dyn Error>> {
                     travel,
                     axis,
                     rack,
-                    mode
+                    mode,
+                    probe
                 )?)?
             );
         }

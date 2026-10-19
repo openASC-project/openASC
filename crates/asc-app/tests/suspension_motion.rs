@@ -105,3 +105,78 @@ fn cli_solves_original_source_fixture_and_rejects_unsupported_or_ambiguous_reque
     }
     assert_eq!(fs::read(file).unwrap(), before);
 }
+
+#[test]
+fn cli_exposes_explicit_rates_loads_and_massless_balance_for_both_topologies() {
+    let fixture = fixture();
+    let rates = [0.17, 0.025, -0.012, 0.009];
+    let force = [120., 2300., -300.];
+    let torque = [40., -15., 25.];
+    for axle in ["front", "rear"] {
+        let output = Command::new(env!("CARGO_BIN_EXE_openasc"))
+            .arg("suspension-motion")
+            .arg(&fixture.0)
+            .args([
+                axle, "0.035", "0", "1", "0", "--rack", "0.004", "0", "0", "--rates", "0.17",
+                "0.025", "-0.012", "0.009", "--load", "120", "2300", "-300", "40", "-15", "25",
+            ])
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+        let value: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+        assert_eq!(value["simulation_ready"], false);
+        let probe = &value["differential_probe"];
+        assert_eq!(probe["mapping"]["columns"].as_array().unwrap().len(), 4);
+        assert_eq!(probe["dynamic_vehicle_simulation"], false);
+        assert_eq!(probe["generated_tyre_or_spring_loads"], false);
+        assert_eq!(probe["support_reaction_excludes_travel_actuator"], true);
+        assert!(
+            (probe["relative_velocity"]["velocity_m_s"][1]
+                .as_f64()
+                .unwrap()
+                - rates[0])
+                .abs()
+                < 1e-9
+        );
+        let v = &probe["relative_velocity"]["velocity_m_s"];
+        let w = &probe["relative_velocity"]["angular_velocity_rad_s"];
+        let power: f64 = (0..3)
+            .map(|i| force[i] * v[i].as_f64().unwrap() + torque[i] * w[i].as_f64().unwrap())
+            .sum();
+        let q = &probe["generalized_loads"];
+        let actuator = q["travel_n"].as_f64().unwrap() * rates[0]
+            + (0..3)
+                .map(|i| q["steering_anchor_n"][i].as_f64().unwrap() * rates[i + 1])
+                .sum::<f64>();
+        assert!((power - actuator).abs() < 1e-8);
+        for key in ["force_balance_residual_n", "torque_balance_residual_nm"] {
+            assert!(
+                probe["held_massless_balance"][key]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .all(|v| v.as_f64().unwrap().abs() < 1e-8)
+            );
+        }
+    }
+    for extra in [
+        vec!["--rates", "NaN", "0", "0", "0"],
+        vec!["--load", "1e19", "0", "0", "0", "0", "0"],
+        vec!["--rates", "1", "2"],
+        vec!["--differential", "--differential"],
+    ] {
+        let output = Command::new(env!("CARGO_BIN_EXE_openasc"))
+            .arg("suspension-motion")
+            .arg(&fixture.0)
+            .args(["front", "0.035", "0", "1", "0"])
+            .args(extra)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+    }
+}

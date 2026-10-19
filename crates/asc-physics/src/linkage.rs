@@ -3,7 +3,7 @@ use crate::{Error, Result};
 use glam::{DQuat, DVec3};
 use serde::Serialize;
 
-const TOLERANCE: f64 = 1e-10;
+pub(super) const TOLERANCE: f64 = 1e-10;
 #[derive(Clone, Copy, Debug)]
 pub struct LinkPose {
     pub(super) position: DVec3,
@@ -113,6 +113,18 @@ impl FiveLink {
     pub fn rest_lengths_m(&self) -> [f64; 5] {
         self.lengths
     }
+    /// Local velocity/load map at a converged configuration in the fixed frame.
+    pub fn differential(
+        &self,
+        travel_m: f64,
+        steering_anchor_offset_m: [f64; 3],
+        pose: LinkPose,
+    ) -> Result<crate::LinkDifferential> {
+        let steering = command(travel_m, steering_anchor_offset_m)?;
+        local_pose(self.reference, pose)?;
+        let (residual, jacobian) = self.system(pose, travel_m, steering)?;
+        crate::LinkDifferential::new(pose, self.rotational_scale, residual, jacobian, 4)
+    }
     fn system(&self, pose: LinkPose, travel: f64, steering: DVec3) -> Result<System> {
         let mut residual = [0.; 6];
         let mut jacobian = [[0.; 6]; 6];
@@ -176,23 +188,10 @@ pub(super) fn solve_local(
     seed: Option<LinkPose>,
     system: impl Fn(LinkPose, f64, DVec3) -> Result<System>,
 ) -> Result<(LinkPose, [f64; 6], u32)> {
-    let steering = point(steering_anchor_offset_m)?;
-    if !travel_m.is_finite() || travel_m.abs() > 0.25 || steering.length() > 0.25 {
-        return Err(error(
-            "Travel and steering anchor displacement are limited to +/-0.25 metres",
-        ));
-    }
+    let steering = command(travel_m, steering_anchor_offset_m)?;
     let mut pose = seed.unwrap_or(reference);
     for iteration in 0..=40 {
-        if !pose.position.is_finite()
-            || pose.position.abs().max_element() > 100.
-            || (pose.position - reference.position).length() > 0.5
-            || pose.rotation.angle_between(reference.rotation) > 1.
-        {
-            return Err(error(
-                "Solution/seed exceeds the local 0.5 m / 1 radian assembly branch",
-            ));
-        }
+        local_pose(reference, pose)?;
         let (residual, jacobian) = system(pose, travel_m, steering)?;
         let step = linear(jacobian, residual.map(|r| -r))?;
         if residual.iter().all(|r| r.abs() <= TOLERANCE) {
@@ -226,6 +225,28 @@ pub(super) fn solve_local(
             .ok_or_else(|| error("Local linkage Newton search made no residual progress"))?;
     }
     Err(error("Local linkage solve exceeded 40 iterations"))
+}
+
+pub(super) fn command(travel_m: f64, steering_anchor_offset_m: [f64; 3]) -> Result<DVec3> {
+    let steering = point(steering_anchor_offset_m)?;
+    if !travel_m.is_finite() || travel_m.abs() > 0.25 || steering.length() > 0.25 {
+        return Err(error(
+            "Travel and steering anchor displacement are limited to +/-0.25 metres",
+        ));
+    }
+    Ok(steering)
+}
+pub(super) fn local_pose(reference: LinkPose, pose: LinkPose) -> Result<()> {
+    if !pose.position.is_finite()
+        || pose.position.abs().max_element() > 100.
+        || (pose.position - reference.position).length() > 0.5
+        || pose.rotation.angle_between(reference.rotation) > 1.
+    {
+        return Err(error(
+            "Solution/seed exceeds the local 0.5 m / 1 radian assembly branch",
+        ));
+    }
+    Ok(())
 }
 
 /// Partial-pivot elimination of column-scaled constraints; small pivots reject
