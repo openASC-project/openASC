@@ -15,3 +15,11 @@ cargo run --locked -p asc-app -- chassis-run examples/chassis-suspension.json
 ```
 
 Car paths resolve relative to the JSON file. See the [coupled configuration guide](../docs/USER_GUIDE.md#native-coupled-chassis-dynamics) and [validation](../docs/FORMATS.md#coupled-chassis-dynamics-validation).
+
+`chassis-wheels.json` adds four separate axisymmetric wheel rotors and internal wheel/upright motors. The synthetic per-corner mass is explicitly split into a 15 kg upright and 20 kg wheel; their tensors are separate too. Its axle conventions and +/-8 N m motor values are diagnostic choices, not a vehicle calibration, driveline or brake law. Zero gravity and absent road contact isolate internal recoil and motor work.
+
+```sh
+cargo run --locked -p asc-app -- chassis-run examples/chassis-wheels.json
+```
+
+See [wheel inputs and reactions](../docs/USER_GUIDE.md#native-wheel-rotation-and-motor-reactions) and [validation](../docs/FORMATS.md#axisymmetric-wheel-dynamics-validation).

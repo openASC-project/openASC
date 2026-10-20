@@ -523,3 +523,90 @@ fn cli_rejects_coupled_schema_frame_resource_limits_and_failed_run_without_parti
         assert!(output.stdout.is_empty());
     }
 }
+
+fn wheel_configuration() -> serde_json::Value {
+    let mut config: serde_json::Value =
+        serde_json::from_str(include_str!("../../../examples/chassis-wheels.json")).unwrap();
+    for u in config["uprights"].as_array_mut().unwrap() {
+        u["car_directory"] = ".".into();
+    }
+    config
+}
+#[test]
+fn cli_couples_four_explicit_wheels_motor_reactions_and_additional_mass() {
+    let fixture = fixture();
+    let path = fixture.0.join("wheels.json");
+    fs::write(&path, wheel_configuration().to_string()).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_openasc"))
+        .arg("chassis-run")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["wheel_spin_dofs"], 4);
+    assert_eq!(report["wheel_mass_is_additional_to_upright"], true);
+    assert_eq!(report["simulation_ready"], false);
+    let records = report["records"].as_array().unwrap();
+    assert_eq!(records.len(), 26);
+    assert_eq!(records[0]["sample"]["total_mass_kg"], 1140.);
+    for u in records.last().unwrap()["sample"]["uprights"]
+        .as_array()
+        .unwrap()
+    {
+        let wheel = &u["wheel"];
+        assert!(wheel["state"]["rate_rad_s"].as_f64().unwrap().abs() > 0.1);
+        assert!(wheel["state"]["angle_rad"].as_f64().unwrap().abs() > 0.01);
+        assert!(wheel["spin_balance_residual_nm"].as_f64().unwrap().abs() < 1e-7);
+        let drive = wheel["drive_torque_nm"].as_f64().unwrap();
+        for i in 0..3 {
+            assert!(
+                (wheel["motor_reaction_on_upright_world_nm"][i]
+                    .as_f64()
+                    .unwrap()
+                    + drive * wheel["axis_world"][i].as_f64().unwrap())
+                .abs()
+                    < 1e-8
+            );
+        }
+    }
+}
+#[test]
+fn cli_rejects_invalid_rotor_inertia_axis_state_and_unknown_wheel_fields() {
+    let fixture = fixture();
+    let path = fixture.0.join("wheels.json");
+    let template = wheel_configuration();
+    let mut cases = Vec::new();
+    for (key, value) in [
+        ("axle_in_upright", serde_json::json!([0, 0, 0])),
+        ("mass_kg", (-1).into()),
+        ("axial_inertia_kg_m2", 10.into()),
+        ("initial_rate_rad_s", 100001.into()),
+        ("initial_angle_rad", 1e10.into()),
+        ("unknown", true.into()),
+    ] {
+        let mut c = template.clone();
+        c["uprights"][0]["wheel"][key] = value;
+        cases.push(c);
+    }
+    let mut missing = template.clone();
+    missing["uprights"][0]["wheel"]
+        .as_object_mut()
+        .unwrap()
+        .remove("transverse_inertia_kg_m2");
+    cases.push(missing);
+    for c in cases {
+        fs::write(&path, c.to_string()).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_openasc"))
+            .arg("chassis-run")
+            .arg(&path)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+    }
+}

@@ -1,7 +1,8 @@
 //! Floating chassis with 1..4 massive uprights, fixed racks and massless links.
 use crate::{
     Body, ConstraintBalance, Error, LinkDifferential, LinkLoad, LinkPose, LinkSpring,
-    LinkSpringSample, MassProperties, Result, State, TravelMechanism, TravelState, Wrench,
+    LinkSpringSample, MassProperties, Result, State, TravelMechanism, TravelState, Wheel,
+    WheelLoad, WheelSample, WheelState, Wrench,
 };
 use glam::{DQuat, DVec3};
 use serde::Serialize;
@@ -35,6 +36,7 @@ pub struct MountedUpright {
     springs: Vec<LinkSpring>,
     state: TravelState,
     pose: LinkPose,
+    wheel: Option<Wheel>,
 }
 impl MountedUpright {
     /// Frame pose maps source linkage coordinates into chassis-local COM axes.
@@ -59,6 +61,7 @@ impl MountedUpright {
             springs: Vec::new(),
             state,
             pose: map.pose(),
+            wheel: None,
         })
     }
     pub fn add_spring(&mut self, spring: LinkSpring) -> Result<()> {
@@ -73,6 +76,21 @@ impl MountedUpright {
             .map(self.state.travel_m, self.rack, Some(self.pose))?;
         spring.sample(&map, self.state.rate_m_s, [0.; 3])?;
         self.springs.push(spring);
+        Ok(())
+    }
+    pub fn attach_wheel(&mut self, wheel: Wheel) -> Result<()> {
+        if self.wheel.is_some() {
+            return Err(Error::new(
+                "physics_wheel_attachment",
+                "An upright already has a wheel",
+            ));
+        }
+        let map = self
+            .geometry
+            .map(self.state.travel_m, self.rack, Some(self.pose))?;
+        map.velocity(self.state.rate_m_s, [0.; 3])?
+            .point_velocity_m_s(wheel.center.to_array())?;
+        self.wheel = Some(wheel);
         Ok(())
     }
 }
@@ -92,6 +110,8 @@ pub struct UprightSample {
     pub support_torque_about_chassis_com_world_nm: [f64; 3],
     pub spring_force_on_chassis_world_n: [f64; 3],
     pub spring_torque_about_chassis_com_world_nm: [f64; 3],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wheel: Option<WheelSample>,
 }
 #[derive(Debug, Serialize)]
 pub struct ChassisSample {
@@ -127,11 +147,27 @@ struct Prepared {
     omega: DVec3,
     bias_a: DVec3,
     bias_alpha: DVec3,
-    jv: [DVec3; 10],
-    jw: [DVec3; 10],
+    jv: [DVec3; 14],
+    jw: [DVec3; 14],
     applied_force: DVec3,
     applied_torque: DVec3,
     springs: Vec<LinkSpringSample>,
+    wheel: Option<PreparedWheel>,
+}
+struct PreparedWheel {
+    spin_index: usize,
+    axis: DVec3,
+    orientation: DQuat,
+    center: DVec3,
+    com_lever: DVec3,
+    velocity: DVec3,
+    omega: DVec3,
+    bias_a: DVec3,
+    bias_alpha: DVec3,
+    jv: [DVec3; 14],
+    jw: [DVec3; 14],
+    applied_force: DVec3,
+    applied_com_torque: DVec3,
 }
 impl ChassisSystem {
     pub fn new(
@@ -158,10 +194,23 @@ impl ChassisSystem {
     }
     /// External world wrenches are about each body's COM; one per upright.
     pub fn sample(&self, chassis_load: Wrench, upright_loads: &[Wrench]) -> Result<ChassisSample> {
-        if upright_loads.len() != self.uprights.len() {
+        self.sample_with_wheels(
+            chassis_load,
+            upright_loads,
+            &vec![WheelLoad::default(); self.uprights.len()],
+        )
+    }
+    /// Wheel slots align with upright slots; a slot without a wheel must be zero.
+    pub fn sample_with_wheels(
+        &self,
+        chassis_load: Wrench,
+        upright_loads: &[Wrench],
+        wheel_loads: &[WheelLoad],
+    ) -> Result<ChassisSample> {
+        if upright_loads.len() != self.uprights.len() || wheel_loads.len() != self.uprights.len() {
             return Err(Error::new(
                 "physics_chassis_loads",
-                "Expected exactly one COM wrench per upright",
+                "Expected one upright wrench and one wheel-load slot per upright",
             ));
         }
         let state = self.chassis.state();
@@ -171,9 +220,10 @@ impl ChassisSystem {
         let omega = DVec3::from_array(state.angular_velocity_world_rad_s);
         let properties = self.chassis.properties();
         let axes = [DVec3::X, DVec3::Y, DVec3::Z];
-        let n = 6 + self.uprights.len();
-        let mut matrix = [[0.; 10]; 10];
-        let mut rhs = [0.; 10];
+        let mut next_spin = 6 + self.uprights.len();
+        let n = next_spin + self.uprights.iter().filter(|u| u.wheel.is_some()).count();
+        let mut matrix = [[0.; 14]; 14];
+        let mut rhs = [0.; 14];
         let chassis_force =
             DVec3::from_array(chassis_load.force_world_n()) + properties.mass * self.gravity;
         let chassis_torque = DVec3::from_array(chassis_load.torque_world_nm());
@@ -224,7 +274,7 @@ impl ChassisSystem {
             let angular_gradient = DVec3::from_array(column.angular_rad_per_m);
             let com_gradient = DVec3::from_array(column.origin_per_m)
                 + angular_gradient.cross(pose.rotation * DVec3::from_array(upright.com));
-            let mut jv = [DVec3::ZERO; 10];
+            let mut jv = [DVec3::ZERO; 14];
             let mut jw = jv;
             for i in 0..3 {
                 jv[i] = axes[i];
@@ -259,6 +309,78 @@ impl ChassisSystem {
                 springs.push(sample);
             }
             potential -= mass * self.gravity.dot(center);
+            let wheel = if let Some(wheel) = &upright.wheel {
+                wheel.state.validate()?;
+                let load = wheel_loads[index];
+                let spin_index = next_spin;
+                next_spin += 1;
+                let axis = orientation * wheel.axis;
+                let wheel_com_lever = orientation * wheel.center;
+                let wheel_lever = frame_lever + frame_rotation * pose.position + wheel_com_lever;
+                let center = position + wheel_lever;
+                let wheel_v_relative = frame_rotation
+                    * DVec3::from_array(relative.point_velocity_m_s(wheel.center.to_array())?);
+                let wheel_v = velocity + omega.cross(wheel_lever) + wheel_v_relative;
+                let wheel_w = point_w + axis * wheel.state.rate_rad_s;
+                let wheel_bias_a = omega.cross(omega.cross(wheel_lever))
+                    + 2. * omega.cross(wheel_v_relative)
+                    + frame_rotation
+                        * DVec3::from_array(bias.point_acceleration_m_s2(wheel.center.to_array())?);
+                let wheel_bias_alpha = bias_alpha + point_w.cross(axis * wheel.state.rate_rad_s);
+                let mut wheel_jv = [DVec3::ZERO; 14];
+                let mut wheel_jw = jw;
+                for i in 0..3 {
+                    wheel_jv[i] = axes[i];
+                    wheel_jv[3 + i] = axes[i].cross(wheel_lever);
+                }
+                wheel_jv[6 + index] = frame_rotation
+                    * (DVec3::from_array(column.origin_per_m)
+                        + angular_gradient.cross(pose.rotation * wheel.center));
+                wheel_jw[spin_index] = axis;
+                let force = DVec3::from_array(load.external.force_world_n())
+                    + wheel.properties.mass * self.gravity;
+                let torque = DVec3::from_array(load.external.torque_world_nm());
+                let wheel_inertia = |v| inertia(&wheel.properties, orientation, v);
+                let bias_torque =
+                    wheel_inertia(wheel_bias_alpha) + wheel_w.cross(wheel_inertia(wheel_w));
+                for i in 0..n {
+                    rhs[i] += wheel_jv[i].dot(force - wheel.properties.mass * wheel_bias_a)
+                        + wheel_jw[i].dot(torque - bias_torque);
+                    for j in 0..n {
+                        matrix[i][j] += wheel.properties.mass * wheel_jv[i].dot(wheel_jv[j])
+                            + wheel_jw[i].dot(wheel_inertia(wheel_jw[j]));
+                    }
+                }
+                rhs[spin_index] += load.drive;
+                potential -= wheel.properties.mass * self.gravity.dot(center);
+                let spin = DQuat::from_axis_angle(
+                    wheel.axis,
+                    wheel.state.angle_rad.rem_euclid(std::f64::consts::TAU),
+                );
+                Some(PreparedWheel {
+                    spin_index,
+                    axis,
+                    orientation: orientation * spin,
+                    center,
+                    com_lever: wheel_com_lever,
+                    velocity: wheel_v,
+                    omega: wheel_w,
+                    bias_a: wheel_bias_a,
+                    bias_alpha: wheel_bias_alpha,
+                    jv: wheel_jv,
+                    jw: wheel_jw,
+                    applied_force: force,
+                    applied_com_torque: torque,
+                })
+            } else {
+                if !wheel_loads[index].is_zero() {
+                    return Err(Error::new(
+                        "physics_wheel_load",
+                        "Nonzero wheel load requires an attached wheel",
+                    ));
+                }
+                None
+            };
             prepared.push(Prepared {
                 map,
                 frame_rotation,
@@ -275,6 +397,7 @@ impl ChassisSystem {
                 applied_force: total_force,
                 applied_torque: applied_origin_torque,
                 springs,
+                wheel,
             });
         }
         for value in &rhs[..n] {
@@ -317,13 +440,96 @@ impl ChassisSystem {
                 + p.omega
                     .cross(inertia(&upright.properties, p.orientation, p.omega))
                 + p.com_lever.cross(inertial_force);
+            let mut applied_force = p.applied_force;
+            let mut applied_torque = p.applied_torque;
+            let wheel_sample = if let (Some(wheel), Some(prepared)) = (&upright.wheel, &p.wheel) {
+                let mut wheel_a = prepared.bias_a;
+                let mut wheel_alpha = prepared.bias_alpha;
+                for (i, accel) in accelerations.iter().enumerate().take(n) {
+                    wheel_a += prepared.jv[i] * *accel;
+                    wheel_alpha += prepared.jw[i] * *accel;
+                }
+                vector(wheel_a, 1e13)?;
+                vector(wheel_alpha, 1e9)?;
+                let body = Body::new(
+                    wheel.properties.clone(),
+                    prepared.center.to_array(),
+                    prepared.orientation.to_array(),
+                    prepared.velocity.to_array(),
+                    prepared.omega.to_array(),
+                )?
+                .state();
+                let wheel_force = wheel.properties.mass * wheel_a;
+                let wheel_torque = inertia(&wheel.properties, p.orientation, wheel_alpha)
+                    + prepared.omega.cross(inertia(
+                        &wheel.properties,
+                        p.orientation,
+                        prepared.omega,
+                    ));
+                vector(wheel_force, 1e18)?;
+                vector(wheel_torque, 1e18)?;
+                let load = wheel_loads[index];
+                let residual = prepared
+                    .axis
+                    .dot(wheel_torque - prepared.applied_com_torque)
+                    - load.drive;
+                let scale = wheel_torque
+                    .abs()
+                    .max_element()
+                    .max(prepared.applied_com_torque.abs().max_element())
+                    .max(load.drive.abs())
+                    .max(1.);
+                if residual.abs() > 1e-7 * scale {
+                    return Err(Error::new(
+                        "physics_wheel_balance",
+                        "Wheel spin equation exceeds residual tolerance",
+                    ));
+                }
+                let reaction_force = prepared.applied_force - wheel_force;
+                let reaction_torque = prepared.applied_com_torque - wheel_torque
+                    + prepared.com_lever.cross(reaction_force);
+                vector(reaction_force, 1e18)?;
+                vector(reaction_torque, 1e18)?;
+                vector(
+                    prepared.applied_com_torque + prepared.axis * load.drive - wheel_torque,
+                    1e18,
+                )?;
+                applied_force += reaction_force;
+                applied_torque += reaction_torque;
+                total_mass += wheel.properties.mass;
+                total_center += wheel.properties.mass * prepared.center;
+                let wheel_momentum = DVec3::from_array(body.linear_momentum_world_kg_m_s);
+                momentum += wheel_momentum;
+                angular_momentum += prepared.center.cross(wheel_momentum)
+                    + DVec3::from_array(body.angular_momentum_world_kg_m2_s);
+                kinetic += body.kinetic_energy_j;
+                Some(WheelSample {
+                    state: wheel.state,
+                    spin_acceleration_rad_s2: accelerations[prepared.spin_index],
+                    axis_world: prepared.axis.to_array(),
+                    body,
+                    acceleration_world_m_s2: wheel_a.to_array(),
+                    angular_acceleration_world_rad_s2: wheel_alpha.to_array(),
+                    drive_torque_nm: load.drive,
+                    spin_balance_residual_nm: residual,
+                    force_on_upright_world_n: reaction_force.to_array(),
+                    torque_about_upright_origin_world_nm: reaction_torque.to_array(),
+                    motor_reaction_on_upright_world_nm: (-prepared.axis * load.drive).to_array(),
+                    bearing_torque_about_wheel_com_on_upright_world_nm: (prepared
+                        .applied_com_torque
+                        + prepared.axis * load.drive
+                        - wheel_torque)
+                        .to_array(),
+                })
+            } else {
+                None
+            };
             let load = LinkLoad::new(
-                (p.frame_rotation.conjugate() * (p.applied_force - inertial_force)).to_array(),
-                (p.frame_rotation.conjugate() * (p.applied_torque - inertial_torque)).to_array(),
+                (p.frame_rotation.conjugate() * (applied_force - inertial_force)).to_array(),
+                (p.frame_rotation.conjugate() * (applied_torque - inertial_torque)).to_array(),
             )?;
             let balance = p.map.hold_load(load)?;
-            let scale = p
-                .applied_force
+            let scale = applied_force
                 .abs()
                 .max_element()
                 .max(inertial_force.abs().max_element())
@@ -374,6 +580,7 @@ impl ChassisSystem {
                 support_torque_about_chassis_com_world_nm: support_torque.to_array(),
                 spring_force_on_chassis_world_n: spring_force.to_array(),
                 spring_torque_about_chassis_com_world_nm: spring_torque.to_array(),
+                wheel: wheel_sample,
             });
         }
         let force_error = force_on_chassis - properties.mass * chassis_a;
@@ -449,6 +656,22 @@ impl ChassisSystem {
             };
             next.state.validate()?;
             next.pose = LinkPose::new(slope.source_position_m, slope.source_orientation_xyzw)?;
+            match (&mut next.wheel, &base.wheel, &slope.wheel) {
+                (Some(next), Some(base), Some(slope)) => {
+                    next.state = WheelState {
+                        angle_rad: base.state.angle_rad + dt * slope.state.rate_rad_s,
+                        rate_rad_s: base.state.rate_rad_s + dt * slope.spin_acceleration_rad_s2,
+                    };
+                    next.state.validate()?;
+                }
+                (None, None, None) => {}
+                _ => {
+                    return Err(Error::new(
+                        "physics_wheel_state",
+                        "Inconsistent wheel topology in integration stage",
+                    ));
+                }
+            }
         }
         Ok(candidate)
     }
@@ -460,17 +683,32 @@ impl ChassisSystem {
         chassis_load: Wrench,
         upright_loads: &[Wrench],
     ) -> Result<ChassisSample> {
+        self.step_with_wheels(
+            dt_s,
+            chassis_load,
+            upright_loads,
+            &vec![WheelLoad::default(); self.uprights.len()],
+        )
+    }
+    pub fn step_with_wheels(
+        &mut self,
+        dt_s: f64,
+        chassis_load: Wrench,
+        upright_loads: &[Wrench],
+        wheel_loads: &[WheelLoad],
+    ) -> Result<ChassisSample> {
         if !dt_s.is_finite() || !(1e-6..=1. / 30.).contains(&dt_s) {
             return Err(Error::new(
                 "physics_chassis_step",
                 "Step must lie within 1e-6..1/30 seconds",
             ));
         }
-        let first = self.sample(chassis_load, upright_loads)?;
+        let first = self.sample_with_wheels(chassis_load, upright_loads, wheel_loads)?;
         let middle = self.advance(&first, 0.5 * dt_s)?;
-        let midpoint = middle.sample(chassis_load, upright_loads)?;
+        let midpoint = middle.sample_with_wheels(chassis_load, upright_loads, wheel_loads)?;
         let mut final_system = self.advance(&midpoint, dt_s)?;
-        let final_sample = final_system.sample(chassis_load, upright_loads)?;
+        let final_sample =
+            final_system.sample_with_wheels(chassis_load, upright_loads, wheel_loads)?;
         for (upright, sample) in final_system.uprights.iter_mut().zip(&final_sample.uprights) {
             upright.pose = LinkPose::new(sample.source_position_m, sample.source_orientation_xyzw)?;
         }

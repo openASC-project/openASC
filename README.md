@@ -30,6 +30,7 @@ cargo run --locked -p asc-app -- suspension-motion ./assettocorsa/content/cars/b
 cargo run --locked -p asc-app -- suspension-motion ./assettocorsa/content/cars/bmw_m3_e30 front 0.025 0 1 0
 cargo run --locked -p asc-app -- suspension-run ./assettocorsa/content/cars/bmw_m3_e30 front examples/suspension-travel.json
 cargo run --locked -p asc-app -- chassis-run examples/chassis-suspension.json
+cargo run --locked -p asc-app -- chassis-run examples/chassis-wheels.json
 cargo run --locked -p asc-app -- preview ./assettocorsa/content/cars/bmw_m3_e30 ./assettocorsa/content/tracks/drift/models.ini
 ```
 
@@ -47,7 +48,9 @@ An explicit `--spring AX AY AZ BX BY BZ REST K` mount, with optional `--damping 
 
 Native `suspension-run` advances one massive DWB/STRUT upright on a fixed frame and fixed rack, with an explicit COM/tensor, gravity and spring mounts. The example configuration uses synthetic parameters. It reports constrained motion, energy and dynamic support reactions; its frame stays fixed. See the [dynamic workbench](docs/USER_GUIDE.md#native-fixed-frame-suspension-dynamics) or the coupled workbench below.
 
-Native `chassis-run` couples a floating chassis to one to four massive uprights, solving chassis acceleration/rotation and suspension travel together. It reports spring recoil, dynamic supports, system momentum and energy. Masses, tensors and mounting frames are explicit synthetic inputs in the example; automatic AC side/setup mapping, wheel spin, tyres/contact and native rendered driving remain incomplete. See [coupled dynamics](docs/USER_GUIDE.md#native-coupled-chassis-dynamics).
+Native `chassis-run` couples a floating chassis to one to four massive uprights, solving chassis acceleration/rotation and suspension travel together. It reports spring recoil, dynamic supports, system momentum and energy. Masses, tensors and mounting frames are explicit synthetic inputs in the example; automatic AC side/setup mapping, tyres/contact and native rendered driving remain incomplete. See [coupled dynamics](docs/USER_GUIDE.md#native-coupled-chassis-dynamics).
+
+Optional axisymmetric wheels now add separate mass/inertia and spin coordinates to the same solve. The wheel example exercises internal wheel/upright motor torque, opposite motor reaction and gyroscopic transport. Upright mass/tensor must exclude the separately supplied wheel. These explicit motors do not implement AC drivetrain/brake behavior or road traction. See [wheel rotation](docs/USER_GUIDE.md#native-wheel-rotation-and-motor-reactions).
 
 The existing content tools, browser viewer and keyboard-driving prototype require Python 3.10+. No third-party Python packages are needed.
 

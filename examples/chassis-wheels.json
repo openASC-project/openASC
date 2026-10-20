@@ -1,0 +1,524 @@
+{
+  "schema_version": 1,
+  "chassis": {
+    "mass_kg": 1000,
+    "inertia_rows_kg_m2": [
+      [
+        500,
+        0,
+        0
+      ],
+      [
+        0,
+        1000,
+        0
+      ],
+      [
+        0,
+        0,
+        900
+      ]
+    ],
+    "position_world_m": [
+      0,
+      0,
+      0
+    ],
+    "orientation_xyzw": [
+      0,
+      0,
+      0,
+      1
+    ],
+    "velocity_world_m_s": [
+      0,
+      0,
+      0
+    ],
+    "angular_velocity_world_rad_s": [
+      0,
+      0,
+      0
+    ],
+    "external_force_world_n": [
+      0,
+      0,
+      0
+    ],
+    "external_torque_about_com_world_nm": [
+      0,
+      0,
+      0
+    ]
+  },
+  "gravity_world_m_s2": [
+    0,
+    0,
+    0
+  ],
+  "step_s": 0.001,
+  "steps": 250,
+  "record_every": 10,
+  "uprights": [
+    {
+      "car_directory": "../assettocorsa/content/cars/bmw_m3_e30",
+      "axle": "front",
+      "data": "auto",
+      "travel_axis": [
+        0,
+        1,
+        0
+      ],
+      "rack_m": [
+        0,
+        0,
+        0
+      ],
+      "frame_position_in_chassis_m": [
+        0.8,
+        0,
+        1.2
+      ],
+      "frame_orientation_xyzw": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "mass_kg": 15,
+      "inertia_rows_kg_m2": [
+        [
+          0.4,
+          0.03,
+          0.02
+        ],
+        [
+          0.03,
+          0.5,
+          -0.01
+        ],
+        [
+          0.02,
+          -0.01,
+          0.6
+        ]
+      ],
+      "center_of_mass_local_m": [
+        0.04,
+        -0.03,
+        0.02
+      ],
+      "initial_travel_m": 0.025,
+      "initial_rate_m_s": 0,
+      "springs": [
+        {
+          "fixed_anchor_m": [
+            0,
+            0.6,
+            0
+          ],
+          "upright_local_point_m": [
+            0.07,
+            -0.08,
+            0.1
+          ],
+          "rest_length_m": 0.65,
+          "stiffness_n_m": 12000,
+          "compression": {
+            "slow_n_s_m": 80,
+            "fast_n_s_m": 20,
+            "knee_m_s": 0.05
+          },
+          "rebound": {
+            "slow_n_s_m": 140,
+            "fast_n_s_m": 30,
+            "knee_m_s": 0.07
+          }
+        }
+      ],
+      "external_force_world_n": [
+        0,
+        0,
+        0
+      ],
+      "external_torque_about_com_world_nm": [
+        0,
+        0,
+        0
+      ],
+      "wheel": {
+        "center_in_upright_m": [
+          0,
+          0,
+          0
+        ],
+        "axle_in_upright": [
+          1,
+          0,
+          0
+        ],
+        "mass_kg": 20,
+        "axial_inertia_kg_m2": 1.2,
+        "transverse_inertia_kg_m2": 0.7,
+        "initial_angle_rad": 0,
+        "initial_rate_rad_s": 0,
+        "external_force_world_n": [
+          0,
+          0,
+          0
+        ],
+        "external_torque_about_com_world_nm": [
+          0,
+          0,
+          0
+        ],
+        "drive_torque_nm": 8
+      }
+    },
+    {
+      "car_directory": "../assettocorsa/content/cars/bmw_m3_e30",
+      "axle": "front",
+      "data": "auto",
+      "travel_axis": [
+        0,
+        1,
+        0
+      ],
+      "rack_m": [
+        0,
+        0,
+        0
+      ],
+      "frame_position_in_chassis_m": [
+        -0.8,
+        0,
+        1.2
+      ],
+      "frame_orientation_xyzw": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "mass_kg": 15,
+      "inertia_rows_kg_m2": [
+        [
+          0.4,
+          0.03,
+          0.02
+        ],
+        [
+          0.03,
+          0.5,
+          -0.01
+        ],
+        [
+          0.02,
+          -0.01,
+          0.6
+        ]
+      ],
+      "center_of_mass_local_m": [
+        0.04,
+        -0.03,
+        0.02
+      ],
+      "initial_travel_m": 0.025,
+      "initial_rate_m_s": 0,
+      "springs": [
+        {
+          "fixed_anchor_m": [
+            0,
+            0.6,
+            0
+          ],
+          "upright_local_point_m": [
+            0.07,
+            -0.08,
+            0.1
+          ],
+          "rest_length_m": 0.65,
+          "stiffness_n_m": 12000,
+          "compression": {
+            "slow_n_s_m": 80,
+            "fast_n_s_m": 20,
+            "knee_m_s": 0.05
+          },
+          "rebound": {
+            "slow_n_s_m": 140,
+            "fast_n_s_m": 30,
+            "knee_m_s": 0.07
+          }
+        }
+      ],
+      "external_force_world_n": [
+        0,
+        0,
+        0
+      ],
+      "external_torque_about_com_world_nm": [
+        0,
+        0,
+        0
+      ],
+      "wheel": {
+        "center_in_upright_m": [
+          0,
+          0,
+          0
+        ],
+        "axle_in_upright": [
+          1,
+          0,
+          0
+        ],
+        "mass_kg": 20,
+        "axial_inertia_kg_m2": 1.2,
+        "transverse_inertia_kg_m2": 0.7,
+        "initial_angle_rad": 0,
+        "initial_rate_rad_s": 0,
+        "external_force_world_n": [
+          0,
+          0,
+          0
+        ],
+        "external_torque_about_com_world_nm": [
+          0,
+          0,
+          0
+        ],
+        "drive_torque_nm": -8
+      }
+    },
+    {
+      "car_directory": "../assettocorsa/content/cars/bmw_m3_e30",
+      "axle": "rear",
+      "data": "auto",
+      "travel_axis": [
+        0,
+        1,
+        0
+      ],
+      "rack_m": [
+        0,
+        0,
+        0
+      ],
+      "frame_position_in_chassis_m": [
+        0.8,
+        0,
+        -1.2
+      ],
+      "frame_orientation_xyzw": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "mass_kg": 15,
+      "inertia_rows_kg_m2": [
+        [
+          0.4,
+          0.03,
+          0.02
+        ],
+        [
+          0.03,
+          0.5,
+          -0.01
+        ],
+        [
+          0.02,
+          -0.01,
+          0.6
+        ]
+      ],
+      "center_of_mass_local_m": [
+        0.04,
+        -0.03,
+        0.02
+      ],
+      "initial_travel_m": -0.015,
+      "initial_rate_m_s": 0,
+      "springs": [
+        {
+          "fixed_anchor_m": [
+            0,
+            0.6,
+            0
+          ],
+          "upright_local_point_m": [
+            0.07,
+            -0.08,
+            0.1
+          ],
+          "rest_length_m": 0.65,
+          "stiffness_n_m": 12000,
+          "compression": {
+            "slow_n_s_m": 80,
+            "fast_n_s_m": 20,
+            "knee_m_s": 0.05
+          },
+          "rebound": {
+            "slow_n_s_m": 140,
+            "fast_n_s_m": 30,
+            "knee_m_s": 0.07
+          }
+        }
+      ],
+      "external_force_world_n": [
+        0,
+        0,
+        0
+      ],
+      "external_torque_about_com_world_nm": [
+        0,
+        0,
+        0
+      ],
+      "wheel": {
+        "center_in_upright_m": [
+          0,
+          0,
+          0
+        ],
+        "axle_in_upright": [
+          1,
+          0,
+          0
+        ],
+        "mass_kg": 20,
+        "axial_inertia_kg_m2": 1.2,
+        "transverse_inertia_kg_m2": 0.7,
+        "initial_angle_rad": 0,
+        "initial_rate_rad_s": 0,
+        "external_force_world_n": [
+          0,
+          0,
+          0
+        ],
+        "external_torque_about_com_world_nm": [
+          0,
+          0,
+          0
+        ],
+        "drive_torque_nm": 8
+      }
+    },
+    {
+      "car_directory": "../assettocorsa/content/cars/bmw_m3_e30",
+      "axle": "rear",
+      "data": "auto",
+      "travel_axis": [
+        0,
+        1,
+        0
+      ],
+      "rack_m": [
+        0,
+        0,
+        0
+      ],
+      "frame_position_in_chassis_m": [
+        -0.8,
+        0,
+        -1.2
+      ],
+      "frame_orientation_xyzw": [
+        0,
+        1,
+        0,
+        0
+      ],
+      "mass_kg": 15,
+      "inertia_rows_kg_m2": [
+        [
+          0.4,
+          0.03,
+          0.02
+        ],
+        [
+          0.03,
+          0.5,
+          -0.01
+        ],
+        [
+          0.02,
+          -0.01,
+          0.6
+        ]
+      ],
+      "center_of_mass_local_m": [
+        0.04,
+        -0.03,
+        0.02
+      ],
+      "initial_travel_m": -0.015,
+      "initial_rate_m_s": 0,
+      "springs": [
+        {
+          "fixed_anchor_m": [
+            0,
+            0.6,
+            0
+          ],
+          "upright_local_point_m": [
+            0.07,
+            -0.08,
+            0.1
+          ],
+          "rest_length_m": 0.65,
+          "stiffness_n_m": 12000,
+          "compression": {
+            "slow_n_s_m": 80,
+            "fast_n_s_m": 20,
+            "knee_m_s": 0.05
+          },
+          "rebound": {
+            "slow_n_s_m": 140,
+            "fast_n_s_m": 30,
+            "knee_m_s": 0.07
+          }
+        }
+      ],
+      "external_force_world_n": [
+        0,
+        0,
+        0
+      ],
+      "external_torque_about_com_world_nm": [
+        0,
+        0,
+        0
+      ],
+      "wheel": {
+        "center_in_upright_m": [
+          0,
+          0,
+          0
+        ],
+        "axle_in_upright": [
+          1,
+          0,
+          0
+        ],
+        "mass_kg": 20,
+        "axial_inertia_kg_m2": 1.2,
+        "transverse_inertia_kg_m2": 0.7,
+        "initial_angle_rad": 0,
+        "initial_rate_rad_s": 0,
+        "external_force_world_n": [
+          0,
+          0,
+          0
+        ],
+        "external_torque_about_com_world_nm": [
+          0,
+          0,
+          0
+        ],
+        "drive_torque_nm": -8
+      }
+    }
+  ]
+}

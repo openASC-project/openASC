@@ -2,7 +2,7 @@
 use super::dynamics_config::Spring;
 use asc_physics::{
     Body, ChassisSystem, LinkPose, MassProperties, MountedUpright, TravelMechanism, TravelState,
-    Wrench,
+    Wheel, WheelLoad, WheelState, Wrench,
 };
 use serde::{Deserialize, Serialize};
 use std::{error::Error, fs::File, io::Read, path::Path};
@@ -37,6 +37,22 @@ struct Upright {
     springs: Vec<Spring>,
     external_force_world_n: [f64; 3],
     external_torque_about_com_world_nm: [f64; 3],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    wheel: Option<WheelConfiguration>,
+}
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct WheelConfiguration {
+    center_in_upright_m: [f64; 3],
+    axle_in_upright: [f64; 3],
+    mass_kg: f64,
+    axial_inertia_kg_m2: f64,
+    transverse_inertia_kg_m2: f64,
+    initial_angle_rad: f64,
+    initial_rate_rad_s: f64,
+    external_force_world_n: [f64; 3],
+    external_torque_about_com_world_nm: [f64; 3],
+    drive_torque_nm: f64,
 }
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -83,6 +99,8 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
     )?;
     let mut uprights = Vec::new();
     let mut loads = Vec::new();
+    let mut wheel_loads = Vec::new();
+    let mut wheel_count = 0;
     let mut sources = Vec::new();
     let parent = configuration.parent().unwrap_or(Path::new("."));
     for input in &config.uprights {
@@ -121,6 +139,30 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
         for spring in &input.springs {
             upright.add_spring(spring.build()?)?;
         }
+        let wheel_load = if let Some(w) = &input.wheel {
+            upright.attach_wheel(Wheel::new(
+                w.center_in_upright_m,
+                w.axle_in_upright,
+                w.mass_kg,
+                w.axial_inertia_kg_m2,
+                w.transverse_inertia_kg_m2,
+                WheelState {
+                    angle_rad: w.initial_angle_rad,
+                    rate_rad_s: w.initial_rate_rad_s,
+                },
+            )?)?;
+            wheel_count += 1;
+            WheelLoad::new(
+                Wrench::new(
+                    w.external_force_world_n,
+                    w.external_torque_about_com_world_nm,
+                )?,
+                w.drive_torque_nm,
+            )?
+        } else {
+            WheelLoad::default()
+        };
+        wheel_loads.push(wheel_load);
         uprights.push(upright);
         loads.push(Wrench::new(
             input.external_force_world_n,
@@ -133,10 +175,10 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
     }
     let mut system = ChassisSystem::new(body, uprights, config.gravity_world_m_s2)?;
     let mut records = vec![
-        serde_json::json!({"step":0,"time_s":0.,"sample":system.sample(chassis_load,&loads)?}),
+        serde_json::json!({"step":0,"time_s":0.,"sample":system.sample_with_wheels(chassis_load,&loads,&wheel_loads)?}),
     ];
     for step in 1..=config.steps {
-        let sample = system.step(config.step_s, chassis_load, &loads)?;
+        let sample = system.step_with_wheels(config.step_s, chassis_load, &loads, &wheel_loads)?;
         if step % config.record_every == 0 || step == config.steps {
             records.push(serde_json::json!({"step":step,"time_s":f64::from(step)*config.step_s,"sample":sample}));
         }
@@ -144,10 +186,11 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
     Ok(serde_json::json!({
         "scope":"native_coupled_chassis_upright_dynamics","explicit_configuration":config,"source_geometry":sources,"records":records,
         "moving_chassis":true,"fixed_racks":true,"massless_links":true,
+        "wheel_spin_dofs":wheel_count,"wheel_mass_is_additional_to_upright":true,
         "automatic_source_frames_mass_or_force_parameters":false,"original_vehicle_dynamics_validated":false,
         "simulation_ready":false,"renderer_animation":false,
         "limitations":["Explicit caller-provided chassis mounts and local frames; no automatic side/setup mapping",
-            "One chassis and 1..4 massive uprights; no wheel-spin DOFs or tyre/contact/FFB forces",
+            "One chassis, 1..4 massive uprights and optional axisymmetric wheels; no tyre/contact/FFB forces",
             "Synthetic sample parameters; no original-game mass/inertia/preload calibration",
             "Explicit Lie-midpoint integration on a bounded local branch; no universal stability guarantee"]
     }))

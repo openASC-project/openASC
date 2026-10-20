@@ -1,23 +1,23 @@
-//! Diagonally normalized positive-definite solve for at most ten coordinates.
+//! Diagonally normalized positive-definite solve for at most fourteen coordinates.
 use crate::{Error, Result};
-pub(super) fn solve(matrix: [[f64; 10]; 10], rhs: [f64; 10], n: usize) -> Result<[f64; 10]> {
+pub(super) fn solve(matrix: [[f64; 14]; 14], rhs: [f64; 14], n: usize) -> Result<[f64; 14]> {
     let fail = || {
         Error::new(
             "physics_chassis_matrix",
             "Nonfinite, nonpositive or poorly conditioned coupled mass matrix",
         )
     };
-    if !(7..=10).contains(&n) {
+    if !(7..=14).contains(&n) {
         return Err(fail());
     }
-    let mut scale = [0.; 10];
+    let mut scale = [0.; 14];
     for i in 0..n {
         if !matrix[i][i].is_finite() || !(1e-12..=1e24).contains(&matrix[i][i]) {
             return Err(fail());
         }
         scale[i] = matrix[i][i].sqrt();
     }
-    let mut l = [[0.; 10]; 10];
+    let mut l = [[0.; 14]; 14];
     for i in 0..n {
         for j in 0..=i {
             let value = matrix[i][j] / scale[i] / scale[j];
@@ -36,11 +36,11 @@ pub(super) fn solve(matrix: [[f64; 10]; 10], rhs: [f64; 10], n: usize) -> Result
             }
         }
     }
-    let mut y = [0.; 10];
+    let mut y = [0.; 14];
     for i in 0..n {
         y[i] = (rhs[i] / scale[i] - (0..i).map(|j| l[i][j] * y[j]).sum::<f64>()) / l[i][i];
     }
-    let mut z = [0.; 10];
+    let mut z = [0.; 14];
     for i in (0..n).rev() {
         z[i] = (y[i] - (i + 1..n).map(|j| l[j][i] * z[j]).sum::<f64>()) / l[i][i];
     }
@@ -66,9 +66,11 @@ mod tests {
     use super::*;
     #[test]
     fn normalized_solve_handles_mixed_coordinate_scales_and_rejects_bad_systems() {
-        for n in 7..=10 {
-            let scale = [1e-5, 1e5, 10., 1e-3, 1e6, 0.3, 1e-4, 0.01, 1., 1e3];
-            let mut l = [[0.; 10]; 10];
+        for n in 7..=14 {
+            let scale = [
+                1e-5, 1e5, 10., 1e-3, 1e6, 0.3, 1e-4, 0.01, 1., 1e3, 0.2, 2., 20., 200.,
+            ];
+            let mut l = [[0.; 14]; 14];
             for (i, row) in l.iter_mut().enumerate().take(n) {
                 for (j, value) in row.iter_mut().enumerate().take(i + 1) {
                     *value = if i == j { 1. } else { 0.02 * (i + j) as f64 };
@@ -80,7 +82,7 @@ mod tests {
                 })
             });
             let target =
-                std::array::from_fn::<_, 10, _>(|i| if i < n { 0.1 / scale[i] } else { 0. });
+                std::array::from_fn::<_, 14, _>(|i| if i < n { 0.1 / scale[i] } else { 0. });
             let rhs = std::array::from_fn(|i| (0..n).map(|j| matrix[i][j] * target[j]).sum());
             let result = solve(matrix, rhs, n).unwrap();
             for i in 0..n {
@@ -96,7 +98,7 @@ mod tests {
             bad_rhs[0] = f64::NAN;
             assert!(solve(matrix, bad_rhs, n).is_err());
         }
-        let matrix = [[1.; 10]; 10];
-        assert!(solve(matrix, [0.; 10], 7).is_err());
+        let matrix = [[1.; 14]; 14];
+        assert!(solve(matrix, [0.; 14], 7).is_err());
     }
 }

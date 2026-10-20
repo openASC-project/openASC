@@ -1,5 +1,5 @@
 //! Native rigid bodies, springs and coupled chassis/upright constraint dynamics.
-//! Original Assetto Corsa force models, wheel spin and tyre/contact response remain unimplemented.
+//! Original Assetto Corsa force models and tyre/contact response remain unimplemented.
 mod body;
 mod chassis;
 mod clock;
@@ -11,6 +11,7 @@ mod linkage;
 mod spring;
 mod strut;
 mod travel;
+mod wheel;
 pub use body::{Body, State, Wrench};
 pub use chassis::{ChassisSample, ChassisSystem, MountedUpright, UprightSample};
 pub use clock::{Batch, FixedClock, Tick};
@@ -25,6 +26,7 @@ pub use spring::{Damper, DamperBranch, SpringConnection, SpringLink, SpringSampl
 use std::fmt;
 pub use strut::{StrutLink, StrutSolution};
 pub use travel::{TravelMechanism, TravelSample, TravelState, TravelSystem};
+pub use wheel::{Wheel, WheelLoad, WheelSample, WheelState};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Error {
