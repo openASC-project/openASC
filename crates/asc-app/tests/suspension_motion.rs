@@ -620,6 +620,112 @@ fn normal_configuration() -> serde_json::Value {
     config["steps"] = 200.into();
     config
 }
+
+#[test]
+fn cli_track_faces_match_plane_and_spawn_placement_retains_diagnostics() {
+    use asc_test_support as f;
+    let fixture = fixture();
+    let road = f::named(
+        f::mesh(
+            &[
+                [-50., 0., -50.],
+                [50., 0., -50.],
+                [-50., 0., 50.],
+                [50., 0., 50.],
+            ],
+            &[0, 2, 1, 1, 2, 3],
+            2,
+            0,
+            0,
+            0.,
+            0,
+        ),
+        "1ROAD",
+    );
+    let marker = f::named(
+        f::base(&[], glam::Mat4::IDENTITY.to_cols_array(), 1),
+        "AC_PIT_0",
+    );
+    fs::write(
+        fixture.0.join("a.kn5"),
+        f::file(
+            f::base(&[road, marker], glam::Mat4::IDENTITY.to_cols_array(), 1),
+            6,
+        ),
+    )
+    .unwrap();
+    fs::write(
+        fixture.0.join("models.ini"),
+        "[MODEL_0]\nFILE=a.kn5\nPOSITION=0,0,0\nROTATION=0,0,0\n",
+    )
+    .unwrap();
+    fs::write(
+        fixture.0.join("surfaces.ini"),
+        "[SURFACE_0]\nKEY=ROAD\nFRICTION=.9\nDAMPING=0\nIS_VALID_TRACK=1\nIS_PITLANE=0\n",
+    )
+    .unwrap();
+    let path = fixture.0.join("track.json");
+    let invoke = |c: &serde_json::Value| {
+        fs::write(&path, c.to_string()).unwrap();
+        Command::new(env!("CARGO_BIN_EXE_openasc"))
+            .arg("chassis-run")
+            .arg(&path)
+            .output()
+            .unwrap()
+    };
+    let plane = normal_configuration();
+    let plane_output = invoke(&plane);
+    assert!(plane_output.status.success());
+    let expected: serde_json::Value = serde_json::from_slice(&plane_output.stdout).unwrap();
+    let mut track = plane.clone();
+    track.as_object_mut().unwrap().remove("support_plane");
+    track["support_track"] = serde_json::json!({"models_ini":"models.ini","surface_files":["surfaces.ini"],"min_normal_y":0.5});
+    track["initial_spawn"] =
+        serde_json::json!({"name":"AC_PIT_0","chassis_com_offset_in_spawn_m":[0,0.29,0]});
+    track["chassis"]["position_world_m"] = serde_json::json!([0, 0, 0]);
+    let output = invoke(&track);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let actual: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(actual["normal_contact_uses_track_geometry"], true);
+    assert_eq!(actual["edge_vertex_response"], false);
+    assert_eq!(actual["continuous_collision_detection"], false);
+    for (a, b) in actual["records"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .zip(expected["records"].as_array().unwrap())
+    {
+        assert_eq!(a["normal_contacts"], b["normal_contacts"]);
+        assert_eq!(a["sample"], b["sample"]);
+        for face in a["track_contact_faces"].as_array().unwrap() {
+            assert_eq!(face["mesh"], "1ROAD");
+            assert_eq!(face["surface_key"], "ROAD");
+        }
+    }
+    for modification in 0..6 {
+        let mut c = track.clone();
+        match modification {
+            0 => c["support_plane"] = plane["support_plane"].clone(),
+            1 => c["support_track"]["min_normal_y"] = 0.into(),
+            2 => c["support_track"]["surface_files"] = serde_json::json!([]),
+            3 => c["initial_spawn"]["name"] = "AC_PIT_99".into(),
+            4 => c["chassis"]["position_world_m"] = serde_json::json!([0, 1, 0]),
+            _ => {
+                c["initial_spawn"]["chassis_com_offset_in_spawn_m"] = serde_json::json!([0, 101, 0])
+            }
+        }
+        let r = invoke(&c);
+        assert!(!r.status.success(), "case {modification}");
+        assert!(r.stdout.is_empty());
+    }
+    for name in ["a.kn5", "models.ini", "surfaces.ini", "track.json"] {
+        fs::remove_file(fixture.0.join(name)).unwrap();
+    }
+}
 #[test]
 fn cli_recomputes_plane_support_and_records_contact_energy_with_gravity() {
     let fixture = fixture();

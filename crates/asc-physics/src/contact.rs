@@ -40,6 +40,16 @@ pub struct NormalContact {
     damping: f64,
     max_penetration: f64,
 }
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct CircleSupport {
+    pub wheel_point_world_m: [f64; 3],
+    pub plane_point_world_m: [f64; 3],
+    pub normal_world: [f64; 3],
+    pub gap_m: f64,
+    pub normal_velocity_m_s: f64,
+    #[serde(skip)]
+    lever: DVec3,
+}
 #[derive(Debug, Serialize)]
 pub struct NormalContactSample {
     pub wheel_point_world_m: [f64; 3],
@@ -91,6 +101,60 @@ impl NormalContact {
         wheel: &WheelKinematics,
         plane: SupportPlane,
     ) -> Result<NormalContactSample> {
+        let geometry = self.support_geometry(wheel, plane)?;
+        let gap = geometry.gap_m;
+        let penetration = (-gap).max(0.);
+        if penetration > self.max_penetration {
+            return Err(Error::new(
+                "physics_contact_penetration",
+                "Normal contact penetration exceeds the explicit limit; reduce the step or correct placement",
+            ));
+        }
+        let normal = DVec3::from_array(geometry.normal_world);
+        let normal_velocity = geometry.normal_velocity_m_s;
+        let elastic = self.stiffness * penetration;
+        let touching = gap <= 0.;
+        let raw = elastic - self.damping * normal_velocity;
+        let force = if touching { raw.max(0.) } else { 0. };
+        let dissipated = if !touching {
+            0.
+        } else if raw >= 0. {
+            self.damping * normal_velocity.powi(2)
+        } else {
+            elastic * normal_velocity
+        };
+        let force_vector = normal * force;
+        let torque = geometry.lever.cross(force_vector);
+        Wrench::new(force_vector.to_array(), torque.to_array())?;
+        Ok(NormalContactSample {
+            wheel_point_world_m: geometry.wheel_point_world_m,
+            plane_point_world_m: geometry.plane_point_world_m,
+            normal_world: geometry.normal_world,
+            gap_m: gap,
+            penetration_m: penetration,
+            normal_velocity_m_s: normal_velocity,
+            geometrically_touching: touching,
+            normal_force_n: force,
+            force_world_n: force_vector.to_array(),
+            torque_about_wheel_com_world_nm: torque.to_array(),
+            potential_energy_j: 0.5 * self.stiffness * penetration * penetration,
+            dissipated_power_w: dissipated,
+            mechanical_power_w: force * normal_velocity,
+        })
+    }
+    pub fn radius_m(&self) -> f64 {
+        self.radius
+    }
+    pub fn max_penetration_m(&self) -> f64 {
+        self.max_penetration
+    }
+    /// Geometry/velocity only; finite-face callers can clip the projected point
+    /// before evaluating the force or enforcing the penetration bound.
+    pub fn support_geometry(
+        &self,
+        wheel: &WheelKinematics,
+        plane: SupportPlane,
+    ) -> Result<CircleSupport> {
         let center = vector(wheel.body.position_m, 1e7)?;
         let axis = vector(wheel.axis_world, 2.)?;
         if (axis.length_squared() - 1.).abs() > 1e-8 {
@@ -110,47 +174,19 @@ impl NormalContact {
         let point = center + lever;
         vector(point.to_array(), 1e7)?;
         let gap = normal.dot(point - DVec3::from_array(plane.point_world_m));
-        let penetration = (-gap).max(0.);
-        if penetration > self.max_penetration {
-            return Err(Error::new(
-                "physics_contact_penetration",
-                "Normal contact penetration exceeds the explicit limit; reduce the step or correct placement",
-            ));
-        }
         let velocity = vector(wheel.body.velocity_world_m_s, 1e6)?
             + vector(wheel.body.angular_velocity_world_rad_s, 1e5)?.cross(lever);
         vector(velocity.to_array(), 1e7)?;
         let normal_velocity = normal.dot(velocity);
-        let elastic = self.stiffness * penetration;
-        let touching = gap <= 0.;
-        let raw = elastic - self.damping * normal_velocity;
-        let force = if touching { raw.max(0.) } else { 0. };
-        let dissipated = if !touching {
-            0.
-        } else if raw >= 0. {
-            self.damping * normal_velocity.powi(2)
-        } else {
-            elastic * normal_velocity
-        };
-        let force_vector = normal * force;
-        let torque = lever.cross(force_vector);
-        Wrench::new(force_vector.to_array(), torque.to_array())?;
         let plane_point = point - gap * normal;
         vector(plane_point.to_array(), 1e7)?;
-        Ok(NormalContactSample {
+        Ok(CircleSupport {
             wheel_point_world_m: point.to_array(),
             plane_point_world_m: plane_point.to_array(),
             normal_world: plane.normal_world,
             gap_m: gap,
-            penetration_m: penetration,
             normal_velocity_m_s: normal_velocity,
-            geometrically_touching: touching,
-            normal_force_n: force,
-            force_world_n: force_vector.to_array(),
-            torque_about_wheel_com_world_nm: torque.to_array(),
-            potential_energy_j: 0.5 * self.stiffness * penetration * penetration,
-            dissipated_power_w: dissipated,
-            mechanical_power_w: force * normal_velocity,
+            lever,
         })
     }
 }

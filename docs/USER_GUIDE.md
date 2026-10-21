@@ -500,3 +500,20 @@ The Rust `kinematics` API returns force-independent world body snapshots. `sampl
 `new_with_forces` validates initialization with the actual applied/support loads. Use it when support balances substantial spring preload; the legacy `new` validates an unloaded initial sample. The plane workbench uses force-aware initialization.
 
 The CLI reports the number of normal models and `normal_contact_uses_track_geometry: false`; original-validation, renderer and simulation-ready flags remain false. Force errors include the upright slot and, during stepping, the callback's stage offset. See [equations](ARCHITECTURE.md#state-dependent-forces-and-normal-support) and [validation](FORMATS.md#normal-contact-and-force-stage-validation).
+
+
+## Native normal support on track faces
+
+```sh
+cargo run --locked -p asc-app -- chassis-run examples/chassis-normal-track.json
+```
+
+The [track example](https://github.com/openASC-project/openASC/blob/main/examples/chassis-normal-track.json) runs the same independent coupled chassis model on finite physical road-face interiors from local Drift geometry. It is a JSON workbench, with no rendered driving or input control. Masses, mounting frames, spring/contact laws and COM offset are synthetic inputs; this is not a verified original vehicle setup.
+
+Replace `support_plane` with `support_track`, containing `models_ini`, ordered `surface_files` (1..16 paths), and `min_normal_y` (1e-4..1). Paths are relative to the JSON. Load the installed system surface definitions first, then selected track definitions; complete same-key definitions override earlier files. Omitting the defaults can omit physical road meshes whose keys the track file does not redefine. The example uses a minimum normal Y of 0.5. Wheel normal models retain their explicit radius, stiffness, damping and penetration limit.
+
+Optional `initial_spawn` contains a marker `name` and `chassis_com_offset_in_spawn_m`. Set chassis position to zero and orientation to identity when using it. Offset components are metres along marker left/up/forward, bounded to +/-100 m. The example uses `AC_PIT_0` and `[0,-0.264,0]`, an explicitly chosen placement for this synthetic setup on this installation; it is not a general ride-height solution. Missing/ambiguous markers and non-rigid bases fail. Other marker diagnostics remain visible.
+
+Each saved state adds parallel `normal_contacts` and `track_contact_faces` arrays: null means no selected face for that wheel. A selected face can still have positive gap and zero force. Face metadata includes source triangle index, model, mesh, surface key, friction/damping metadata and definition provenance. `track_geometry` and `track_diagnostics` retain loader information; `initial_spawn_diagnostics` retains marker diagnostics. `normal_contact_uses_track_geometry` is true, while `edge_vertex_response`, `continuous_collision_detection` and `simulation_ready` remain false.
+
+The support point must project inside the finite face; the plane is not extended beyond it. A shared seam supplies one force. Unsupported backside overlap, excessive penetration, dense queries or invalid geometry fail without partial JSON. Edge/vertex impacts, walls/body clearance, swept collision, tyre width/tangential grip and control/render integration remain work ahead. See [selection and bounds](ARCHITECTURE.md#finite-road-face-normal-support) and [validation](FORMATS.md#finite-track-face-contact-validation).

@@ -32,6 +32,7 @@ cargo run --locked -p asc-app -- suspension-run ./assettocorsa/content/cars/bmw_
 cargo run --locked -p asc-app -- chassis-run examples/chassis-suspension.json
 cargo run --locked -p asc-app -- chassis-run examples/chassis-wheels.json
 cargo run --locked -p asc-app -- chassis-run examples/chassis-normal-plane.json
+cargo run --locked -p asc-app -- chassis-run examples/chassis-normal-track.json
 cargo run --locked -p asc-app -- preview ./assettocorsa/content/cars/bmw_m3_e30 ./assettocorsa/content/tracks/drift/models.ini
 ```
 
@@ -53,7 +54,7 @@ Native `chassis-run` couples a floating chassis to one to four massive uprights,
 
 Optional axisymmetric wheels now add separate mass/inertia and spin coordinates to the same solve. The wheel example exercises internal wheel/upright motor torque, opposite motor reaction and gyroscopic transport. Upright mass/tensor must exclude the separately supplied wheel. These explicit motors do not implement AC drivetrain/brake behavior or road traction. See [wheel rotation](docs/USER_GUIDE.md#native-wheel-rotation-and-motor-reactions).
 
-State-dependent forces are now sampled at each midpoint stage. An explicit compliant thin-circle normal model can support the coupled vehicle on a static infinite plane with gravity, spring preload and damping. This is a support benchmark; track triangles, tyre width/friction and original-game calibration remain separate work. See [normal support](docs/USER_GUIDE.md#native-normal-support-on-a-plane).
+State-dependent forces are now sampled at each midpoint stage. An explicit compliant thin-circle normal model can support the coupled vehicle on a static infinite plane with gravity, spring preload and damping. The same law now supports finite road-face interiors from the native track BVH, with explicit spawn COM offset and per-wheel face/surface provenance. Edge/vertex response, CCD, tyre width/friction and original-game calibration remain separate work. See [plane support](docs/USER_GUIDE.md#native-normal-support-on-a-plane) and [finite track faces](docs/USER_GUIDE.md#native-normal-support-on-track-faces).
 
 The existing content tools, browser viewer and keyboard-driving prototype require Python 3.10+. No third-party Python packages are needed.
 

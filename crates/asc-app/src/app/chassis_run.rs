@@ -83,6 +83,19 @@ struct PlaneConfiguration {
 }
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
+struct TrackConfiguration {
+    models_ini: String,
+    surface_files: Vec<String>,
+    min_normal_y: f64,
+}
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct SpawnConfiguration {
+    name: String,
+    chassis_com_offset_in_spawn_m: [f64; 3],
+}
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 struct Configuration {
     schema_version: u32,
     chassis: Chassis,
@@ -93,50 +106,67 @@ struct Configuration {
     record_every: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     support_plane: Option<PlaneConfiguration>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    support_track: Option<TrackConfiguration>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    initial_spawn: Option<SpawnConfiguration>,
 }
+type Contacts = (
+    Vec<Option<NormalContactSample>>,
+    Vec<Option<asc_session::TrackFace>>,
+);
 struct Environment {
     base: ChassisLoads,
     plane: Option<SupportPlane>,
+    track: Option<(asc_ground::Ground, f64)>,
     models: Vec<Option<NormalContact>>,
 }
 impl Environment {
-    fn contacts(
-        &self,
-        k: &ChassisKinematics,
-    ) -> asc_physics::Result<Vec<Option<NormalContactSample>>> {
+    fn has_contact(&self) -> bool {
+        self.plane.is_some() || self.track.is_some()
+    }
+    fn contacts(&self, k: &ChassisKinematics) -> asc_physics::Result<Contacts> {
         self.models
             .iter()
             .zip(&k.uprights)
             .enumerate()
             .map(|(index, (model, u))| {
                 if let Some(model) = model {
-                    let plane = self.plane.ok_or_else(|| {
-                        asc_physics::Error::new(
-                            "contact_plane",
-                            "A normal-contact model requires support_plane",
-                        )
-                    })?;
                     let wheel = u.wheel.as_ref().ok_or_else(|| {
                         asc_physics::Error::new(
                             "contact_wheel",
                             "Normal contact requires an attached wheel",
                         )
                     })?;
-                    Ok(Some(model.sample(wheel, plane).map_err(|error| {
-                        asc_physics::Error::new(
-                            error.code,
-                            &format!("Upright {index}: {}", error.message),
-                        )
-                    })?))
+                    let result = if let Some((ground, min_y)) = &self.track {
+                        asc_session::face_contact(ground, wheel, model, *min_y)
+                            .map(|c| c.map(|c| (c.sample, Some(c.face))))
+                    } else if let Some(plane) = self.plane {
+                        model.sample(wheel, plane).map(|s| Some((s, None)))
+                    } else {
+                        Err(asc_physics::Error::new(
+                            "contact_support",
+                            "A normal-contact model requires a support environment",
+                        ))
+                    };
+                    Ok(result
+                        .map_err(|error| {
+                            asc_physics::Error::new(
+                                error.code,
+                                &format!("Upright {index}: {}", error.message),
+                            )
+                        })?
+                        .map_or((None, None), |(s, f)| (Some(s), f)))
                 } else {
-                    Ok(None)
+                    Ok((None, None))
                 }
             })
-            .collect()
+            .collect::<asc_physics::Result<Vec<_>>>()
+            .map(|v| v.into_iter().unzip())
     }
     fn loads(&self, k: &ChassisKinematics) -> asc_physics::Result<ChassisLoads> {
         let mut loads = self.base.clone();
-        for (load, contact) in loads.wheels.iter_mut().zip(self.contacts(k)?) {
+        for (load, contact) in loads.wheels.iter_mut().zip(self.contacts(k)?.0) {
             if let Some(contact) = contact {
                 load.add_external(contact.wrench()?)?;
             }
@@ -153,8 +183,8 @@ impl Environment {
         let energy = sample.kinetic_energy_j + sample.potential_energy_j;
         let dissipation = sample.dissipated_power_w;
         let mut result = serde_json::json!({"step":step,"time_s":time_s,"sample":sample});
-        if self.plane.is_some() {
-            let contacts = self.contacts(&system.kinematics()?)?;
+        if self.has_contact() {
+            let (contacts, faces) = self.contacts(&system.kinematics()?)?;
             let potential = contacts
                 .iter()
                 .flatten()
@@ -166,6 +196,9 @@ impl Environment {
                 .map(|s| s.dissipated_power_w)
                 .sum::<f64>();
             result["normal_contacts"] = serde_json::json!(contacts);
+            if self.track.is_some() {
+                result["track_contact_faces"] = serde_json::json!(faces);
+            }
             result["normal_contact_potential_energy_j"] = potential.into();
             result["mechanical_energy_with_normal_contact_j"] = (energy + potential).into();
             result["total_dissipated_power_w"] = (dissipation + dissipated).into();
@@ -194,10 +227,46 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
         return Err("Expected schema 1, 1..4 uprights, at most 16 springs each, 1..10000 steps, positive record_every, at most 256 records and a 1e-6..1/30 s step".into());
     }
     let c = &config.chassis;
+    let parent = configuration.parent().unwrap_or(Path::new("."));
+    let properties = MassProperties::new(c.mass_kg, c.inertia_rows_kg_m2)?;
+    let mut spawn_diagnostics = Vec::new();
+    let (position, orientation) = if let Some(s) = &config.initial_spawn {
+        let track = config
+            .support_track
+            .as_ref()
+            .ok_or("initial_spawn requires support_track")?;
+        if c.position_world_m != [0.; 3]
+            || c.orientation_xyzw != [0., 0., 0., 1.]
+            || s.chassis_com_offset_in_spawn_m
+                .iter()
+                .any(|v| !v.is_finite() || v.abs() > 100.)
+        {
+            return Err("Spawn placement requires zero chassis position, identity orientation and an explicit finite offset within +/-100 m".into());
+        }
+        let report = asc_scene::spawns::load(&parent.join(&track.models_ini))?;
+        let spawn = report
+            .spawns
+            .iter()
+            .find(|v| v.name == s.name)
+            .ok_or("Selected initial_spawn is missing, ambiguous or unsupported")?;
+        let axes = [spawn.left, spawn.up, spawn.forward];
+        let position = std::array::from_fn(|i| {
+            spawn.position[i]
+                + (0..3)
+                    .map(|j| axes[j][i] * s.chassis_com_offset_in_spawn_m[j])
+                    .sum::<f64>()
+        });
+        let state =
+            asc_session::body_with_spawn_basis(properties.clone(), position, spawn)?.state();
+        spawn_diagnostics = report.diagnostics;
+        (position, state.orientation_xyzw)
+    } else {
+        (c.position_world_m, c.orientation_xyzw)
+    };
     let body = Body::new(
-        MassProperties::new(c.mass_kg, c.inertia_rows_kg_m2)?,
-        c.position_world_m,
-        c.orientation_xyzw,
+        properties,
+        position,
+        orientation,
         c.velocity_world_m_s,
         c.angular_velocity_world_rad_s,
     )?;
@@ -217,7 +286,28 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
         .as_ref()
         .map(|p| SupportPlane::new(p.point_world_m, p.normal_world))
         .transpose()?;
-    let parent = configuration.parent().unwrap_or(Path::new("."));
+    if plane.is_some() && config.support_track.is_some() {
+        return Err("Choose support_plane or support_track, never both".into());
+    }
+    let track = config
+        .support_track
+        .as_ref()
+        .map(|t| -> Result<_, Box<dyn Error>> {
+            if !(1..=16).contains(&t.surface_files.len())
+                || !t.min_normal_y.is_finite()
+                || !(1e-4..=1.).contains(&t.min_normal_y)
+            {
+                return Err(
+                    "Track support requires 1..16 surface files and min_normal_y within 1e-4..1"
+                        .into(),
+                );
+            }
+            let paths: Vec<_> = t.surface_files.iter().map(|p| parent.join(p)).collect();
+            let refs: Vec<_> = paths.iter().map(|p| p.as_path()).collect();
+            let ground = asc_ground::load(&parent.join(&t.models_ini), &refs)?;
+            Ok((ground, t.min_normal_y))
+        })
+        .transpose()?;
     for input in &config.uprights {
         let mode = match input.data.as_str() {
             "auto" => asc_vehicle::data::Mode::Auto,
@@ -298,8 +388,11 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
             "data_source":source.data_source,"source_diagnostics":source.diagnostics}),
         );
     }
-    if plane.is_some() != (contact_count > 0) {
-        return Err("Supply support_plane and at least one wheel normal_contact together".into());
+    if (plane.is_some() || track.is_some()) != (contact_count > 0) {
+        return Err(
+            "Supply support_plane or support_track and at least one wheel normal_contact together"
+                .into(),
+        );
     }
     let environment = Environment {
         base: ChassisLoads {
@@ -308,16 +401,17 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
             wheels: wheel_loads,
         },
         plane,
+        track,
         models,
     };
-    let mut system = if plane.is_some() {
+    let mut system = if environment.has_contact() {
         ChassisSystem::new_with_forces(body, uprights, config.gravity_world_m_s2, |_, k| {
             environment.loads(k)
         })?
     } else {
         ChassisSystem::new(body, uprights, config.gravity_world_m_s2)?
     };
-    let first = if plane.is_some() {
+    let first = if environment.has_contact() {
         system.sample_with_forces(|_, k| environment.loads(k))?
     } else {
         system.sample_with_wheels(
@@ -328,7 +422,7 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
     };
     let mut records = vec![environment.record(&system, 0, 0., first)?];
     for step in 1..=config.steps {
-        let sample = if plane.is_some() {
+        let sample = if environment.has_contact() {
             system.step_with_forces(config.step_s, |_, k| environment.loads(k))?
         } else {
             system.step_with_wheels(
@@ -351,11 +445,15 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
         "scope":"native_coupled_chassis_upright_dynamics","explicit_configuration":config,"source_geometry":sources,"records":records,
         "moving_chassis":true,"fixed_racks":true,"massless_links":true,
         "wheel_spin_dofs":wheel_count,"wheel_mass_is_additional_to_upright":true,
-        "normal_contact_wheels":contact_count,"normal_contact_uses_track_geometry":false,
+        "normal_contact_wheels":contact_count,"normal_contact_uses_track_geometry":environment.track.is_some(),
+        "track_geometry":environment.track.as_ref().map(|(g,_)|g.summary()),
+        "track_diagnostics":environment.track.as_ref().map(|(g,_)|g.diagnostics()),
+        "initial_spawn_diagnostics":spawn_diagnostics,
+        "edge_vertex_response":false,"continuous_collision_detection":false,
         "automatic_source_frames_mass_or_force_parameters":false,"original_vehicle_dynamics_validated":false,
         "simulation_ready":false,"renderer_animation":false,
         "limitations":["Explicit caller-provided chassis mounts and local frames; no automatic side/setup mapping",
-            "Optional thin-circle support on a static infinite plane; no tangential tyre, track-contact or FFB forces",
+            "Optional thin-circle support on a static plane or finite road-face interiors; no edge/vertex collision, CCD, tangential tyre or FFB forces",
             "Synthetic sample parameters; no original-game mass/inertia/preload calibration",
             "Explicit Lie-midpoint integration on a bounded local branch; no universal stability guarantee"]
     }))

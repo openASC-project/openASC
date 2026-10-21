@@ -1,6 +1,8 @@
-//! Static vertical support queries, independent of rendering and vehicle dynamics.
+//! Static vertical probes and bounded finite face views, independent of rendering and force laws.
+mod faces;
 pub mod surfaces;
 use asc_config::{Error, Result};
+pub use faces::Face;
 use serde::Serialize;
 use std::path::Path;
 use surfaces::Surface;
@@ -360,6 +362,6 @@ pub fn load(config: &Path, surface_files: &[&Path]) -> Result<Ground> {
             "No supported ground triangles assembled.",
         ))?;
     }
-    ground.warning(Error::new("ground_query_scope",&source,0,"Vertical static geometry support only; surface coefficients are metadata. Rigid-body response, tyres, bumps, wall collisions, audio and FFB are not simulated."))?;
+    ground.warning(Error::new("ground_query_scope",&source,0,"Static support geometry queries only; surface coefficients are metadata. Response and force laws belong to the caller. Wall collisions, audio and FFB are not simulated here."))?;
     Ok(ground)
 }

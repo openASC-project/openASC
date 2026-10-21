@@ -58,6 +58,51 @@ fn near(a: f64, b: f64) {
 }
 
 #[test]
+fn finite_face_queries_clip_edges_and_plane_in_both_windings() {
+    for points in [
+        [[0., 0., 0.], [4., 2., 0.], [0., 0., 4.]],
+        [[0., 0., 0.], [0., 0., 4.], [4., 2., 0.]],
+    ] {
+        let d = directory(&[named_mesh("1ROAD", &points, 0, 0, 0., 2)]);
+        let g = ground(&d.0);
+        let faces = g.faces_in_box([1., 0.5, 1.], [0.1; 3]).unwrap();
+        assert_eq!(faces.len(), 1);
+        let f = &faces[0];
+        assert_eq!((f.triangle, f.mesh, f.model), (0, "1ROAD", "a.kn5"));
+        assert_eq!(f.surface.key, "ROAD");
+        near(f.normal()[1], 1. / 1.25f64.sqrt());
+        for p in [[1., 0.5, 1.], [4., 2., 0.], [2., 1., 2.]] {
+            assert!(f.contains_point(p).unwrap());
+        }
+        for p in [[3., 1.5, 3.], [-0.001, -0.0005, 0.], [1., 0.501, 1.]] {
+            assert!(!f.contains_point(p).unwrap());
+        }
+        assert!(g.faces_in_box([1., 5., 1.], [0.1; 3]).unwrap().is_empty());
+        assert!(g.faces_in_box([f64::NAN, 0., 0.], [1.; 3]).is_err());
+        assert!(g.faces_in_box([0.; 3], [20.0001; 3]).is_err());
+        assert!(f.contains_point([f64::INFINITY; 3]).is_err());
+    }
+}
+
+#[test]
+fn face_query_density_cap_errors_instead_of_dropping_candidates() {
+    for count in [4096, 4097] {
+        let d = directory(&vec![triangle("1ROAD", 0.); count]);
+        let g = ground(&d.0);
+        let result = g.faces_in_box([1., 0., 1.], [0.3; 3]);
+        if count == 4096 {
+            let faces = result.unwrap();
+            assert_eq!(
+                faces.iter().map(|f| f.triangle).collect::<Vec<_>>(),
+                (0..count).collect::<Vec<_>>()
+            );
+        } else {
+            assert_eq!(result.unwrap_err().code, "ground_face_limit");
+        }
+    }
+}
+
+#[test]
 fn hidden_physical_geometry_keeps_double_precision_and_active_ancestry() {
     let mut inactive = triangle("2ROAD_inactive", 0.);
     inactive[12 + "2ROAD_inactive".len()] = 0;
