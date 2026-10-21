@@ -1,9 +1,11 @@
 //! Explicit coupled chassis workbench, with caller-supplied frame and mass mapping.
+use super::chassis_controls::{Control, Timeline};
 use super::dynamics_config::Spring;
 use asc_physics::{
     Body, ChassisKinematics, ChassisLoads, ChassisSample, ChassisSystem, LinkPose, MassProperties,
     MountedUpright, NormalContact, NormalContactSample, SupportPlane, TangentialContact,
-    TangentialContactSample, TravelMechanism, TravelState, Wheel, WheelLoad, WheelState, Wrench,
+    TangentialContactSample, TravelMechanism, TravelState, Wheel, WheelBrake, WheelBrakeSample,
+    WheelLoad, WheelState, Wrench,
 };
 use serde::{Deserialize, Serialize};
 use std::{error::Error, fs::File, io::Read, path::Path};
@@ -58,6 +60,14 @@ struct WheelConfiguration {
     normal_contact: Option<NormalConfiguration>,
     #[serde(skip_serializing_if = "Option::is_none")]
     tangential_contact: Option<TangentialConfiguration>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    brake: Option<BrakeConfiguration>,
+}
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct BrakeConfiguration {
+    maximum_torque_nm: f64,
+    transition_rate_rad_s: f64,
 }
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -132,6 +142,8 @@ struct Configuration {
     support_track: Option<TrackConfiguration>,
     #[serde(skip_serializing_if = "Option::is_none")]
     initial_spawn: Option<SpawnConfiguration>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    controls: Option<Vec<Control>>,
 }
 #[derive(Default)]
 struct Contact {
@@ -146,8 +158,46 @@ struct Environment {
     models: Vec<Option<NormalContact>>,
     tangential: Vec<Option<TangentialContact>>,
     plane_friction: Option<f64>,
+    brakes: Vec<Option<WheelBrake>>,
+    controls: Option<Timeline>,
 }
 impl Environment {
+    fn needs_provider(&self) -> bool {
+        self.has_contact() || self.controls.is_some() || self.brakes.iter().any(Option::is_some)
+    }
+    fn actuation(
+        &self,
+        time_s: f64,
+        k: &ChassisKinematics,
+    ) -> asc_physics::Result<(Control, Vec<Option<WheelBrakeSample>>, f64)> {
+        let control = if let Some(timeline) = &self.controls {
+            timeline.sample(time_s)?
+        } else {
+            Control {
+                time_s,
+                drive_fraction: 1.,
+                brake_fraction: 0.,
+            }
+        };
+        let mut motor_power = 0.;
+        let mut brakes = Vec::new();
+        for (i, u) in k.uprights.iter().enumerate() {
+            if let Some(wheel) = &u.wheel {
+                motor_power += self.base.wheels[i].internal_torque_nm()
+                    * control.drive_fraction
+                    * wheel.state.rate_rad_s;
+                brakes.push(
+                    self.brakes[i]
+                        .as_ref()
+                        .map(|b| b.sample(wheel.state.rate_rad_s, control.brake_fraction))
+                        .transpose()?,
+                );
+            } else {
+                brakes.push(None);
+            }
+        }
+        Ok((control, brakes, motor_power))
+    }
     fn has_contact(&self) -> bool {
         self.plane.is_some() || self.track.is_some()
     }
@@ -194,8 +244,15 @@ impl Environment {
             })
             .collect()
     }
-    fn loads(&self, k: &ChassisKinematics) -> asc_physics::Result<ChassisLoads> {
+    fn loads(&self, time_s: f64, k: &ChassisKinematics) -> asc_physics::Result<ChassisLoads> {
         let mut loads = self.base.clone();
+        let (control, brakes, _) = self.actuation(time_s, k)?;
+        for (load, brake) in loads.wheels.iter_mut().zip(brakes) {
+            load.set_internal_torque(control.drive_fraction * load.internal_torque_nm())?;
+            if let Some(brake) = brake {
+                load.add_internal_torque(brake.torque_on_wheel_nm)?;
+            }
+        }
         for (load, contact) in loads.wheels.iter_mut().zip(self.contacts(k)?) {
             if let Some(contact) = contact.normal {
                 load.add_external(contact.wrench()?)?;
@@ -216,6 +273,20 @@ impl Environment {
         let energy = sample.kinetic_energy_j + sample.potential_energy_j;
         let dissipation = sample.dissipated_power_w;
         let mut result = serde_json::json!({"step":step,"time_s":time_s,"sample":sample});
+        let mut brake_dissipation = 0.;
+        if self.controls.is_some() || self.brakes.iter().any(Option::is_some) {
+            let (control, brakes, motor_power) = self.actuation(time_s, &system.kinematics()?)?;
+            brake_dissipation = brakes
+                .iter()
+                .flatten()
+                .map(|b| b.dissipated_power_w)
+                .sum::<f64>();
+            result["controls"] = serde_json::json!(control);
+            result["wheel_brakes"] = serde_json::json!(brakes);
+            result["motor_power_w"] = motor_power.into();
+            result["brake_dissipated_power_w"] = brake_dissipation.into();
+            result["total_dissipated_power_w"] = (dissipation + brake_dissipation).into();
+        }
         if self.has_contact() {
             let evaluated = self.contacts(&system.kinematics()?)?;
             let contacts: Vec<_> = evaluated.iter().map(|c| c.normal.as_ref()).collect();
@@ -247,7 +318,7 @@ impl Environment {
             result["normal_contact_potential_energy_j"] = potential.into();
             result["mechanical_energy_with_normal_contact_j"] = (energy + potential).into();
             result["total_dissipated_power_w"] =
-                (dissipation + dissipated + tangential_dissipated).into();
+                (dissipation + dissipated + tangential_dissipated + brake_dissipation).into();
         }
         Ok(result)
     }
@@ -327,6 +398,7 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
     let mut sources = Vec::new();
     let mut models = Vec::new();
     let mut tangential = Vec::new();
+    let mut brakes = Vec::new();
     let mut contact_count = 0;
     let plane = config
         .support_plane
@@ -404,6 +476,12 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
                 },
             )?)?;
             wheel_count += 1;
+            brakes.push(
+                w.brake
+                    .as_ref()
+                    .map(|b| WheelBrake::new(b.maximum_torque_nm, b.transition_rate_rad_s))
+                    .transpose()?,
+            );
             let model = w
                 .normal_contact
                 .as_ref()
@@ -432,6 +510,7 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
         } else {
             models.push(None);
             tangential.push(None);
+            brakes.push(None);
             WheelLoad::default()
         };
         wheel_loads.push(wheel_load);
@@ -471,16 +550,25 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
         models,
         tangential,
         plane_friction,
+        brakes,
+        controls: config
+            .controls
+            .as_ref()
+            .map(|c| Timeline::new(c))
+            .transpose()?,
     };
-    let mut system = if environment.has_contact() {
-        ChassisSystem::new_with_forces(body, uprights, config.gravity_world_m_s2, |_, k| {
-            environment.loads(k)
+    if environment.controls.is_some() && wheel_count == 0 {
+        return Err("Wheel controls require at least one wheel".into());
+    }
+    let mut system = if environment.needs_provider() {
+        ChassisSystem::new_with_forces(body, uprights, config.gravity_world_m_s2, |offset, k| {
+            environment.loads(offset, k)
         })?
     } else {
         ChassisSystem::new(body, uprights, config.gravity_world_m_s2)?
     };
-    let first = if environment.has_contact() {
-        system.sample_with_forces(|_, k| environment.loads(k))?
+    let first = if environment.needs_provider() {
+        system.sample_with_forces(|offset, k| environment.loads(offset, k))?
     } else {
         system.sample_with_wheels(
             environment.base.chassis,
@@ -490,8 +578,11 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
     };
     let mut records = vec![environment.record(&system, 0, 0., first)?];
     for step in 1..=config.steps {
-        let sample = if environment.has_contact() {
-            system.step_with_forces(config.step_s, |_, k| environment.loads(k))?
+        let sample = if environment.needs_provider() {
+            let start = f64::from(step - 1) * config.step_s;
+            system.step_with_forces(config.step_s, |offset, k| {
+                environment.loads(start + offset, k)
+            })?
         } else {
             system.step_with_wheels(
                 config.step_s,
@@ -515,6 +606,8 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
         "wheel_spin_dofs":wheel_count,"wheel_mass_is_additional_to_upright":true,
         "normal_contact_wheels":contact_count,"normal_contact_uses_track_geometry":environment.track.is_some(),
         "tangential_contact_wheels":tangential_count,"tangential_contact_model":"optional_memoryless_viscous_slip_friction_ellipse",
+        "wheel_brake_models":environment.brakes.iter().flatten().count(),"scheduled_wheel_controls":environment.controls.is_some(),
+        "wheel_brake_model":"optional_passive_regularized_internal_torque","static_wheel_lock":false,
         "track_geometry":environment.track.as_ref().map(|(g,_)|g.summary()),
         "track_diagnostics":environment.track.as_ref().map(|(g,_)|g.diagnostics()),
         "initial_spawn_diagnostics":spawn_diagnostics,

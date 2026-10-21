@@ -1,3 +1,4 @@
+mod chassis_controls;
 pub mod chassis_run;
 mod dynamics_config;
 pub mod session;

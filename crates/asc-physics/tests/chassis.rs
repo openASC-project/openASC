@@ -1333,6 +1333,56 @@ fn normal_support_system(height_offset: f64) -> (ChassisSystem, f64) {
         equilibrium,
     )
 }
+
+#[test]
+fn regularized_internal_brake_matches_two_rotor_solution_recoil_and_energy_loss() {
+    let brake = asc_physics::WheelBrake::new(40., 5.).unwrap();
+    let inertia = 1. / (1. / 1.2 + 1. / 10.4);
+    for strut in [false, true] {
+        for sign in [-1., 1.] {
+            let mut errors = Vec::new();
+            for (dt, steps) in [(0.002, 250), (0.001, 500)] {
+                let mut system = coaxial_rotor(strut, 2. * sign);
+                let loads = |_: f64, k: &ChassisKinematics| -> asc_physics::Result<ChassisLoads> {
+                    let b =
+                        brake.sample(k.uprights[0].wheel.as_ref().unwrap().state.rate_rad_s, 1.)?;
+                    let mut loads = ChassisLoads::zero(1)?;
+                    loads.wheels[0].add_internal_torque(b.torque_on_wheel_nm)?;
+                    Ok(loads)
+                };
+                let initial = system.sample_with_forces(loads).unwrap();
+                let momentum = initial.angular_momentum_about_world_origin_kg_m2_s;
+                let mut previous = initial.kinetic_energy_j;
+                for _ in 0..steps {
+                    let s = system.step_with_forces(dt, loads).unwrap();
+                    let rate = s.uprights[0].wheel.as_ref().unwrap().state.rate_rad_s;
+                    assert!(rate * sign > 0.);
+                    assert!(s.kinetic_energy_j <= previous + 1e-12);
+                    previous = s.kinetic_energy_j;
+                    close(
+                        s.angular_momentum_about_world_origin_kg_m2_s,
+                        vector(momentum),
+                        1e-9,
+                    );
+                }
+                let s = system.sample_with_forces(loads).unwrap();
+                let relative = 2. * sign * (-8. / inertia * 0.5f64).exp();
+                let chassis_rate = 1.2 / 11.6 * (2. * sign - relative);
+                errors.push(
+                    (s.uprights[0].wheel.as_ref().unwrap().state.rate_rad_s - relative).abs(),
+                );
+                near(
+                    s.chassis.angular_velocity_world_rad_s[0],
+                    chassis_rate,
+                    1e-6,
+                );
+                let energy = 0.5 * inertia * relative.powi(2) + 0.5 * (2.4f64).powi(2) / 11.6;
+                near(s.kinetic_energy_j, energy, 1e-6);
+            }
+            assert!(errors[1] < 0.3 * errors[0], "{errors:?}");
+        }
+    }
+}
 fn normal_loads(
     k: &ChassisKinematics,
     law: &NormalContact,

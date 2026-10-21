@@ -622,6 +622,161 @@ fn normal_configuration() -> serde_json::Value {
 }
 
 #[test]
+fn cli_brakes_actuate_airborne_wheels_without_requiring_a_support_provider() {
+    let fixture = fixture();
+    let path = fixture.0.join("airborne-brake.json");
+    let mut c: serde_json::Value =
+        serde_json::from_str(include_str!("../../../examples/chassis-wheels.json")).unwrap();
+    c["steps"] = 100.into();
+    c["record_every"] = 10.into();
+    c["controls"] = serde_json::json!([{"time_s":0,"drive_fraction":0,"brake_fraction":1}]);
+    for (i, u) in c["uprights"].as_array_mut().unwrap().iter_mut().enumerate() {
+        u["car_directory"] = ".".into();
+        u["wheel"]["drive_torque_nm"] = 0.into();
+        u["wheel"]["initial_rate_rad_s"] = if i % 2 == 0 { 10 } else { -10 }.into();
+        u["wheel"]["brake"] = serde_json::json!({"maximum_torque_nm":20,"transition_rate_rad_s":5});
+    }
+    fs::write(&path, c.to_string()).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_openasc"))
+        .arg("chassis-run")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let r: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(r["normal_contact_wheels"], 0);
+    assert_eq!(r["wheel_brake_models"], 4);
+    let rows = r["records"].as_array().unwrap();
+    for row in rows {
+        let d = row["brake_dissipated_power_w"].as_f64().unwrap();
+        assert!(d > 0.);
+        assert!(
+            (row["total_dissipated_power_w"].as_f64().unwrap()
+                - row["sample"]["dissipated_power_w"].as_f64().unwrap()
+                - d)
+                .abs()
+                < 1e-8
+        );
+        assert_eq!(row["motor_power_w"], 0.);
+    }
+    for u in rows.last().unwrap()["sample"]["uprights"]
+        .as_array()
+        .unwrap()
+    {
+        assert!(u["wheel"]["state"]["rate_rad_s"].as_f64().unwrap().abs() < 9.);
+    }
+    fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn cli_scheduled_drive_brake_reports_actual_torque_power_and_slows_the_vehicle() {
+    let fixture = fixture();
+    let path = fixture.0.join("brake.json");
+    let mut c = normal_configuration();
+    c["support_plane"]["friction_scale"] = 1.into();
+    c["steps"] = 2000.into();
+    c["record_every"] = 20.into();
+    c["controls"] = serde_json::json!([
+        {"time_s":0,"drive_fraction":1,"brake_fraction":0},
+        {"time_s":0.4,"drive_fraction":1,"brake_fraction":0},
+        {"time_s":0.5,"drive_fraction":0,"brake_fraction":1},
+        {"time_s":1,"drive_fraction":0,"brake_fraction":1}]);
+    for (i, u) in c["uprights"].as_array_mut().unwrap().iter_mut().enumerate() {
+        u["wheel"]["tangential_contact"] = serde_json::json!({"longitudinal_viscosity_n_s_m":3000,"lateral_viscosity_n_s_m":4000,"longitudinal_friction":0.9,"lateral_friction":0.9});
+        u["wheel"]["drive_torque_nm"] = if i % 2 == 0 { 100 } else { -100 }.into();
+        u["wheel"]["brake"] =
+            serde_json::json!({"maximum_torque_nm":400,"transition_rate_rad_s":5});
+    }
+    let invoke = |c: &serde_json::Value| {
+        fs::write(&path, c.to_string()).unwrap();
+        Command::new(env!("CARGO_BIN_EXE_openasc"))
+            .arg("chassis-run")
+            .arg(&path)
+            .output()
+            .unwrap()
+    };
+    let output = invoke(&c);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let r: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(r["scheduled_wheel_controls"], true);
+    assert_eq!(r["wheel_brake_models"], 4);
+    assert_eq!(r["static_wheel_lock"], false);
+    let records = r["records"].as_array().unwrap();
+    let peak = records
+        .iter()
+        .map(|r| {
+            r["sample"]["chassis"]["velocity_world_m_s"][2]
+                .as_f64()
+                .unwrap()
+        })
+        .fold(0., f64::max);
+    let final_speed = records.last().unwrap()["sample"]["chassis"]["velocity_world_m_s"][2]
+        .as_f64()
+        .unwrap();
+    assert!(peak > 0.2);
+    assert!(
+        final_speed >= -1e-5 && final_speed < 0.3 * peak,
+        "{final_speed}/{peak}"
+    );
+    for record in records {
+        let time = record["time_s"].as_f64().unwrap();
+        let control = &record["controls"];
+        let drive = control["drive_fraction"].as_f64().unwrap();
+        let brake = control["brake_fraction"].as_f64().unwrap();
+        if time <= 0.4 {
+            assert_eq!(drive, 1.);
+            assert_eq!(brake, 0.);
+        } else if time >= 0.5 {
+            assert_eq!(drive, 0.);
+            assert_eq!(brake, 1.);
+        }
+        let mut dissipation = 0.;
+        let mut motor_power = 0.;
+        for (i, (b, u)) in record["wheel_brakes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(record["sample"]["uprights"].as_array().unwrap())
+            .enumerate()
+        {
+            let rate = u["wheel"]["state"]["rate_rad_s"].as_f64().unwrap();
+            let torque = b["torque_on_wheel_nm"].as_f64().unwrap();
+            let motor = if i % 2 == 0 { 100. } else { -100. } * drive;
+            assert!(torque * rate <= 0.);
+            dissipation -= torque * rate;
+            motor_power += motor * rate;
+            assert!(
+                (u["wheel"]["drive_torque_nm"].as_f64().unwrap() - motor - torque).abs() < 1e-9
+            );
+        }
+        assert!((dissipation - record["brake_dissipated_power_w"].as_f64().unwrap()).abs() < 1e-8);
+        assert!((motor_power - record["motor_power_w"].as_f64().unwrap()).abs() < 1e-8);
+    }
+    for case in 0..5 {
+        let mut bad = c.clone();
+        match case {
+            0 => bad["controls"] = serde_json::json!([]),
+            1 => bad["controls"][1]["time_s"] = 0.into(),
+            2 => bad["controls"][0]["brake_fraction"] = 2.into(),
+            3 => bad["uprights"][0]["wheel"]["brake"]["maximum_torque_nm"] = (-1).into(),
+            _ => bad["uprights"][0]["wheel"]["brake"]["transition_rate_rad_s"] = 0.into(),
+        }
+        let r = invoke(&bad);
+        assert!(!r.status.success());
+        assert!(r.stdout.is_empty());
+    }
+    fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn cli_tangential_contact_moves_vehicle_reports_passivity_and_rejects_bad_laws() {
     let fixture = fixture();
     let path = fixture.0.join("friction.json");

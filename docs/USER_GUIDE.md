@@ -532,3 +532,20 @@ Each enabled `wheel.tangential_contact` requires that wheel's `normal_contact`. 
 Each state adds parallel `tangential_contacts`, with direction vectors, slip velocities, component forces/limits, surface scale, common ellipse saturation scale, world force/COM torque and mechanical/dissipated power. Null means that wheel has no enabled tangential provider or selected track face. `tangential_dissipated_power_w` sums wheel losses, and `total_dissipated_power_w` includes them. `tangential_contact_wheels` counts enabled models. Reports still mark original dynamics and simulation readiness false.
 
 At zero material-point slip the model produces zero force; it has no static-friction hold, transient contact patch or independently generated aligning torque. Normal force is not assigned from static axle weight. Wheel angular velocity, normal compression and chassis motion all affect the actual contact wrench. Use smaller steps when increasing viscosity or lowering wheel inertia; the explicit solver has no universal stability guarantee. See [force and power conventions](ARCHITECTURE.md#tangential-contact-and-wheel-traction) and [validation](FORMATS.md#tangential-contact-validation).
+
+
+## Native scheduled wheel controls and brakes
+
+```sh
+cargo run --locked -p asc-app -- chassis-run examples/chassis-accelerate-brake.json
+```
+
+The [accelerate/brake example](https://github.com/openASC-project/openASC/blob/main/examples/chassis-accelerate-brake.json) runs four seconds on local Drift with synthetic masses, mounts, contact parameters and brakes. Rear motors accelerate for one second; drive ramps to zero by 1.2 s, then all-wheel brake demand ramps to one by 1.4 s. This is a repeatable native dynamics workbench with fixed racks, not a player-controlled or rendered drive.
+
+Optional top-level `controls` is an array of 1..64 keys. Each key requires `time_s`, `drive_fraction` and `brake_fraction`; unknown fields fail. Time starts exactly at zero, increases strictly and lies in 0..1e6 seconds. Drive lies in -1..1 and brake in 0..1. Between keys both fractions interpolate linearly; after the final key they hold. With no timeline, drive is one and brake zero, preserving existing constant-motor behavior. A negative drive fraction reverses the configured signed motor torque; it does not implement a gearbox. At least one wheel is required.
+
+Each optional `wheel.brake` contains `maximum_torque_nm` (0..1e6) and `transition_rate_rad_s` (1e-3..1e3). Brake torque opposes the wheel's spin relative to its upright, reaches its demand-scaled limit above the transition rate, and decreases linearly to zero near rest. It is added as an internal pair with the opposite upright reaction. Brakes work while airborne as well as on a road. Parameters are explicit synthetic inputs, not automatically mapped from AC brake data.
+
+Controls and brake torque are evaluated at initial, midpoint and final stage times. Reports add the current `controls`, parallel `wheel_brakes`, `motor_power_w`, and `brake_dissipated_power_w`; total dissipation includes brake losses. The existing per-wheel sample field `drive_torque_nm` now describes the net internal actuator torque, including the brake. Configured nominal motor torque remains in `explicit_configuration`. The report marks `scheduled_wheel_controls`, counts `wheel_brake_models` and keeps `static_wheel_lock` false.
+
+This continuous regularization approaches rest with a small residual rate. It supplies neither static wheel locking nor slope holding, ABS, thermal fade or hydraulic timing. Small-step passivity checks do not guarantee stability at an arbitrary explicit step. Increasing capacity or decreasing transition rate stiffens the low-speed response; reduce the step accordingly. See [torque and power conventions](ARCHITECTURE.md#scheduled-wheel-actuation-and-passive-brakes) and [validation](FORMATS.md#scheduled-brake-validation).

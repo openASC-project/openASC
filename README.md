@@ -34,6 +34,7 @@ cargo run --locked -p asc-app -- chassis-run examples/chassis-wheels.json
 cargo run --locked -p asc-app -- chassis-run examples/chassis-normal-plane.json
 cargo run --locked -p asc-app -- chassis-run examples/chassis-normal-track.json
 cargo run --locked -p asc-app -- chassis-run examples/chassis-traction-track.json
+cargo run --locked -p asc-app -- chassis-run examples/chassis-accelerate-brake.json
 cargo run --locked -p asc-app -- preview ./assettocorsa/content/cars/bmw_m3_e30 ./assettocorsa/content/tracks/drift/models.ini
 ```
 
@@ -146,3 +147,5 @@ New source code, original branding and website code use the [MIT license](LICENS
 Assetto Corsa is a Kunos Simulazioni product. openASC is independent and unaffiliated. No openOMSI code or branding assets are used.
 
 Native [traction workbench](docs/USER_GUIDE.md#native-tangential-contact-and-traction) couples explicit wheel motor torque to finite road support. It uses synthetic viscous-slip parameters; static stiction, transient tyre behavior, source drivetrain mapping and rendered native control remain incomplete.
+
+Optional [scheduled wheel controls and brakes](docs/USER_GUIDE.md#native-scheduled-wheel-controls-and-brakes) now exercise acceleration followed by passive internal braking in one native workbench run. Static wheel lock, ABS, original brake/drivetrain mapping, steering input and rendered native control remain incomplete.

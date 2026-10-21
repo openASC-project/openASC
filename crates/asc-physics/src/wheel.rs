@@ -92,6 +92,31 @@ impl WheelLoad {
     pub fn add_external(&mut self, world_com_wrench: Wrench) -> Result<()> {
         self.external.add(world_com_wrench)
     }
+    /// Combined internal actuator torque about the signed wheel axle.
+    pub fn internal_torque_nm(&self) -> f64 {
+        self.drive
+    }
+    pub fn set_internal_torque(&mut self, torque_nm: f64) -> Result<()> {
+        if !torque_nm.is_finite() || torque_nm.abs() > 1e18 {
+            return Err(fail());
+        }
+        self.drive = torque_nm;
+        Ok(())
+    }
+    /// Transactional addition of an internal motor/brake torque, including its
+    /// opposite upright reaction in the coupled solver.
+    pub fn add_internal_torque(&mut self, torque_nm: f64) -> Result<()> {
+        let total = self.drive + torque_nm;
+        if !torque_nm.is_finite()
+            || torque_nm.abs() > 1e18
+            || !total.is_finite()
+            || total.abs() > 1e18
+        {
+            return Err(fail());
+        }
+        self.drive = total;
+        Ok(())
+    }
 }
 #[derive(Debug, Serialize)]
 pub struct WheelSample {

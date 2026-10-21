@@ -1,6 +1,7 @@
 //! Native rigid bodies, springs and coupled chassis/upright constraint dynamics.
 //! Original Assetto Corsa force models, calibrated tyres remain unimplemented; finite face selection lives in asc-session.
 mod body;
+mod brake;
 mod chassis;
 mod clock;
 mod contact;
@@ -15,6 +16,7 @@ mod tangential;
 mod travel;
 mod wheel;
 pub use body::{Body, State, Wrench};
+pub use brake::{WheelBrake, WheelBrakeSample};
 pub use chassis::{
     ChassisKinematics, ChassisLoads, ChassisSample, ChassisSystem, MountedUpright,
     UprightKinematics, UprightSample, WheelKinematics,
