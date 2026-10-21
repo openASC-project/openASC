@@ -2,8 +2,8 @@
 use super::dynamics_config::Spring;
 use asc_physics::{
     Body, ChassisKinematics, ChassisLoads, ChassisSample, ChassisSystem, LinkPose, MassProperties,
-    MountedUpright, NormalContact, NormalContactSample, SupportPlane, TravelMechanism, TravelState,
-    Wheel, WheelLoad, WheelState, Wrench,
+    MountedUpright, NormalContact, NormalContactSample, SupportPlane, TangentialContact,
+    TangentialContactSample, TravelMechanism, TravelState, Wheel, WheelLoad, WheelState, Wrench,
 };
 use serde::{Deserialize, Serialize};
 use std::{error::Error, fs::File, io::Read, path::Path};
@@ -56,6 +56,26 @@ struct WheelConfiguration {
     drive_torque_nm: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
     normal_contact: Option<NormalConfiguration>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    tangential_contact: Option<TangentialConfiguration>,
+}
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct TangentialConfiguration {
+    longitudinal_viscosity_n_s_m: f64,
+    lateral_viscosity_n_s_m: f64,
+    longitudinal_friction: f64,
+    lateral_friction: f64,
+}
+impl TangentialConfiguration {
+    fn build(&self) -> asc_physics::Result<TangentialContact> {
+        TangentialContact::new(
+            self.longitudinal_viscosity_n_s_m,
+            self.lateral_viscosity_n_s_m,
+            self.longitudinal_friction,
+            self.lateral_friction,
+        )
+    }
 }
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -80,6 +100,8 @@ impl NormalConfiguration {
 struct PlaneConfiguration {
     point_world_m: [f64; 3],
     normal_world: [f64; 3],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    friction_scale: Option<f64>,
 }
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -111,21 +133,25 @@ struct Configuration {
     #[serde(skip_serializing_if = "Option::is_none")]
     initial_spawn: Option<SpawnConfiguration>,
 }
-type Contacts = (
-    Vec<Option<NormalContactSample>>,
-    Vec<Option<asc_session::TrackFace>>,
-);
+#[derive(Default)]
+struct Contact {
+    normal: Option<NormalContactSample>,
+    face: Option<asc_session::TrackFace>,
+    tangential: Option<TangentialContactSample>,
+}
 struct Environment {
     base: ChassisLoads,
     plane: Option<SupportPlane>,
     track: Option<(asc_ground::Ground, f64)>,
     models: Vec<Option<NormalContact>>,
+    tangential: Vec<Option<TangentialContact>>,
+    plane_friction: Option<f64>,
 }
 impl Environment {
     fn has_contact(&self) -> bool {
         self.plane.is_some() || self.track.is_some()
     }
-    fn contacts(&self, k: &ChassisKinematics) -> asc_physics::Result<Contacts> {
+    fn contacts(&self, k: &ChassisKinematics) -> asc_physics::Result<Vec<Contact>> {
         self.models
             .iter()
             .zip(&k.uprights)
@@ -139,10 +165,15 @@ impl Environment {
                         )
                     })?;
                     let result = if let Some((ground, min_y)) = &self.track {
-                        asc_session::face_contact(ground, wheel, model, *min_y)
-                            .map(|c| c.map(|c| (c.sample, Some(c.face))))
+                        asc_session::face_contact_with_friction(ground, wheel, model, *min_y, self.tangential[index].as_ref())
+                            .map(|c| c.map(|c| Contact { normal:Some(c.sample), face:Some(c.face), tangential:c.tangential }))
                     } else if let Some(plane) = self.plane {
-                        model.sample(wheel, plane).map(|s| Some((s, None)))
+                        if let Some(friction) = &self.tangential[index] {
+                            model.sample_with_friction(wheel,plane,friction,self.plane_friction.ok_or_else(||asc_physics::Error::new("contact_friction","Plane tangential contact requires explicit friction_scale"))?)
+                                .map(|c|Some(Contact {normal:Some(c.normal),face:None,tangential:Some(c.tangential)}))
+                        } else {
+                            model.sample(wheel, plane).map(|s| Some(Contact { normal:Some(s), ..Contact::default() }))
+                        }
                     } else {
                         Err(asc_physics::Error::new(
                             "contact_support",
@@ -156,18 +187,20 @@ impl Environment {
                                 &format!("Upright {index}: {}", error.message),
                             )
                         })?
-                        .map_or((None, None), |(s, f)| (Some(s), f)))
+                        .unwrap_or_default())
                 } else {
-                    Ok((None, None))
+                    Ok(Contact::default())
                 }
             })
-            .collect::<asc_physics::Result<Vec<_>>>()
-            .map(|v| v.into_iter().unzip())
+            .collect()
     }
     fn loads(&self, k: &ChassisKinematics) -> asc_physics::Result<ChassisLoads> {
         let mut loads = self.base.clone();
-        for (load, contact) in loads.wheels.iter_mut().zip(self.contacts(k)?.0) {
-            if let Some(contact) = contact {
+        for (load, contact) in loads.wheels.iter_mut().zip(self.contacts(k)?) {
+            if let Some(contact) = contact.normal {
+                load.add_external(contact.wrench()?)?;
+            }
+            if let Some(contact) = contact.tangential {
                 load.add_external(contact.wrench()?)?;
             }
         }
@@ -184,7 +217,10 @@ impl Environment {
         let dissipation = sample.dissipated_power_w;
         let mut result = serde_json::json!({"step":step,"time_s":time_s,"sample":sample});
         if self.has_contact() {
-            let (contacts, faces) = self.contacts(&system.kinematics()?)?;
+            let evaluated = self.contacts(&system.kinematics()?)?;
+            let contacts: Vec<_> = evaluated.iter().map(|c| c.normal.as_ref()).collect();
+            let faces: Vec<_> = evaluated.iter().map(|c| c.face.as_ref()).collect();
+            let tangential: Vec<_> = evaluated.iter().map(|c| c.tangential.as_ref()).collect();
             let potential = contacts
                 .iter()
                 .flatten()
@@ -195,13 +231,23 @@ impl Environment {
                 .flatten()
                 .map(|s| s.dissipated_power_w)
                 .sum::<f64>();
+            let tangential_dissipated = tangential
+                .iter()
+                .flatten()
+                .map(|c| c.dissipated_power_w)
+                .sum::<f64>();
             result["normal_contacts"] = serde_json::json!(contacts);
             if self.track.is_some() {
                 result["track_contact_faces"] = serde_json::json!(faces);
             }
+            if self.tangential.iter().any(Option::is_some) {
+                result["tangential_contacts"] = serde_json::json!(tangential);
+                result["tangential_dissipated_power_w"] = tangential_dissipated.into();
+            }
             result["normal_contact_potential_energy_j"] = potential.into();
             result["mechanical_energy_with_normal_contact_j"] = (energy + potential).into();
-            result["total_dissipated_power_w"] = (dissipation + dissipated).into();
+            result["total_dissipated_power_w"] =
+                (dissipation + dissipated + tangential_dissipated).into();
         }
         Ok(result)
     }
@@ -280,6 +326,7 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
     let mut wheel_count = 0;
     let mut sources = Vec::new();
     let mut models = Vec::new();
+    let mut tangential = Vec::new();
     let mut contact_count = 0;
     let plane = config
         .support_plane
@@ -365,6 +412,15 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
             if model.is_some() {
                 contact_count += 1;
             }
+            if w.tangential_contact.is_some() && model.is_none() {
+                return Err("Tangential contact requires a wheel normal_contact".into());
+            }
+            tangential.push(
+                w.tangential_contact
+                    .as_ref()
+                    .map(TangentialConfiguration::build)
+                    .transpose()?,
+            );
             models.push(model);
             WheelLoad::new(
                 Wrench::new(
@@ -375,6 +431,7 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
             )?
         } else {
             models.push(None);
+            tangential.push(None);
             WheelLoad::default()
         };
         wheel_loads.push(wheel_load);
@@ -394,6 +451,15 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
                 .into(),
         );
     }
+    let tangential_count = tangential.iter().flatten().count();
+    let plane_friction = config.support_plane.as_ref().and_then(|p| p.friction_scale);
+    if plane_friction.is_some_and(|v| !v.is_finite() || !(0. ..=10.).contains(&v))
+        || (plane.is_some() && tangential_count > 0 && plane_friction.is_none())
+    {
+        return Err(
+            "Plane tangential contact requires explicit friction_scale within 0..10".into(),
+        );
+    }
     let environment = Environment {
         base: ChassisLoads {
             chassis: chassis_load,
@@ -403,6 +469,8 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
         plane,
         track,
         models,
+        tangential,
+        plane_friction,
     };
     let mut system = if environment.has_contact() {
         ChassisSystem::new_with_forces(body, uprights, config.gravity_world_m_s2, |_, k| {
@@ -446,6 +514,7 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
         "moving_chassis":true,"fixed_racks":true,"massless_links":true,
         "wheel_spin_dofs":wheel_count,"wheel_mass_is_additional_to_upright":true,
         "normal_contact_wheels":contact_count,"normal_contact_uses_track_geometry":environment.track.is_some(),
+        "tangential_contact_wheels":tangential_count,"tangential_contact_model":"optional_memoryless_viscous_slip_friction_ellipse",
         "track_geometry":environment.track.as_ref().map(|(g,_)|g.summary()),
         "track_diagnostics":environment.track.as_ref().map(|(g,_)|g.diagnostics()),
         "initial_spawn_diagnostics":spawn_diagnostics,
@@ -453,7 +522,7 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
         "automatic_source_frames_mass_or_force_parameters":false,"original_vehicle_dynamics_validated":false,
         "simulation_ready":false,"renderer_animation":false,
         "limitations":["Explicit caller-provided chassis mounts and local frames; no automatic side/setup mapping",
-            "Optional thin-circle support on a static plane or finite road-face interiors; no edge/vertex collision, CCD, tangential tyre or FFB forces",
+            "Optional thin-circle support and memoryless tangential slip friction; no edge/vertex collision, CCD, static stiction, transient tyre patch or FFB",
             "Synthetic sample parameters; no original-game mass/inertia/preload calibration",
             "Explicit Lie-midpoint integration on a bounded local branch; no universal stability guarantee"]
     }))

@@ -622,6 +622,87 @@ fn normal_configuration() -> serde_json::Value {
 }
 
 #[test]
+fn cli_tangential_contact_moves_vehicle_reports_passivity_and_rejects_bad_laws() {
+    let fixture = fixture();
+    let path = fixture.0.join("friction.json");
+    let mut config = normal_configuration();
+    config["support_plane"]["friction_scale"] = 1.into();
+    for (i, u) in config["uprights"]
+        .as_array_mut()
+        .unwrap()
+        .iter_mut()
+        .enumerate()
+    {
+        u["wheel"]["tangential_contact"] = serde_json::json!({"longitudinal_viscosity_n_s_m":3000,"lateral_viscosity_n_s_m":4000,"longitudinal_friction":0.9,"lateral_friction":0.9});
+        u["wheel"]["drive_torque_nm"] = if i % 2 == 0 { 50 } else { -50 }.into();
+    }
+    let invoke = |c: &serde_json::Value| {
+        fs::write(&path, c.to_string()).unwrap();
+        Command::new(env!("CARGO_BIN_EXE_openasc"))
+            .arg("chassis-run")
+            .arg(&path)
+            .output()
+            .unwrap()
+    };
+    let output = invoke(&config);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["tangential_contact_wheels"], 4);
+    let records = report["records"].as_array().unwrap();
+    assert!(
+        records.last().unwrap()["sample"]["linear_momentum_world_kg_m_s"][2]
+            .as_f64()
+            .unwrap()
+            > 10.
+    );
+    for r in records {
+        let sum = r["tangential_contacts"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| {
+                let d = t["dissipated_power_w"].as_f64().unwrap();
+                assert!(d >= 0.);
+                d
+            })
+            .sum::<f64>();
+        assert!((sum - r["tangential_dissipated_power_w"].as_f64().unwrap()).abs() < 1e-8);
+        assert!(r["total_dissipated_power_w"].as_f64().unwrap() >= sum);
+    }
+    for case in 0..5 {
+        let mut c = config.clone();
+        match case {
+            0 => {
+                c["support_plane"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("friction_scale");
+            }
+            1 => c["support_plane"]["friction_scale"] = 11.into(),
+            2 => {
+                c["uprights"][0]["wheel"]["tangential_contact"]["longitudinal_viscosity_n_s_m"] =
+                    (-1).into()
+            }
+            3 => c["uprights"][0]["wheel"]["tangential_contact"]["unknown"] = true.into(),
+            _ => {
+                c["uprights"][0]["wheel"]
+                    .as_object_mut()
+                    .unwrap()
+                    .remove("normal_contact");
+            }
+        }
+        let r = invoke(&c);
+        assert!(!r.status.success());
+        assert!(r.stdout.is_empty());
+    }
+    fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn cli_track_faces_match_plane_and_spawn_placement_retains_diagnostics() {
     use asc_test_support as f;
     let fixture = fixture();

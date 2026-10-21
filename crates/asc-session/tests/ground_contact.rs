@@ -62,6 +62,26 @@ fn wheel(p: [f64; 3], q: DQuat) -> WheelKinematics {
 fn law() -> NormalContact {
     NormalContact::new(0.3, 200000., 1000., 0.05).unwrap()
 }
+
+#[test]
+fn selected_surface_scales_friction_and_missing_face_supplies_no_tangential_load() {
+    let f = fixture(&[triangle(0.)]);
+    let friction = asc_physics::TangentialContact::new(10000., 10000., 0.5, 1.).unwrap();
+    let mut w = wheel([1., 0.29, 1.], DQuat::IDENTITY);
+    w.body.velocity_world_m_s = [0., 0., 10.];
+    let c = asc_session::face_contact_with_friction(&f.ground, &w, &law(), 0.5, Some(&friction))
+        .unwrap()
+        .unwrap();
+    let t = c.tangential.unwrap();
+    assert!((t.longitudinal_force_n + 830.).abs() < 1e-8);
+    assert_eq!(t.surface_friction_scale, 0.83);
+    w.body.position_m = [3., 0.29, 3.];
+    assert!(
+        asc_session::face_contact_with_friction(&f.ground, &w, &law(), 0.5, Some(&friction))
+            .unwrap()
+            .is_none()
+    );
+}
 #[test]
 fn finite_edges_airborne_and_seam_have_no_infinite_or_double_support() {
     let f = fixture(&[triangle(0.), [[4., 0., 0.], [4., 0., 4.], [0., 0., 4.]]]);

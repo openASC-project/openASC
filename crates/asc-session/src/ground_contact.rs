@@ -1,7 +1,8 @@
 //! Normal support on finite road-face interiors. No edge/vertex or swept response.
 use asc_ground::Ground;
 use asc_physics::{
-    Error, NormalContact, NormalContactSample, Result, SupportPlane, WheelKinematics,
+    Error, NormalContact, NormalContactSample, Result, SupportPlane, TangentialContact,
+    TangentialContactSample, WheelKinematics,
 };
 use glam::DVec3;
 use serde::Serialize;
@@ -12,7 +13,7 @@ pub struct TrackFace {
     pub mesh: String,
     pub model: String,
     pub surface_key: String,
-    /// Metadata only; not used as a tangential force coefficient.
+    /// Used as an explicit scale only when the optional friction provider is enabled.
     pub surface_friction: f64,
     /// Metadata only; normal damping is explicitly supplied by the caller.
     pub surface_damping: f64,
@@ -26,6 +27,7 @@ pub struct TrackFace {
 pub struct TrackContact {
     pub face: TrackFace,
     pub sample: NormalContactSample,
+    pub tangential: Option<TangentialContactSample>,
 }
 fn geometry_error(e: asc_config::Error) -> Error {
     Error::new(e.code, &e.to_string())
@@ -39,6 +41,17 @@ pub fn face_contact(
     wheel: &WheelKinematics,
     law: &NormalContact,
     min_normal_y: f64,
+) -> Result<Option<TrackContact>> {
+    face_contact_with_friction(ground, wheel, law, min_normal_y, None)
+}
+/// Same selection and geometry limits as face_contact. With friction enabled,
+/// selected surface FRICTION scales both explicit tyre coefficients (0..10).
+pub fn face_contact_with_friction(
+    ground: &Ground,
+    wheel: &WheelKinematics,
+    law: &NormalContact,
+    min_normal_y: f64,
+    friction: Option<&TangentialContact>,
 ) -> Result<Option<TrackContact>> {
     if !min_normal_y.is_finite() || !(1e-4..=1.).contains(&min_normal_y) {
         return Err(Error::new(
@@ -87,7 +100,13 @@ pub fn face_contact(
     }
     selected
         .map(|(face, plane)| {
-            let sample = law.sample(wheel, plane).map_err(|e| {
+            let result = if let Some(friction) = friction {
+                law.sample_with_friction(wheel, plane, friction, face.surface.friction)
+                    .map(|c| (c.normal, Some(c.tangential)))
+            } else {
+                law.sample(wheel, plane).map(|s| (s, None))
+            };
+            let (sample, tangential) = result.map_err(|e| {
                 Error::new(
                     e.code,
                     &format!(
@@ -112,6 +131,7 @@ pub fn face_contact(
                     surface_line: s.line,
                 },
                 sample,
+                tangential,
             })
         })
         .transpose()

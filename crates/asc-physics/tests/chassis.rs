@@ -1344,6 +1344,81 @@ fn normal_loads(
     }
     Ok(loads)
 }
+
+#[test]
+fn friction_transmits_motor_torque_to_vehicle_and_balances_work_and_dissipation() {
+    let law = NormalContact::new(0.3, 200000., 1000., 0.05).unwrap();
+    let friction = asc_physics::TangentialContact::new(3000., 4000., 0.9, 0.9).unwrap();
+    let plane = SupportPlane::new([0.; 3], [0., 1., 0.]).unwrap();
+    let evaluate = |system: &ChassisSystem| {
+        let k = system.kinematics().unwrap();
+        let s = system
+            .sample_with_forces(|_, k| {
+                let mut loads = ChassisLoads::zero(4)?;
+                for (i, u) in k.uprights.iter().enumerate() {
+                    loads.wheels[i] = WheelLoad::new(
+                        law.sample_with_friction(u.wheel.as_ref().unwrap(), plane, &friction, 1.)?
+                            .wrench()?,
+                        10.,
+                    )?;
+                }
+                Ok(loads)
+            })
+            .unwrap();
+        let mut energy = total_energy(&s);
+        let mut dissipation = s.dissipated_power_w;
+        let mut power = 0.;
+        for u in k.uprights {
+            let wheel = u.wheel.unwrap();
+            let c = law
+                .sample_with_friction(&wheel, plane, &friction, 1.)
+                .unwrap();
+            energy += c.normal.potential_energy_j;
+            dissipation += c.normal.dissipated_power_w + c.tangential.dissipated_power_w;
+            power += 10. * wheel.state.rate_rad_s;
+        }
+        (s, energy, power - dissipation)
+    };
+    let mut residuals = Vec::new();
+    for (steps, dt) in [(500, 0.001), (1000, 0.0005)] {
+        let (mut system, _) = normal_support_system(0.);
+        let (_, initial, mut previous_power) = evaluate(&system);
+        let mut work = 0.;
+        for _ in 0..steps {
+            system
+                .step_with_forces(dt, |_, k| {
+                    let mut loads = ChassisLoads::zero(4)?;
+                    for (i, u) in k.uprights.iter().enumerate() {
+                        loads.wheels[i] = WheelLoad::new(
+                            law.sample_with_friction(
+                                u.wheel.as_ref().unwrap(),
+                                plane,
+                                &friction,
+                                1.,
+                            )?
+                            .wrench()?,
+                            10.,
+                        )?;
+                    }
+                    Ok(loads)
+                })
+                .unwrap();
+            let (_, _, power) = evaluate(&system);
+            work += 0.5 * dt * (previous_power + power);
+            previous_power = power;
+        }
+        let (s, energy, _) = evaluate(&system);
+        assert!(s.linear_momentum_world_kg_m_s[2] > 50.);
+        assert!(
+            s.uprights
+                .iter()
+                .all(|u| u.wheel.as_ref().unwrap().state.rate_rad_s > 0.)
+        );
+        residuals.push((energy - initial - work).abs());
+    }
+    assert!(residuals[1] < 0.01, "{residuals:?}");
+    assert!(residuals[1] < 0.4 * residuals[0], "{residuals:?}");
+}
 #[test]
 fn normal_support_has_analytical_static_equilibrium_and_damped_coupled_settling() {
     let law = NormalContact::new(0.3, 200000., 1000., 0.05).unwrap();

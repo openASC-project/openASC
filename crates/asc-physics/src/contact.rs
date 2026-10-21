@@ -48,7 +48,7 @@ pub struct CircleSupport {
     pub gap_m: f64,
     pub normal_velocity_m_s: f64,
     #[serde(skip)]
-    lever: DVec3,
+    pub(crate) lever: DVec3,
 }
 #[derive(Debug, Serialize)]
 pub struct NormalContactSample {
@@ -102,6 +102,26 @@ impl NormalContact {
         plane: SupportPlane,
     ) -> Result<NormalContactSample> {
         let geometry = self.support_geometry(wheel, plane)?;
+        self.normal_sample(geometry)
+    }
+    pub fn sample_with_friction(
+        &self,
+        wheel: &WheelKinematics,
+        plane: SupportPlane,
+        friction: &crate::TangentialContact,
+        surface_friction_scale: f64,
+    ) -> Result<crate::ContactSample> {
+        let geometry = self.support_geometry(wheel, plane)?;
+        let normal = self.normal_sample(geometry)?;
+        let tangential = friction.sample(
+            wheel,
+            geometry,
+            normal.normal_force_n,
+            surface_friction_scale,
+        )?;
+        Ok(crate::ContactSample { normal, tangential })
+    }
+    fn normal_sample(&self, geometry: CircleSupport) -> Result<NormalContactSample> {
         let gap = geometry.gap_m;
         let penetration = (-gap).max(0.);
         if penetration > self.max_penetration {

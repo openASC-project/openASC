@@ -11,6 +11,7 @@ mod link_spring;
 mod linkage;
 mod spring;
 mod strut;
+mod tangential;
 mod travel;
 mod wheel;
 pub use body::{Body, State, Wrench};
@@ -30,6 +31,7 @@ pub use linkage::{FiveLink, LinkPose, LinkSolution};
 pub use spring::{Damper, DamperBranch, SpringConnection, SpringLink, SpringSample, step_springs};
 use std::fmt;
 pub use strut::{StrutLink, StrutSolution};
+pub use tangential::{ContactSample, TangentialContact, TangentialContactSample};
 pub use travel::{TravelMechanism, TravelSample, TravelState, TravelSystem};
 pub use wheel::{Wheel, WheelLoad, WheelSample, WheelState};
 

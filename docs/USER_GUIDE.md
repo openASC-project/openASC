@@ -517,3 +517,18 @@ Optional `initial_spawn` contains a marker `name` and `chassis_com_offset_in_spa
 Each saved state adds parallel `normal_contacts` and `track_contact_faces` arrays: null means no selected face for that wheel. A selected face can still have positive gap and zero force. Face metadata includes source triangle index, model, mesh, surface key, friction/damping metadata and definition provenance. `track_geometry` and `track_diagnostics` retain loader information; `initial_spawn_diagnostics` retains marker diagnostics. `normal_contact_uses_track_geometry` is true, while `edge_vertex_response`, `continuous_collision_detection` and `simulation_ready` remain false.
 
 The support point must project inside the finite face; the plane is not extended beyond it. A shared seam supplies one force. Unsupported backside overlap, excessive penetration, dense queries or invalid geometry fail without partial JSON. Edge/vertex impacts, walls/body clearance, swept collision, tyre width/tangential grip and control/render integration remain work ahead. See [selection and bounds](ARCHITECTURE.md#finite-road-face-normal-support) and [validation](FORMATS.md#finite-track-face-contact-validation).
+
+
+## Native tangential contact and traction
+
+```sh
+cargo run --locked -p asc-app -- chassis-run examples/chassis-traction-track.json
+```
+
+The [traction example](https://github.com/openASC-project/openASC/blob/main/examples/chassis-traction-track.json) adds a memoryless tangential slip law to the finite-face Drift workbench. Synthetic rear motors apply opposite signed 100 N m torques because the example right-side mounting frames reverse their axle directions. All four wheels have friction. This moves the coupled native chassis through wheel contact forces; it is still a JSON dynamics workbench with fixed racks, no player controls and no rendered motion.
+
+Each enabled `wheel.tangential_contact` requires that wheel's `normal_contact`. Supply `longitudinal_viscosity_n_s_m`, `lateral_viscosity_n_s_m`, `longitudinal_friction` and `lateral_friction`; all fields are required and unknown fields fail. Viscosities lie in 0..1e7 N s/m, coefficients in 0..10. These are synthetic independent-law parameters and are not extracted from AC tyre LUTs. Track mode scales both directional limits by the selected surface FRICTION, supported within 0..10. Plane mode instead requires an explicit `support_plane.friction_scale` in 0..10. A zero coefficient, scale or normal load removes its corresponding force.
+
+Each state adds parallel `tangential_contacts`, with direction vectors, slip velocities, component forces/limits, surface scale, common ellipse saturation scale, world force/COM torque and mechanical/dissipated power. Null means that wheel has no enabled tangential provider or selected track face. `tangential_dissipated_power_w` sums wheel losses, and `total_dissipated_power_w` includes them. `tangential_contact_wheels` counts enabled models. Reports still mark original dynamics and simulation readiness false.
+
+At zero material-point slip the model produces zero force; it has no static-friction hold, transient contact patch or independently generated aligning torque. Normal force is not assigned from static axle weight. Wheel angular velocity, normal compression and chassis motion all affect the actual contact wrench. Use smaller steps when increasing viscosity or lowering wheel inertia; the explicit solver has no universal stability guarantee. See [force and power conventions](ARCHITECTURE.md#tangential-contact-and-wheel-traction) and [validation](FORMATS.md#tangential-contact-validation).

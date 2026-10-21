@@ -33,6 +33,7 @@ cargo run --locked -p asc-app -- chassis-run examples/chassis-suspension.json
 cargo run --locked -p asc-app -- chassis-run examples/chassis-wheels.json
 cargo run --locked -p asc-app -- chassis-run examples/chassis-normal-plane.json
 cargo run --locked -p asc-app -- chassis-run examples/chassis-normal-track.json
+cargo run --locked -p asc-app -- chassis-run examples/chassis-traction-track.json
 cargo run --locked -p asc-app -- preview ./assettocorsa/content/cars/bmw_m3_e30 ./assettocorsa/content/tracks/drift/models.ini
 ```
 
@@ -54,7 +55,7 @@ Native `chassis-run` couples a floating chassis to one to four massive uprights,
 
 Optional axisymmetric wheels now add separate mass/inertia and spin coordinates to the same solve. The wheel example exercises internal wheel/upright motor torque, opposite motor reaction and gyroscopic transport. Upright mass/tensor must exclude the separately supplied wheel. These explicit motors do not implement AC drivetrain/brake behavior or road traction. See [wheel rotation](docs/USER_GUIDE.md#native-wheel-rotation-and-motor-reactions).
 
-State-dependent forces are now sampled at each midpoint stage. An explicit compliant thin-circle normal model can support the coupled vehicle on a static infinite plane with gravity, spring preload and damping. The same law now supports finite road-face interiors from the native track BVH, with explicit spawn COM offset and per-wheel face/surface provenance. Edge/vertex response, CCD, tyre width/friction and original-game calibration remain separate work. See [plane support](docs/USER_GUIDE.md#native-normal-support-on-a-plane) and [finite track faces](docs/USER_GUIDE.md#native-normal-support-on-track-faces).
+State-dependent forces are now sampled at each midpoint stage. An explicit compliant thin-circle normal model can support the coupled vehicle on a static infinite plane with gravity, spring preload and damping. The same law now supports finite road-face interiors from the native track BVH, with explicit spawn COM offset and per-wheel face/surface provenance. An optional memoryless tangential slip law now supplies traction and lateral resistance with an anisotropic friction ellipse. Edge/vertex response, CCD, tyre patch dynamics and original-game calibration remain separate work. See [plane support](docs/USER_GUIDE.md#native-normal-support-on-a-plane) and [finite track faces](docs/USER_GUIDE.md#native-normal-support-on-track-faces).
 
 The existing content tools, browser viewer and keyboard-driving prototype require Python 3.10+. No third-party Python packages are needed.
 
@@ -143,3 +144,5 @@ The native rigid-body foundation is available as `asc-physics`, with an original
 New source code, original branding and website code use the [MIT license](LICENSE). Progress screenshots depict locally loaded game content; MIT does not relicense that underlying content. This does not grant rights to Assetto Corsa or third-party content. Game binaries, cars, tracks, textures, and audio are not distributed here. Use your own installed copy for local research.
 
 Assetto Corsa is a Kunos Simulazioni product. openASC is independent and unaffiliated. No openOMSI code or branding assets are used.
+
+Native [traction workbench](docs/USER_GUIDE.md#native-tangential-contact-and-traction) couples explicit wheel motor torque to finite road support. It uses synthetic viscous-slip parameters; static stiction, transient tyre behavior, source drivetrain mapping and rendered native control remain incomplete.
