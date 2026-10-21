@@ -89,6 +89,9 @@ impl WheelLoad {
             && self.external.force_world_n() == [0.; 3]
             && self.external.torque_world_nm() == [0.; 3]
     }
+    pub fn add_external(&mut self, world_com_wrench: Wrench) -> Result<()> {
+        self.external.add(world_com_wrench)
+    }
 }
 #[derive(Debug, Serialize)]
 pub struct WheelSample {

@@ -31,6 +31,7 @@ cargo run --locked -p asc-app -- suspension-motion ./assettocorsa/content/cars/b
 cargo run --locked -p asc-app -- suspension-run ./assettocorsa/content/cars/bmw_m3_e30 front examples/suspension-travel.json
 cargo run --locked -p asc-app -- chassis-run examples/chassis-suspension.json
 cargo run --locked -p asc-app -- chassis-run examples/chassis-wheels.json
+cargo run --locked -p asc-app -- chassis-run examples/chassis-normal-plane.json
 cargo run --locked -p asc-app -- preview ./assettocorsa/content/cars/bmw_m3_e30 ./assettocorsa/content/tracks/drift/models.ini
 ```
 
@@ -51,6 +52,8 @@ Native `suspension-run` advances one massive DWB/STRUT upright on a fixed frame 
 Native `chassis-run` couples a floating chassis to one to four massive uprights, solving chassis acceleration/rotation and suspension travel together. It reports spring recoil, dynamic supports, system momentum and energy. Masses, tensors and mounting frames are explicit synthetic inputs in the example; automatic AC side/setup mapping, tyres/contact and native rendered driving remain incomplete. See [coupled dynamics](docs/USER_GUIDE.md#native-coupled-chassis-dynamics).
 
 Optional axisymmetric wheels now add separate mass/inertia and spin coordinates to the same solve. The wheel example exercises internal wheel/upright motor torque, opposite motor reaction and gyroscopic transport. Upright mass/tensor must exclude the separately supplied wheel. These explicit motors do not implement AC drivetrain/brake behavior or road traction. See [wheel rotation](docs/USER_GUIDE.md#native-wheel-rotation-and-motor-reactions).
+
+State-dependent forces are now sampled at each midpoint stage. An explicit compliant thin-circle normal model can support the coupled vehicle on a static infinite plane with gravity, spring preload and damping. This is a support benchmark; track triangles, tyre width/friction and original-game calibration remain separate work. See [normal support](docs/USER_GUIDE.md#native-normal-support-on-a-plane).
 
 The existing content tools, browser viewer and keyboard-driving prototype require Python 3.10+. No third-party Python packages are needed.
 

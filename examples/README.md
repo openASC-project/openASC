@@ -23,3 +23,11 @@ cargo run --locked -p asc-app -- chassis-run examples/chassis-wheels.json
 ```
 
 See [wheel inputs and reactions](../docs/USER_GUIDE.md#native-wheel-rotation-and-motor-reactions) and [validation](../docs/FORMATS.md#axisymmetric-wheel-dynamics-validation).
+
+`chassis-normal-plane.json` enables gravity and a static infinite support plane. Its wheel radius, normal stiffness/damping, penetration limit, initial height and suspension preload are explicit synthetic inputs. Motors are zero. This exercises normal support and settling, without track geometry, tyre width, friction or traction.
+
+```sh
+cargo run --locked -p asc-app -- chassis-run examples/chassis-normal-plane.json
+```
+
+See [normal support inputs](../docs/USER_GUIDE.md#native-normal-support-on-a-plane) and [validation](../docs/FORMATS.md#normal-contact-and-force-stage-validation).

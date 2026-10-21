@@ -1,7 +1,7 @@
 use asc_physics::{
-    Body, ChassisSample, ChassisSystem, Damper, DamperBranch, FiveLink, LinkPose, LinkSpring,
-    MassProperties, MountedUpright, StrutLink, TravelMechanism, TravelState, Wheel, WheelLoad,
-    WheelState, Wrench,
+    Body, ChassisKinematics, ChassisLoads, ChassisSample, ChassisSystem, Damper, DamperBranch,
+    FiveLink, LinkPose, LinkSpring, MassProperties, MountedUpright, NormalContact, StrutLink,
+    SupportPlane, TravelMechanism, TravelState, Wheel, WheelLoad, WheelState, Wrench,
 };
 use glam::{DQuat, DVec3};
 fn geometry(strut: bool) -> TravelMechanism {
@@ -1106,4 +1106,298 @@ fn tilted_axle_and_spin_phase_preserve_axisymmetric_inertia_and_motor_recoil() {
             );
         }
     }
+}
+
+#[test]
+fn force_independent_snapshots_match_body_states_and_constant_callback_preserves_steps() {
+    let mut base = rotor_four(
+        body(
+            DVec3::new(1., 2., 3.),
+            DQuat::from_euler(glam::EulerRot::XYZ, 0.2, -0.3, 0.1),
+            DVec3::new(1., -0.2, 0.3),
+            DVec3::new(0.2, -0.15, 0.3),
+        ),
+        diverse_states(),
+        spins(),
+        [0., -9.81, 0.],
+    );
+    let k = base.kinematics().unwrap();
+    let sample = base
+        .sample(Wrench::default(), &[Wrench::default(); 4])
+        .unwrap();
+    assert_eq!(k.chassis, sample.chassis);
+    for (a, b) in k.uprights.iter().zip(&sample.uprights) {
+        close(a.body.position_m, vector(b.body.position_m), 1e-12);
+        close(
+            a.body.velocity_world_m_s,
+            vector(b.body.velocity_world_m_s),
+            1e-12,
+        );
+        let a = a.wheel.as_ref().unwrap();
+        let b = b.wheel.as_ref().unwrap();
+        close(a.body.position_m, vector(b.body.position_m), 1e-12);
+        close(
+            a.body.velocity_world_m_s,
+            vector(b.body.velocity_world_m_s),
+            1e-12,
+        );
+        close(
+            a.body.angular_velocity_world_rad_s,
+            vector(b.body.angular_velocity_world_rad_s),
+            1e-12,
+        );
+    }
+    let mut callback = base.clone();
+    let loads = motor_loads();
+    let direct = base
+        .step_with_wheels(0.001, Wrench::default(), &[Wrench::default(); 4], &loads)
+        .unwrap();
+    let via_callback = callback
+        .step_with_forces(0.001, |_, k| {
+            let mut result = ChassisLoads::zero(k.uprights.len())?;
+            result.wheels = loads.to_vec();
+            Ok(result)
+        })
+        .unwrap();
+    assert_eq!(
+        serde_json::to_string(&direct).unwrap(),
+        serde_json::to_string(&via_callback).unwrap()
+    );
+}
+
+#[test]
+fn force_callbacks_use_actual_stage_times_and_fail_transactionally_at_each_stage() {
+    let states = [TravelState {
+        travel_m: 0.,
+        rate_m_s: 0.,
+    }; 4];
+    let make = || {
+        four(
+            body(DVec3::ZERO, DQuat::IDENTITY, DVec3::ZERO, DVec3::ZERO),
+            states,
+            [0.; 3],
+            false,
+        )
+    };
+    let mut system = make();
+    let mut offsets = Vec::new();
+    let dt = 0.01;
+    let sample = system
+        .step_with_forces(dt, |offset, k| {
+            offsets.push(offset);
+            let a = 2. + 3. * offset;
+            let mut loads = ChassisLoads::zero(k.uprights.len())?;
+            loads.chassis = Wrench::new([0., 300. * a, 0.], [0.; 3])?;
+            loads.uprights = vec![Wrench::new([0., 35. * a, 0.], [0.; 3])?; 4];
+            Ok(loads)
+        })
+        .unwrap();
+    assert_eq!(offsets, vec![0., dt * 0.5, dt]);
+    near(
+        sample.chassis.velocity_world_m_s[1],
+        2. * dt + 1.5 * dt * dt,
+        1e-10,
+    );
+    near(sample.chassis.position_m[1], dt * dt, 1e-10);
+    near(sample.acceleration_world_m_s2[1], 2. + 3. * dt, 1e-9);
+    for failed in [0, 1, 2] {
+        let mut system = make();
+        let before = serde_json::to_string(
+            &system
+                .sample(Wrench::default(), &[Wrench::default(); 4])
+                .unwrap(),
+        )
+        .unwrap();
+        let mut stage = 0;
+        let result = system.step_with_forces(dt, |_, k| {
+            let current = stage;
+            stage += 1;
+            if current == failed {
+                return Err(asc_physics::Error::new(
+                    "test_force_stage",
+                    "Explicit callback failure",
+                ));
+            }
+            ChassisLoads::zero(k.uprights.len())
+        });
+        assert!(result.is_err());
+        assert_eq!(stage, failed + 1);
+        assert_eq!(
+            serde_json::to_string(
+                &system
+                    .sample(Wrench::default(), &[Wrench::default(); 4])
+                    .unwrap()
+            )
+            .unwrap(),
+            before
+        );
+    }
+    assert!(
+        make()
+            .sample_with_forces(|_, _| ChassisLoads::zero(1))
+            .is_err()
+    );
+    let chassis = body(DVec3::ZERO, DQuat::IDENTITY, DVec3::ZERO, DVec3::ZERO);
+    let mut upright = corner(
+        false,
+        LinkPose::new([0.; 3], [0., 0., 0., 1.]).unwrap(),
+        TravelState {
+            travel_m: 0.,
+            rate_m_s: 0.,
+        },
+        None,
+    );
+    let b = DamperBranch::new(0., 0., 0.).unwrap();
+    upright
+        .add_spring(LinkSpring::new([0., 0.6, 0.], [0.; 3], 0.7, 1e9, Damper::new(b, b)).unwrap())
+        .unwrap();
+    assert!(ChassisSystem::new(chassis.clone(), vec![upright.clone()], [0.; 3]).is_err());
+    let tension = 1e9 * (0.6 - 0.7);
+    let applied = |_: f64, _: &ChassisKinematics| -> asc_physics::Result<ChassisLoads> {
+        let mut loads = ChassisLoads::zero(1)?;
+        loads.chassis = Wrench::new([0., tension, 0.], [0.; 3])?;
+        loads.uprights[0] = Wrench::new([0., -tension, 0.], [0.; 3])?;
+        Ok(loads)
+    };
+    let balanced =
+        ChassisSystem::new_with_forces(chassis, vec![upright], [0.; 3], applied).unwrap();
+    let sample = balanced.sample_with_forces(applied).unwrap();
+    close(sample.acceleration_world_m_s2, DVec3::ZERO, 1e-7);
+    near(sample.uprights[0].travel_acceleration_m_s2, 0., 1e-7);
+}
+
+fn normal_support_system(height_offset: f64) -> (ChassisSystem, f64) {
+    let equilibrium = 0.3 - (520. * 9.81 / 4.) / 200000.;
+    let preload = (300. * 9.81 / 4.) / 20000.;
+    let mounts = [
+        [0.8, 0., 1.2],
+        [-0.8, 0., 1.2],
+        [0.8, 0., -1.2],
+        [-0.8, 0., -1.2],
+    ];
+    let b = DamperBranch::new(1000., 1000., 0.).unwrap();
+    let uprights = mounts
+        .into_iter()
+        .enumerate()
+        .map(|(i, p)| {
+            let mut u = corner(
+                i < 2,
+                LinkPose::new(p, [0., 0., 0., 1.]).unwrap(),
+                TravelState {
+                    travel_m: 0.,
+                    rate_m_s: 0.,
+                },
+                None,
+            );
+            u.add_spring(
+                LinkSpring::new(
+                    [0., 0.6, 0.],
+                    [0.; 3],
+                    0.6 + preload,
+                    20000.,
+                    Damper::new(b, b),
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            u.attach_wheel(
+                Wheel::new(
+                    [0.; 3],
+                    [1., 0., 0.],
+                    20.,
+                    1.2,
+                    0.7,
+                    WheelState {
+                        angle_rad: 0.,
+                        rate_rad_s: 0.,
+                    },
+                )
+                .unwrap(),
+            )
+            .unwrap();
+            u
+        })
+        .collect();
+    (
+        ChassisSystem::new(
+            body(
+                DVec3::new(0., equilibrium + height_offset, 0.),
+                DQuat::IDENTITY,
+                DVec3::ZERO,
+                DVec3::ZERO,
+            ),
+            uprights,
+            [0., -9.81, 0.],
+        )
+        .unwrap(),
+        equilibrium,
+    )
+}
+fn normal_loads(
+    k: &ChassisKinematics,
+    law: &NormalContact,
+    plane: SupportPlane,
+) -> asc_physics::Result<ChassisLoads> {
+    let mut loads = ChassisLoads::zero(k.uprights.len())?;
+    for (i, u) in k.uprights.iter().enumerate() {
+        loads.wheels[i].add_external(law.sample(u.wheel.as_ref().unwrap(), plane)?.wrench()?)?;
+    }
+    Ok(loads)
+}
+#[test]
+fn normal_support_has_analytical_static_equilibrium_and_damped_coupled_settling() {
+    let law = NormalContact::new(0.3, 200000., 1000., 0.05).unwrap();
+    let plane = SupportPlane::new([0.; 3], [0., 1., 0.]).unwrap();
+    let (mut equilibrium, height) = normal_support_system(0.);
+    let initial = equilibrium
+        .sample_with_forces(|_, k| normal_loads(k, &law, plane))
+        .unwrap();
+    close(initial.acceleration_world_m_s2, DVec3::ZERO, 1e-9);
+    for u in &initial.uprights {
+        near(u.travel_acceleration_m_s2, 0., 1e-9);
+    }
+    for _ in 0..50 {
+        let s = equilibrium
+            .step_with_forces(0.001, |_, k| normal_loads(k, &law, plane))
+            .unwrap();
+        near(s.chassis.position_m[1], height, 1e-10);
+    }
+    let energy = |system: &ChassisSystem| {
+        let s = system
+            .sample_with_forces(|_, k| normal_loads(k, &law, plane))
+            .unwrap();
+        let potential = system
+            .kinematics()
+            .unwrap()
+            .uprights
+            .iter()
+            .map(|u| {
+                law.sample(u.wheel.as_ref().unwrap(), plane)
+                    .unwrap()
+                    .potential_energy_j
+            })
+            .sum::<f64>();
+        total_energy(&s) + potential
+    };
+    let base = energy(&equilibrium);
+    let (mut falling, _) = normal_support_system(0.003);
+    let initial = energy(&falling);
+    near(initial - base, 3.6, 1e-7);
+    let mut previous = initial;
+    for _ in 0..1000 {
+        falling
+            .step_with_forces(0.001, |_, k| normal_loads(k, &law, plane))
+            .unwrap();
+        let current = energy(&falling);
+        assert!(current <= previous + 1e-6, "{current} > {previous}");
+        previous = current;
+    }
+    assert!(
+        previous - base < (initial - base) * 0.01,
+        "{} / {}",
+        previous - base,
+        initial - base
+    );
+    let final_state = falling.kinematics().unwrap();
+    near(final_state.chassis.position_m[1], height, 5e-5);
 }

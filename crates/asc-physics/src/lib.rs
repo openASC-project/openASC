@@ -1,8 +1,9 @@
 //! Native rigid bodies, springs and coupled chassis/upright constraint dynamics.
-//! Original Assetto Corsa force models and tyre/contact response remain unimplemented.
+//! Original Assetto Corsa force models, calibrated tyres and finite road-contact response remain unimplemented.
 mod body;
 mod chassis;
 mod clock;
+mod contact;
 mod coupled_linear;
 mod differential;
 mod inertia;
@@ -13,8 +14,12 @@ mod strut;
 mod travel;
 mod wheel;
 pub use body::{Body, State, Wrench};
-pub use chassis::{ChassisSample, ChassisSystem, MountedUpright, UprightSample};
+pub use chassis::{
+    ChassisKinematics, ChassisLoads, ChassisSample, ChassisSystem, MountedUpright,
+    UprightKinematics, UprightSample, WheelKinematics,
+};
 pub use clock::{Batch, FixedClock, Tick};
+pub use contact::{NormalContact, NormalContactSample, SupportPlane};
 pub use differential::{
     ConstraintBalance, GeneralizedLoads, LinkDifferential, LinkLoad, RelativeAcceleration,
     RelativeVelocity, TangentColumn,

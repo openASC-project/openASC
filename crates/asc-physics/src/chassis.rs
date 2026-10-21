@@ -6,6 +6,8 @@ use crate::{
 };
 use glam::{DQuat, DVec3};
 use serde::Serialize;
+mod kinematics;
+pub use kinematics::{ChassisKinematics, ChassisLoads, UprightKinematics, WheelKinematics};
 
 fn scalar(value: f64, limit: f64) -> Result<f64> {
     if !value.is_finite() || value.abs() > limit {
@@ -175,22 +177,29 @@ impl ChassisSystem {
         uprights: Vec<MountedUpright>,
         gravity_world_m_s2: [f64; 3],
     ) -> Result<Self> {
+        let system = Self::configured(chassis, uprights, gravity_world_m_s2)?;
+        system.sample(
+            Wrench::default(),
+            &vec![Wrench::default(); system.uprights.len()],
+        )?;
+        Ok(system)
+    }
+    fn configured(
+        chassis: Body,
+        uprights: Vec<MountedUpright>,
+        gravity_world_m_s2: [f64; 3],
+    ) -> Result<Self> {
         if !(1..=4).contains(&uprights.len()) {
             return Err(Error::new(
                 "physics_chassis_count",
                 "Expected one to four mounted uprights",
             ));
         }
-        let system = Self {
+        Ok(Self {
             chassis,
             uprights,
             gravity: vector(DVec3::from_array(gravity_world_m_s2), 1e3)?,
-        };
-        system.sample(
-            Wrench::default(),
-            &vec![Wrench::default(); system.uprights.len()],
-        )?;
-        Ok(system)
+        })
     }
     /// External world wrenches are about each body's COM; one per upright.
     pub fn sample(&self, chassis_load: Wrench, upright_loads: &[Wrench]) -> Result<ChassisSample> {
@@ -697,18 +706,26 @@ impl ChassisSystem {
         upright_loads: &[Wrench],
         wheel_loads: &[WheelLoad],
     ) -> Result<ChassisSample> {
+        self.integrate(dt_s, |system, _| {
+            system.sample_with_wheels(chassis_load, upright_loads, wheel_loads)
+        })
+    }
+    fn integrate(
+        &mut self,
+        dt_s: f64,
+        mut evaluate: impl FnMut(&Self, f64) -> Result<ChassisSample>,
+    ) -> Result<ChassisSample> {
         if !dt_s.is_finite() || !(1e-6..=1. / 30.).contains(&dt_s) {
             return Err(Error::new(
                 "physics_chassis_step",
                 "Step must lie within 1e-6..1/30 seconds",
             ));
         }
-        let first = self.sample_with_wheels(chassis_load, upright_loads, wheel_loads)?;
+        let first = evaluate(self, 0.)?;
         let middle = self.advance(&first, 0.5 * dt_s)?;
-        let midpoint = middle.sample_with_wheels(chassis_load, upright_loads, wheel_loads)?;
+        let midpoint = evaluate(&middle, 0.5 * dt_s)?;
         let mut final_system = self.advance(&midpoint, dt_s)?;
-        let final_sample =
-            final_system.sample_with_wheels(chassis_load, upright_loads, wheel_loads)?;
+        let final_sample = evaluate(&final_system, dt_s)?;
         for (upright, sample) in final_system.uprights.iter_mut().zip(&final_sample.uprights) {
             upright.pose = LinkPose::new(sample.source_position_m, sample.source_orientation_xyzw)?;
         }

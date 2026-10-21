@@ -610,3 +610,115 @@ fn cli_rejects_invalid_rotor_inertia_axis_state_and_unknown_wheel_fields() {
         assert!(output.stdout.is_empty());
     }
 }
+
+fn normal_configuration() -> serde_json::Value {
+    let mut config: serde_json::Value =
+        serde_json::from_str(include_str!("../../../examples/chassis-normal-plane.json")).unwrap();
+    for u in config["uprights"].as_array_mut().unwrap() {
+        u["car_directory"] = ".".into();
+    }
+    config["steps"] = 200.into();
+    config
+}
+#[test]
+fn cli_recomputes_plane_support_and_records_contact_energy_with_gravity() {
+    let fixture = fixture();
+    let path = fixture.0.join("normal.json");
+    fs::write(&path, normal_configuration().to_string()).unwrap();
+    let output = Command::new(env!("CARGO_BIN_EXE_openasc"))
+        .arg("chassis-run")
+        .arg(&path)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["normal_contact_wheels"], 4);
+    assert_eq!(report["normal_contact_uses_track_geometry"], false);
+    assert_eq!(report["simulation_ready"], false);
+    let records = report["records"].as_array().unwrap();
+    assert_eq!(records.len(), 11);
+    let initial = records[0]["mechanical_energy_with_normal_contact_j"]
+        .as_f64()
+        .unwrap();
+    let last = records.last().unwrap()["mechanical_energy_with_normal_contact_j"]
+        .as_f64()
+        .unwrap();
+    assert!(last < initial);
+    for record in records {
+        let contacts = record["normal_contacts"].as_array().unwrap();
+        assert_eq!(contacts.len(), 4);
+        let potential = contacts
+            .iter()
+            .map(|s| s["potential_energy_j"].as_f64().unwrap())
+            .sum::<f64>();
+        assert!(
+            (potential
+                - record["normal_contact_potential_energy_j"]
+                    .as_f64()
+                    .unwrap())
+            .abs()
+                < 1e-8
+        );
+        let force = contacts
+            .iter()
+            .map(|s| s["normal_force_n"].as_f64().unwrap())
+            .sum::<f64>();
+        assert!(force > 0.);
+        for contact in contacts {
+            assert!(contact["normal_force_n"].as_f64().unwrap() >= 0.);
+            assert!(contact["dissipated_power_w"].as_f64().unwrap() >= 0.);
+        }
+        assert!(
+            record["total_dissipated_power_w"].as_f64().unwrap()
+                >= record["sample"]["dissipated_power_w"].as_f64().unwrap()
+        );
+    }
+}
+#[test]
+fn cli_rejects_missing_plane_bad_normal_law_and_intermediate_penetration_without_json() {
+    let fixture = fixture();
+    let path = fixture.0.join("normal.json");
+    let template = normal_configuration();
+    let mut cases = Vec::new();
+    let mut missing = template.clone();
+    missing.as_object_mut().unwrap().remove("support_plane");
+    cases.push(missing);
+    let mut unused = template.clone();
+    for u in unused["uprights"].as_array_mut().unwrap() {
+        u["wheel"].as_object_mut().unwrap().remove("normal_contact");
+    }
+    cases.push(unused);
+    let mut normal = template.clone();
+    normal["support_plane"]["normal_world"] = serde_json::json!([0, 0, 0]);
+    cases.push(normal);
+    for (key, value) in [
+        ("radius_m", 0.into()),
+        ("stiffness_n_m", (-1).into()),
+        ("max_penetration_m", 0.2.into()),
+        ("unknown", true.into()),
+    ] {
+        let mut c = template.clone();
+        c["uprights"][0]["wheel"]["normal_contact"][key] = value;
+        cases.push(c);
+    }
+    let mut deep = template.clone();
+    deep["chassis"]["velocity_world_m_s"] = serde_json::json!([0, -100, 0]);
+    deep["steps"] = 1.into();
+    deep["record_every"] = 1.into();
+    deep["step_s"] = 0.01.into();
+    cases.push(deep);
+    for c in cases {
+        fs::write(&path, c.to_string()).unwrap();
+        let output = Command::new(env!("CARGO_BIN_EXE_openasc"))
+            .arg("chassis-run")
+            .arg(&path)
+            .output()
+            .unwrap();
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+    }
+}
