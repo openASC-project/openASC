@@ -17,6 +17,41 @@ fn triangle() -> Vec<u8> {
 }
 
 #[test]
+fn render_hierarchy_retains_subtree_ranges_without_changing_flattened_geometry() {
+    let identity = Mat4::IDENTITY.to_cols_array();
+    let wheel = named(
+        base(
+            &[triangle(), triangle()],
+            Mat4::from_translation(Vec3::X).to_cols_array(),
+            1,
+        ),
+        "wheel",
+    );
+    let hidden = named(base(&[triangle()], identity, 0), "hidden");
+    let bytes = file(
+        base(&[triangle(), wheel, hidden, triangle()], identity, 1),
+        6,
+    );
+    let (scene, nodes) = asc_kn5::parse_hierarchy(Cursor::new(&bytes)).unwrap();
+    let ordinary = parse(Cursor::new(&bytes)).unwrap();
+    assert_eq!(scene.indices, ordinary.indices);
+    assert_eq!(scene.draws.len(), 4);
+    assert_eq!(nodes[0].draws, 0..4);
+    let wheel = nodes.iter().find(|n| n.name == "wheel").unwrap();
+    assert_eq!(wheel.draws, 1..3);
+    assert_eq!(wheel.parent, Some(0));
+    assert_eq!(wheel.world[12], 1.);
+    let hidden = nodes.iter().find(|n| n.name == "hidden").unwrap();
+    assert!(!hidden.active);
+    assert_eq!(hidden.draws, 3..3);
+    let structural = asc_kn5::parse_nodes(Cursor::new(&bytes)).unwrap();
+    assert!(structural.nodes.iter().all(|n| n.draws.is_empty()));
+    for end in [0, bytes.len() / 2, bytes.len() - 1] {
+        assert!(asc_kn5::parse_hierarchy(Cursor::new(&bytes[..end])).is_err());
+    }
+}
+
+#[test]
 fn preserves_complete_shader_property_records_and_sampler_slots() {
     let values = [1., 2., 3., 4., 5., 6., 7., 8., 9., 10.];
     let bytes = material_file(

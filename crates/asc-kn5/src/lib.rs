@@ -251,6 +251,20 @@ pub fn parse_collision<R: Read + Seek>(stream: R) -> Result<Collision, Error> {
 pub fn parse<R: Read + Seek>(stream: R) -> Result<Scene, Error> {
     Ok(parse_inner(stream, ReadMode::Render)?.0)
 }
+/// Retain the validated source hierarchy and each subtree's visible draw range.
+/// Geometry stays in the same flattened model coordinates as ordinary rendering.
+pub fn parse_hierarchy<R: Read + Seek>(stream: R) -> Result<(Scene, Vec<NodeTransform>), Error> {
+    let (scene, traversal) = parse_inner(stream, ReadMode::RenderHierarchy)?;
+    Ok((scene, traversal.nodes.unwrap_or_default()))
+}
+pub fn load_hierarchy(path: &Path) -> Result<(Scene, Vec<NodeTransform>), Error> {
+    let file = File::open(path).map_err(|e| Error {
+        code: "kn5_io",
+        byte_offset: 0,
+        message: e.to_string(),
+    })?;
+    parse_hierarchy(BufReader::with_capacity(256 * 1024, file))
+}
 #[derive(Clone, Debug, Serialize)]
 pub struct NodeTransform {
     pub name: String,
@@ -258,6 +272,8 @@ pub struct NodeTransform {
     pub active: bool,
     pub parent: Option<usize>,
     pub world: [f64; 16],
+    /// Visible draws belonging to this node and all descendants; empty in node-only mode.
+    pub draws: std::ops::Range<usize>,
 }
 pub struct NodeScene {
     pub nodes: Vec<NodeTransform>,
@@ -295,6 +311,7 @@ pub fn parse_nodes<R: Read + Seek>(stream: R) -> Result<NodeScene, Error> {
 }
 enum ReadMode {
     Render,
+    RenderHierarchy,
     Collision,
     Nodes,
 }
@@ -437,9 +454,9 @@ fn parse_inner<R: Read + Seek>(stream: R, mode: ReadMode) -> Result<(Scene, Trav
         draws: Vec::new(),
     };
     let mut traversal = Traversal {
-        render_geometry: matches!(mode, ReadMode::Render),
+        render_geometry: matches!(mode, ReadMode::Render | ReadMode::RenderHierarchy),
         physical: matches!(mode, ReadMode::Collision).then(Vec::new),
-        nodes: matches!(mode, ReadMode::Nodes).then(Vec::new),
+        nodes: matches!(mode, ReadMode::Nodes | ReadMode::RenderHierarchy).then(Vec::new),
         parent_index: None,
     };
     node(
@@ -474,6 +491,7 @@ fn node<R: Read + Seek>(
 ) -> Result<(), Error> {
     let parent_index = traversal.parent_index;
     let node_index = scene.summary.nodes;
+    let draw_start = scene.draws.len();
     scene.summary.nodes += 1;
     if scene.summary.nodes > 200_000 || depth > 128 {
         return r.fail("kn5_limit", "Node count/depth exceeds budget.");
@@ -694,11 +712,15 @@ fn node<R: Read + Seek>(
             active,
             parent: parent_index,
             world: world.to_cols_array(),
+            draws: draw_start..scene.draws.len(),
         });
     }
     traversal.parent_index = Some(node_index);
     for _ in 0..children {
         node(r, scene, colours, world, active, depth + 1, traversal)?;
+    }
+    if let Some(nodes) = &mut traversal.nodes {
+        nodes[node_index].draws.end = scene.draws.len();
     }
     traversal.parent_index = parent_index;
     Ok(())

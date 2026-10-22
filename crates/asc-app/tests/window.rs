@@ -33,10 +33,33 @@ fn native_drive_window_moves_the_gpu_root_from_coupled_keyboard_commands_and_bra
         ),
         "original_body",
     );
+    let mut parts = vec![body];
+    for (i, corner) in ["LF", "RF", "LR", "RR"].iter().enumerate() {
+        for prefix in ["WHEEL", "SUSP"] {
+            let mesh = fixture::mesh(
+                &[[0., 0., 0.], [0., 0.25, 0.], [0., 0., 0.1]],
+                &[0, 1, 2],
+                2,
+                1,
+                1,
+                0.,
+                0,
+            );
+            let p = glam::Vec3::new(
+                if i % 2 == 0 { 0.7 } else { -0.7 },
+                0.3,
+                if i < 2 { 1.3 } else { -1.3 },
+            );
+            parts.push(fixture::named(
+                fixture::base(&[mesh], Mat4::from_translation(p).to_cols_array(), 1),
+                &format!("{prefix}_{corner}"),
+            ));
+        }
+    }
     std::fs::write(
         car.join("original.kn5"),
         fixture::file_texture(
-            fixture::base(&[body], Mat4::IDENTITY.to_cols_array(), 1),
+            fixture::base(&parts, Mat4::IDENTITY.to_cols_array(), 1),
             6,
             &fixture::bc1(0xf800),
         ),
@@ -108,6 +131,9 @@ fn native_drive_window_moves_the_gpu_root_from_coupled_keyboard_commands_and_bra
         command.arg("--fallback");
     }
     let output = command.output().unwrap();
+    drive["articulation"] = serde_json::json!([]);
+    std::fs::write(root.join("drive.json"), drive.to_string()).unwrap();
+    let baseline = command.output().unwrap();
     let _ = std::fs::remove_dir_all(&root);
     let stdout = String::from_utf8(output.stdout).unwrap();
     assert!(
@@ -123,7 +149,7 @@ fn native_drive_window_moves_the_gpu_root_from_coupled_keyboard_commands_and_bra
     )
     .unwrap();
     let r = &report["native_drive_smoke"];
-    assert_eq!(r["root_instances"], 2);
+    assert_eq!(r["root_instances"], 10);
     let rows = r["records"].as_array().unwrap();
     assert_eq!(rows.len(), 4);
     let speed = |r: &serde_json::Value| {
@@ -140,6 +166,35 @@ fn native_drive_window_moves_the_gpu_root_from_coupled_keyboard_commands_and_bra
             > 1e-4
     );
     assert_ne!(rows[0]["pixel_hash"], rows[3]["pixel_hash"]);
+    assert!(
+        baseline.status.success(),
+        "{}",
+        String::from_utf8_lossy(&baseline.stderr)
+    );
+    let baseline_stdout = String::from_utf8(baseline.stdout).unwrap();
+    let baseline_report: serde_json::Value = serde_json::from_str(
+        baseline_stdout
+            .lines()
+            .find(|l| l.starts_with("{\"native_drive_smoke\":"))
+            .unwrap(),
+    )
+    .unwrap();
+    let baseline_rows = baseline_report["native_drive_smoke"]["records"]
+        .as_array()
+        .unwrap();
+    assert_eq!(baseline_report["native_drive_smoke"]["root_instances"], 2);
+    assert_eq!(rows[0]["pixel_hash"], baseline_rows[0]["pixel_hash"]);
+    assert_eq!(rows[2]["body"], baseline_rows[2]["body"]);
+    assert_ne!(rows[2]["pixel_hash"], baseline_rows[2]["pixel_hash"]);
+    // The first wheel and its nonspinning upright share initial placement but diverge under drive.
+    assert_eq!(
+        rows[0]["articulated_poses"][1],
+        rows[0]["articulated_poses"][2]
+    );
+    assert_ne!(
+        rows[2]["articulated_poses"][1],
+        rows[2]["articulated_poses"][2]
+    );
 }
 
 #[test]

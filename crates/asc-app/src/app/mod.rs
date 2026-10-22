@@ -1,3 +1,4 @@
+mod articulation;
 mod chassis_controls;
 pub mod chassis_run;
 mod chassis_steering;

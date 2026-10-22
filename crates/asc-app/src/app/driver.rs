@@ -1,5 +1,6 @@
 //! Native interactive driving workbench. Synthetic force laws; no original-game parity claim.
 use super::{
+    articulation::{Articulation, Binding},
     chassis_run::{self, Workbench},
     drive_input::{Keys, SteeringActuator},
     session,
@@ -38,6 +39,8 @@ struct Configuration {
     model_orientation_in_chassis_xyzw: [f64; 4],
     compound: Option<u32>,
     steering: SteeringActuator,
+    #[serde(default)]
+    articulation: Vec<Binding>,
 }
 pub struct Options {
     pub fallback: bool,
@@ -70,7 +73,7 @@ struct State {
 struct App {
     bench: Workbench,
     scene: asc_kn5::Scene,
-    instance: asc_render::gpu::scene::InstanceDescriptor,
+    articulation: Articulation,
     focus: [[f32; 3]; 2],
     correction: RigidPose,
     resources: Option<Resources>,
@@ -111,8 +114,9 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
         );
     }
     let (car, track, mode) = bench.visual_paths()?;
-    let state = bench.system.kinematics()?.chassis;
-    let (preview, correction) = session::load_body(
+    let initial = bench.system.kinematics()?;
+    let state = &initial.chassis;
+    let (mut preview, correction, nodes) = session::load_body(
         &car,
         &track,
         mode,
@@ -123,6 +127,21 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
             config.model_orientation_in_chassis_xyzw,
         )?,
     )?;
+    let articulation = Articulation::new(
+        &nodes,
+        preview.instance.draws.clone(),
+        preview.instance.pose,
+        &initial,
+        &config.articulation,
+    )?;
+    preview.metadata["articulation"] = serde_json::to_value(&config.articulation)?;
+    preview.metadata["wheel_mesh_animation"] = config
+        .articulation
+        .iter()
+        .any(|b| matches!(b.kind, super::articulation::Kind::Wheel))
+        .into();
+    preview.metadata["articulation_roots"] = serde_json::to_value(articulation.metadata())?;
+    preview.metadata["articulation_policy"] = "source rest pivots; chassis-relative physical travel/orientation deltas; synthetic frame mapping, not AC setup calibration".into();
     let mut resources =
         (!options.diagnostic).then(|| asc_render::prepare_track_textures(&preview.track));
     if let Some(r) = &mut resources {
@@ -132,7 +151,7 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
     let mut app = App {
         bench,
         scene: preview.track.scene,
-        instance: preview.instance,
+        articulation,
         focus: preview.focus,
         correction,
         resources,
@@ -151,7 +170,7 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
     );
     println!(
         "{}",
-        serde_json::json!({"native_drive_source":app.metadata,"physics_diagnostics":app.bench.diagnostics(),"physics_hz":app.hz,"original_vehicle_dynamics_validated":false,"wheel_mesh_animation":false,"body_collision":false})
+        serde_json::json!({"native_drive_source":app.metadata,"physics_diagnostics":app.bench.diagnostics(),"physics_hz":app.hz,"original_vehicle_dynamics_validated":false,"body_collision":false})
     );
     event_loop.run_app(&mut app)?;
     if let Some(e) = app.error {
@@ -193,7 +212,7 @@ impl App {
             self.resources.as_ref(),
             (size.width, size.height),
             self.options.fallback,
-            std::slice::from_ref(&self.instance),
+            &self.articulation.descriptors,
         ))?;
         let mut camera = Orbit::new(
             self.focus,
@@ -313,12 +332,13 @@ impl App {
             }
             s.physics_wall += physics_started.elapsed();
         }
-        let body = self.bench.system.kinematics()?.chassis;
+        let kinematics = self.bench.system.kinematics()?;
+        let body = &kinematics.chassis;
         let p = DVec3::from_array(body.position_m);
-        s.presenter.scene.set_instance_pose(
-            1,
-            RigidPose::new(body.position_m, body.orientation_xyzw)?.compose(self.correction)?,
-        )?;
+        let articulated_poses = self.articulation.poses(&kinematics, self.correction)?;
+        for (i, pose) in articulated_poses.iter().enumerate() {
+            s.presenter.scene.set_instance_pose(i + 1, *pose)?;
+        }
         if s.follow {
             s.camera
                 .translate_target((p - s.last_position).to_array())?;
@@ -366,7 +386,7 @@ impl App {
                         let hash = frame.rgba.iter().fold(14695981039346656037u64, |h, &v| {
                             (h ^ u64::from(v)).wrapping_mul(1099511628211)
                         });
-                        self.smoke_records.push(serde_json::json!({"time_s":self.bench.time_s(),"body":body,"input":s.keys.command(),"pixel_hash":hash,"non_background_pixels":frame.report.non_background_pixels}));
+                        self.smoke_records.push(serde_json::json!({"time_s":self.bench.time_s(),"body":body,"articulated_poses":articulated_poses,"input":s.keys.command(),"pixel_hash":hash,"non_background_pixels":frame.report.non_background_pixels}));
                     }
                     s.capture = false;
                 }

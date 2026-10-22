@@ -33,3 +33,7 @@ only selected website illustrations belong here.
 - `native-drive-turn.png`: the same fixed camera at 1.6 simulated seconds, after throttle and rack steering through the diagnostic shared native key handler. The actual coupled chassis pose drives the car root; wheel meshes are not individually animated. Synthetic masses/mounts/forces and explicit visual COM mapping remain uncalibrated against the original game.
 
 These selected flattened images contain no reusable source models or texture files. Their underlying game-content rights are unchanged.
+
+2026-10-22 native articulation milestone:
+
+- `native-wheel-articulation.png`: unchanged 800 x 600 GPU surface readback from the optimized Rust/wgpu BMW M3 E30/Drift diagnostic at 1.6 seconds. Four explicitly mapped `WHEEL_*` and four nonspinning `SUSP_*` subtrees follow the coupled physics through source-pivot transforms. The scene uses 13 persistent roots including the track and intervening chassis draw groups. Synthetic visual/physical frame mapping, tyre alignment and original shaders remain uncalibrated. This is a progress screenshot, not original-game parity evidence.

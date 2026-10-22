@@ -63,6 +63,13 @@ impl RigidPose {
             (q * DQuat::from_array(local.orientation_xyzw)).to_array(),
         )
     }
+    pub fn inverse(self) -> Result<Self> {
+        let q = DQuat::from_array(self.orientation_xyzw).conjugate();
+        Self::new(
+            (-q.mul_vec3(DVec3::from_array(self.position))).to_array(),
+            q.to_array(),
+        )
+    }
     pub fn matrix(self) -> [f32; 16] {
         DMat4::from_rotation_translation(
             DQuat::from_array(self.orientation_xyzw),
@@ -70,6 +77,12 @@ impl RigidPose {
         )
         .as_mat4()
         .to_cols_array()
+    }
+    pub fn position_m(self) -> [f64; 3] {
+        self.position
+    }
+    pub fn orientation_xyzw(self) -> [f64; 4] {
+        self.orientation_xyzw
     }
     pub fn point(self, point: [f32; 3]) -> Result<[f32; 3]> {
         let p = DVec3::from_array(self.position)

@@ -163,7 +163,7 @@ pub(super) fn load_body(
     compound: Option<u32>,
     body: RigidPose,
     model_in_body: RigidPose,
-) -> Result<(Preview, RigidPose)> {
+) -> Result<(Preview, RigidPose, Vec<asc_kn5::NodeTransform>)> {
     let vehicle = asc_vehicle::load(car_dir, mode, compound)?;
     let graphics = RigidPose::new(
         vehicle.graphics_offset_m,
@@ -173,9 +173,13 @@ pub(super) fn load_body(
     let pose = body.compose(correction)?;
     let root = car_dir.canonicalize()?;
     let path = asc_vehicle::data::confined(&root, &vehicle.model.file, "<native drive>", 0)?;
-    let car = asc_kn5::load(&path)?;
+    let (car, mut nodes) = asc_kn5::load_hierarchy(&path)?;
     let mut track = asc_scene::load(config)?;
     let (draws, focus) = append(&mut track, car, path, pose)?;
+    for node in &mut nodes {
+        node.draws.start += draws.start;
+        node.draws.end += draws.start;
+    }
     let metadata = serde_json::json!({"scope":"native_driving_visual_source","car":vehicle.car,"graphics_offset_m":vehicle.graphics_offset_m,
         "graphics_pitch_deg":vehicle.graphics_pitch_deg,"body_to_model":correction,"vehicle_diagnostics":vehicle.diagnostics,
         "original_vehicle_dynamics_validated":false,"wheel_mesh_animation":false,"material_parity":false});
@@ -187,6 +191,7 @@ pub(super) fn load_body(
             metadata,
         },
         correction,
+        nodes,
     ))
 }
 
