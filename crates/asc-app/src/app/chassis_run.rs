@@ -33,7 +33,10 @@ struct Upright {
     rack_m: [f64; 3],
     #[serde(skip_serializing_if = "Option::is_none")]
     steering: Option<SteeringConfiguration>,
-    frame_position_in_chassis_m: [f64; 3],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    frame_position_in_chassis_m: Option<[f64; 3]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source_wheel_geometry: Option<SourceWheelGeometry>,
     frame_orientation_xyzw: [f64; 4],
     mass_kg: f64,
     inertia_rows_kg_m2: [[f64; 3]; 3],
@@ -111,20 +114,59 @@ impl TangentialConfiguration {
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct NormalConfiguration {
-    radius_m: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    radius_m: Option<f64>,
     stiffness_n_m: f64,
     damping_n_s_m: f64,
     max_penetration_m: f64,
 }
 impl NormalConfiguration {
-    fn build(&self) -> asc_physics::Result<NormalContact> {
-        NormalContact::new(
-            self.radius_m,
+    fn build(&self, source_radius: Option<f64>) -> Result<NormalContact, Box<dyn Error>> {
+        let radius = match (self.radius_m, source_radius) {
+            (Some(r), None) | (None, Some(r)) => r,
+            _ => {
+                return Err(
+                    "Choose an explicit normal radius or source_wheel_geometry, never both".into(),
+                );
+            }
+        };
+        Ok(NormalContact::new(
+            radius,
             self.stiffness_n_m,
             self.damping_n_s_m,
             self.max_penetration_m,
-        )
+        )?)
     }
+}
+#[derive(Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum Corner {
+    FrontLeft,
+    FrontRight,
+    RearLeft,
+    RearRight,
+}
+impl Corner {
+    fn name(self) -> &'static str {
+        match self {
+            Self::FrontLeft => "front_left",
+            Self::FrontRight => "front_right",
+            Self::RearLeft => "rear_left",
+            Self::RearRight => "rear_right",
+        }
+    }
+    fn axle(self) -> &'static str {
+        match self {
+            Self::FrontLeft | Self::FrontRight => "front",
+            Self::RearLeft | Self::RearRight => "rear",
+        }
+    }
+}
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct SourceWheelGeometry {
+    corner: Corner,
+    compound: Option<u32>,
 }
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -580,6 +622,7 @@ pub(super) fn load(configuration: &Path) -> Result<Workbench, Box<dyn Error>> {
     let mut racks = Vec::new();
     let mut steering_count = 0;
     let mut contact_count = 0;
+    let mut source_corners = std::collections::BTreeSet::new();
     let plane = config
         .support_plane
         .as_ref()
@@ -633,15 +676,65 @@ pub(super) fn load(configuration: &Path) -> Result<Workbench, Box<dyn Error>> {
             RackPrescription::Fixed(RackMotion::fixed(input.rack_m)?)
         };
         let initial_rack = rack.sample(0.)?;
+        let mut source_radius = None;
+        let mut resolved_geometry = None;
+        let frame_position = match (
+            &input.source_wheel_geometry,
+            input.frame_position_in_chassis_m,
+        ) {
+            (None, Some(position)) => position,
+            (Some(reference), None) => {
+                if reference.corner.axle() != input.axle {
+                    return Err(
+                        "source_wheel_geometry corner must match the explicit upright axle".into(),
+                    );
+                }
+                let root = parent.join(&input.car_directory).canonicalize()?;
+                if !source_corners.insert((root.clone(), reference.corner.name())) {
+                    return Err(
+                        "source_wheel_geometry must not select the same car corner twice".into(),
+                    );
+                }
+                let wheel = input
+                    .wheel
+                    .as_ref()
+                    .ok_or("source_wheel_geometry requires a wheel")?;
+                let vehicle = asc_vehicle::load(&root, mode, reference.compound)?;
+                let center = vehicle.wheel_offsets_m[reference.corner.name()];
+                source_radius = Some(vehicle.axles[&input.axle].tyre_radius_m);
+                let design = match &geometry {
+                    TravelMechanism::Dwb(m) => m
+                        .solve(input.initial_travel_m, initial_rack.position_m, None)?
+                        .pose()?,
+                    TravelMechanism::Strut(m) => m
+                        .solve(input.initial_travel_m, initial_rack.position_m, None)?
+                        .pose()?,
+                };
+                let lever = LinkPose::new([0.; 3], input.frame_orientation_xyzw)?
+                    .transform(design.transform(wheel.center_in_upright_m)?)?;
+                let position = std::array::from_fn(|i| center[i] - lever[i]);
+                resolved_geometry = Some(
+                    serde_json::json!({"corner":reference.corner,"compound":vehicle.compound,
+                    "wheel_center_in_chassis_m":center,"normal_radius_m":source_radius,"frame_position_in_chassis_m":position,
+                    "field_sources":vehicle.field_sources,"source_diagnostics":vehicle.diagnostics,
+                    "policy":"initial physical wheel centre registered to typed vehicle footprint; explicit source-frame orientation retained",
+                    "original_setup_or_frame_mapping_validated":false}),
+                );
+                position
+            }
+            _ => {
+                return Err(
+                    "Supply exactly one of frame_position_in_chassis_m and source_wheel_geometry"
+                        .into(),
+                );
+            }
+        };
         let mut upright = MountedUpright::new(
             geometry,
             MassProperties::new(input.mass_kg, input.inertia_rows_kg_m2)?,
             input.center_of_mass_local_m,
             initial_rack.position_m,
-            LinkPose::new(
-                input.frame_position_in_chassis_m,
-                input.frame_orientation_xyzw,
-            )?,
+            LinkPose::new(frame_position, input.frame_orientation_xyzw)?,
             TravelState {
                 travel_m: input.initial_travel_m,
                 rate_m_s: input.initial_rate_m_s,
@@ -674,7 +767,7 @@ pub(super) fn load(configuration: &Path) -> Result<Workbench, Box<dyn Error>> {
             let model = w
                 .normal_contact
                 .as_ref()
-                .map(NormalConfiguration::build)
+                .map(|m| m.build(source_radius))
                 .transpose()?;
             if model.is_some() {
                 contact_count += 1;
@@ -710,7 +803,7 @@ pub(super) fn load(configuration: &Path) -> Result<Workbench, Box<dyn Error>> {
         )?);
         sources.push(
             serde_json::json!({"car":source.car,"axle":input.axle,"type":selected.kind,
-            "data_source":source.data_source,"source_diagnostics":source.diagnostics}),
+            "data_source":source.data_source,"source_diagnostics":source.diagnostics,"resolved_wheel_geometry":resolved_geometry}),
         );
     }
     if (plane.is_some() || track.is_some()) != (contact_count > 0) {
@@ -828,6 +921,7 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
         "scope":"native_coupled_chassis_upright_dynamics","explicit_configuration":config,"source_geometry":sources,"records":records,
         "moving_chassis":true,"fixed_racks":environment.steering_count==0,"prescribed_racks":environment.steering_count,"massless_links":true,
         "wheel_spin_dofs":wheel_count,"wheel_mass_is_additional_to_upright":true,
+        "source_wheel_geometry_registrations":config.uprights.iter().filter(|u|u.source_wheel_geometry.is_some()).count(),
         "normal_contact_wheels":contact_count,"normal_contact_uses_track_geometry":environment.track.is_some(),
         "tangential_contact_wheels":tangential_count,"tangential_contact_model":"optional_memoryless_viscous_slip_friction_ellipse",
         "wheel_brake_models":environment.brakes.iter().flatten().count(),"scheduled_wheel_controls":environment.controls.is_some(),
@@ -838,7 +932,7 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
         "edge_vertex_response":false,"continuous_collision_detection":false,
         "automatic_source_frames_mass_or_force_parameters":false,"original_vehicle_dynamics_validated":false,
         "simulation_ready":false,"renderer_animation":false,
-        "limitations":["Explicit caller-provided chassis mounts and local frames; no automatic side/setup mapping",
+        "limitations":["Explicit local frame orientations; optional initial wheel-centre registration, no automatic side/setup mapping",
             "Optional thin-circle support and memoryless tangential slip friction; no edge/vertex collision, CCD, static stiction, transient tyre patch or FFB",
             "Synthetic sample parameters; no original-game mass/inertia/preload calibration",
             "Explicit Lie-midpoint integration on a bounded local branch; no universal stability guarantee"]
@@ -886,6 +980,170 @@ mod live_tests {
             frequency_rad_s: 8.,
             acceleration_limit_m_s2: 0.2,
             rate_limit_m_s: 0.08,
+        }
+    }
+    fn source_fixture() -> (Directory, serde_json::Value) {
+        let (dir, _) = fixture();
+        for (name, text) in asc_test_support::vehicle_files() {
+            std::fs::write(dir.0.join("data").join(name), text).unwrap();
+        }
+        let source = asc_test_support::suspension_motion_file()
+            .replace("WHEELBASE=2.4", "WHEELBASE=3.2")
+            .replace("CG_LOCATION=.5", "CG_LOCATION=.37");
+        std::fs::write(dir.0.join("data/suspensions.ini"), source).unwrap();
+        std::fs::write(
+            dir.0.join("original.kn5"),
+            [b"sc6969".as_slice(), &5u32.to_le_bytes()].concat(),
+        )
+        .unwrap();
+        let mut c: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.0.join("dynamics.json")).unwrap()).unwrap();
+        c.as_object_mut().unwrap().remove("support_plane");
+        c["gravity_world_m_s2"] = serde_json::json!([0, 0, 0]);
+        for (i, u) in c["uprights"].as_array_mut().unwrap().iter_mut().enumerate() {
+            u.as_object_mut()
+                .unwrap()
+                .remove("frame_position_in_chassis_m");
+            u["source_wheel_geometry"] = serde_json::json!({"corner":(["front_left","front_right","rear_left","rear_right"][i]),"compound":1});
+            u["wheel"].as_object_mut().unwrap().remove("normal_contact");
+            u["wheel"]
+                .as_object_mut()
+                .unwrap()
+                .remove("tangential_contact");
+        }
+        (dir, c)
+    }
+    fn load_config(dir: &Directory, c: &serde_json::Value) -> Result<Workbench, Box<dyn Error>> {
+        let path = dir.0.join("registered.json");
+        std::fs::write(&path, c.to_string())?;
+        load(&path)
+    }
+    #[test]
+    fn source_centres_register_nonzero_wheel_levers_and_initial_linkage_poses_in_rotated_chassis() {
+        use glam::{DQuat, DVec3};
+        let (dir, mut c) = source_fixture();
+        let original = std::fs::read(dir.0.join("data/suspensions.ini")).unwrap();
+        let rotation = DQuat::from_rotation_y(0.4) * DQuat::from_rotation_x(0.1);
+        c["chassis"]["position_world_m"] = serde_json::json!([2., 3., 4.]);
+        c["chassis"]["orientation_xyzw"] = serde_json::json!(rotation.to_array());
+        for (i, u) in c["uprights"].as_array_mut().unwrap().iter_mut().enumerate() {
+            u["initial_travel_m"] = if i < 2 { 0.02 } else { -0.015 }.into();
+            u["wheel"]["center_in_upright_m"] = serde_json::json!([0.015, 0.02, 0.01]);
+            if i < 2 {
+                u["steering"]["keys"][0]["displacement_m"] = 0.002.into();
+            }
+        }
+        let bench = load_config(&dir, &c).unwrap();
+        let k = bench.system.kinematics().unwrap();
+        for (i, u) in k.uprights.iter().enumerate() {
+            let expected = DVec3::new(2., 3., 4.)
+                + rotation
+                    * DVec3::new(
+                        if i % 2 == 0 { 0.75 } else { -0.75 },
+                        -0.2,
+                        if i < 2 { 3.2 * 0.63 } else { -3.2 * 0.37 },
+                    );
+            assert!(
+                (DVec3::from_array(u.wheel.as_ref().unwrap().body.position_m) - expected).length()
+                    < 1e-10
+            );
+            let g = &bench.sources[i]["resolved_wheel_geometry"];
+            assert_eq!(g["compound"], 1);
+            assert_eq!(g["normal_radius_m"], if i < 2 { 0.32 } else { 0.33 });
+            assert!(g["field_sources"]["suspensions.ini"].is_object());
+            assert_eq!(g["original_setup_or_frame_mapping_validated"], false);
+        }
+        assert_eq!(
+            std::fs::read(dir.0.join("data/suspensions.ini")).unwrap(),
+            original
+        );
+    }
+    #[test]
+    fn source_radius_reaches_contact_law_and_source_changes_are_reloaded() {
+        let (dir, mut c) = source_fixture();
+        c["support_plane"] = serde_json::json!({"point_world_m":[0,0,0],"normal_world":[0,1,0]});
+        c["chassis"]["position_world_m"] = serde_json::json!([0., 0.515, 0.]);
+        for u in c["uprights"].as_array_mut().unwrap() {
+            u["wheel"]["normal_contact"] = serde_json::json!({"stiffness_n_m":200000,"damping_n_s_m":1500,"max_penetration_m":0.08});
+        }
+        let bench = load_config(&dir, &c).unwrap();
+        let k = bench.system.kinematics().unwrap();
+        let normal = bench.environment.contacts(&k).unwrap();
+        let first = normal[0].normal.as_ref().unwrap();
+        assert!((first.gap_m + 0.005).abs() < 1e-10);
+        assert!((first.normal_force_n - 1000.).abs() < 1e-6);
+        let file = dir.0.join("data/tyres.ini");
+        let tyres = std::fs::read_to_string(&file)
+            .unwrap()
+            .replace("RADIUS=.32", "RADIUS=.34");
+        std::fs::write(file, tyres).unwrap();
+        let next = load_config(&dir, &c).unwrap();
+        assert_eq!(
+            next.sources[0]["resolved_wheel_geometry"]["normal_radius_m"],
+            0.34
+        );
+        let contacts = next
+            .environment
+            .contacts(&next.system.kinematics().unwrap())
+            .unwrap();
+        assert!((contacts[0].normal.as_ref().unwrap().normal_force_n - 5000.).abs() < 1e-6);
+        let source_file = dir.0.join("data/suspensions.ini");
+        let source = std::fs::read_to_string(&source_file)
+            .unwrap()
+            .replace("TRACK=1.5", "TRACK=1.6");
+        std::fs::write(source_file, source).unwrap();
+        let changed = load_config(&dir, &c).unwrap();
+        assert_eq!(
+            changed.sources[0]["resolved_wheel_geometry"]["wheel_center_in_chassis_m"][0],
+            0.8
+        );
+    }
+    #[test]
+    fn ambiguous_or_incomplete_source_geometry_configuration_is_rejected() {
+        let (dir, c) = source_fixture();
+        let mut bad = Vec::new();
+        let mut v = c.clone();
+        v["uprights"][0]["frame_position_in_chassis_m"] = serde_json::json!([0, 0, 0]);
+        bad.push(v);
+        let mut v = c.clone();
+        v["support_plane"] = serde_json::json!({"point_world_m":[0,0,0],"normal_world":[0,1,0]});
+        v["uprights"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("source_wheel_geometry");
+        v["uprights"][0]["frame_position_in_chassis_m"] = serde_json::json!([0.8, 0, 1.2]);
+        v["uprights"][0]["wheel"]["normal_contact"] = serde_json::json!({"stiffness_n_m":200000,"damping_n_s_m":1500,"max_penetration_m":0.08});
+        bad.push(v);
+        let mut v = c.clone();
+        v["uprights"][0]
+            .as_object_mut()
+            .unwrap()
+            .remove("source_wheel_geometry");
+        bad.push(v);
+        let mut v = c.clone();
+        v["uprights"][0]["source_wheel_geometry"]["corner"] = "rear_left".into();
+        bad.push(v);
+        let mut v = c.clone();
+        v["uprights"][1]["source_wheel_geometry"]["corner"] = "front_left".into();
+        bad.push(v);
+        let mut v = c.clone();
+        v["uprights"][0].as_object_mut().unwrap().remove("wheel");
+        bad.push(v);
+        let mut v = c.clone();
+        v["uprights"][0]["source_wheel_geometry"]["corner"] = "guess".into();
+        bad.push(v);
+        let mut v = c.clone();
+        v["uprights"][0]["source_wheel_geometry"]["compound"] = 100.into();
+        bad.push(v);
+        let mut v = c.clone();
+        v["uprights"][0]["source_wheel_geometry"]["extra"] = true.into();
+        bad.push(v);
+        let mut v = c.clone();
+        v["support_plane"] = serde_json::json!({"point_world_m":[0,0,0],"normal_world":[0,1,0]});
+        v["uprights"][0]["wheel"]["normal_contact"] = serde_json::json!({"radius_m":0.3,"stiffness_n_m":200000,"damping_n_s_m":1500,"max_penetration_m":0.08});
+        bad.push(v);
+        for v in bad {
+            assert!(load_config(&dir, &v).is_err());
         }
     }
     #[test]

@@ -125,7 +125,9 @@ impl Articulation {
     pub fn metadata(&self) -> Vec<serde_json::Value> {
         self.descriptors.iter().zip(&self.targets).enumerate().map(|(i,(d,t))| {
             serde_json::json!({"root":i+1,"draws":d.draws,"binding":t.as_ref().map(|t|&t.binding),
-                "source_pivot_in_chassis_m":t.as_ref().map(|t|t.pivot.to_array())})
+                "source_pivot_in_chassis_m":t.as_ref().map(|t|t.pivot.to_array()),
+                "initial_physical_wheel_center_in_chassis_m":t.as_ref().map(|t|t.initial_local.position_m()),
+                "initial_visual_minus_physical_center_m":t.as_ref().map(|t|(t.pivot-DVec3::from_array(t.initial_local.position_m())).to_array())})
         }).collect()
     }
     /// Apply chassis-relative physical travel and orientation changes about the source node pivot.

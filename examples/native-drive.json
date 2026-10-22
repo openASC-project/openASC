@@ -1,8 +1,8 @@
 {
-  "dynamics_config": "chassis-steering-track.json",
+  "dynamics_config": "chassis-source-geometry.json",
   "model_origin_in_chassis_m": [
     0,
-    0.2,
+    0,
     0
   ],
   "model_orientation_in_chassis_xyzw": [

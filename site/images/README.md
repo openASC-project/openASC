@@ -37,3 +37,7 @@ These selected flattened images contain no reusable source models or texture fil
 2026-10-22 native articulation milestone:
 
 - `native-wheel-articulation.png`: unchanged 800 x 600 GPU surface readback from the optimized Rust/wgpu BMW M3 E30/Drift diagnostic at 1.6 seconds. Four explicitly mapped `WHEEL_*` and four nonspinning `SUSP_*` subtrees follow the coupled physics through source-pivot transforms. The scene uses 13 persistent roots including the track and intervening chassis draw groups. Synthetic visual/physical frame mapping, tyre alignment and original shaders remain uncalibrated. This is a progress screenshot, not original-game parity evidence.
+
+2026-10-22 source wheel geometry milestone:
+
+- `native-source-wheel-geometry.png`: unchanged 800 x 600 native GPU readback at 1.6 simulated seconds on local BMW M3 E30/Drift, after explicit source corner registration replaced synthetic initial wheel centres and contact radii. The identity model-in-body mapping retains source graphics correction; eight wheel/upright groups remain articulated. Rest pivot differences remain reported, and synthetic masses/frames/forces are not original-game calibration. Underlying game-content rights are unchanged; only this selected flattened frame is published.
