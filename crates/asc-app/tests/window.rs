@@ -3,6 +3,146 @@ use glam::Mat4;
 use std::process::Command;
 
 #[test]
+#[ignore = "Requires desktop/GPU; Linux CI executes under Xvfb."]
+fn native_drive_window_moves_the_gpu_root_from_coupled_keyboard_commands_and_brakes() {
+    let root = fixture::temp_path("native-drive-window");
+    let car = root.join("fixture");
+    std::fs::create_dir_all(car.join("data")).unwrap();
+    for (name, text) in fixture::vehicle_files() {
+        std::fs::write(car.join("data").join(name), text).unwrap();
+    }
+    std::fs::write(
+        car.join("data/suspensions.ini"),
+        fixture::suspension_motion_file(),
+    )
+    .unwrap();
+    let body = fixture::named(
+        fixture::mesh(
+            &[
+                [-0.5, 0.3, -1.],
+                [0.5, 0.3, -1.],
+                [-0.5, 0.3, 1.],
+                [0.5, 0.3, 1.],
+            ],
+            &[0, 2, 1, 1, 2, 3],
+            2,
+            1,
+            1,
+            0.,
+            0,
+        ),
+        "original_body",
+    );
+    std::fs::write(
+        car.join("original.kn5"),
+        fixture::file_texture(
+            fixture::base(&[body], Mat4::IDENTITY.to_cols_array(), 1),
+            6,
+            &fixture::bc1(0xf800),
+        ),
+    )
+    .unwrap();
+    let road = fixture::named(
+        fixture::mesh(
+            &[
+                [-20., 0., -20.],
+                [20., 0., -20.],
+                [-20., 0., 20.],
+                [20., 0., 20.],
+            ],
+            &[0, 2, 1, 1, 2, 3],
+            2,
+            1,
+            1,
+            0.,
+            0,
+        ),
+        "1ROAD",
+    );
+    let marker = fixture::named(
+        fixture::base(
+            &[],
+            Mat4::from_translation(glam::Vec3::new(0., 0.554, 0.)).to_cols_array(),
+            1,
+        ),
+        "AC_PIT_0",
+    );
+    std::fs::write(
+        root.join("track.kn5"),
+        fixture::file_texture(
+            fixture::base(&[road, marker], Mat4::IDENTITY.to_cols_array(), 1),
+            6,
+            &fixture::bc1(0x001f),
+        ),
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("models.ini"),
+        "[MODEL_0]\nFILE=track.kn5\nPOSITION=0,0,0\nROTATION=0,0,0\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("surfaces.ini"),
+        "[SURFACE_0]\nKEY=ROAD\nFRICTION=1\nDAMPING=0\nIS_VALID_TRACK=1\nIS_PITLANE=0\n",
+    )
+    .unwrap();
+    let mut dynamics: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../examples/chassis-steering-track.json"
+    ))
+    .unwrap();
+    dynamics["support_track"] = serde_json::json!({"models_ini":"models.ini","surface_files":["surfaces.ini"],"min_normal_y":0.5});
+    for u in dynamics["uprights"].as_array_mut().unwrap() {
+        u["car_directory"] = "fixture".into();
+    }
+    std::fs::write(root.join("dynamics.json"), dynamics.to_string()).unwrap();
+    let mut drive: serde_json::Value =
+        serde_json::from_str(include_str!("../../../examples/native-drive.json")).unwrap();
+    drive["dynamics_config"] = "dynamics.json".into();
+    std::fs::write(root.join("drive.json"), drive.to_string()).unwrap();
+    let mut command = Command::new(env!("CARGO_BIN_EXE_openasc"));
+    command
+        .arg("drive")
+        .arg(root.join("drive.json"))
+        .arg("--smoke");
+    if std::env::var_os("OPENASC_TEST_FALLBACK").is_some() {
+        command.arg("--fallback");
+    }
+    let output = command.output().unwrap();
+    let _ = std::fs::remove_dir_all(&root);
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(
+        output.status.success(),
+        "{stdout}\n{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_str(
+        stdout
+            .lines()
+            .find(|l| l.starts_with("{\"native_drive_smoke\":"))
+            .unwrap(),
+    )
+    .unwrap();
+    let r = &report["native_drive_smoke"];
+    assert_eq!(r["root_instances"], 2);
+    let rows = r["records"].as_array().unwrap();
+    assert_eq!(rows.len(), 4);
+    let speed = |r: &serde_json::Value| {
+        let v = r["body"]["velocity_world_m_s"].as_array().unwrap();
+        (v[0].as_f64().unwrap().powi(2) + v[2].as_f64().unwrap().powi(2)).sqrt()
+    };
+    assert!(speed(&rows[2]) > 0.2);
+    assert!(speed(&rows[3]) < 0.5 * speed(&rows[2]));
+    assert!(
+        rows[2]["body"]["angular_velocity_world_rad_s"][1]
+            .as_f64()
+            .unwrap()
+            .abs()
+            > 1e-4
+    );
+    assert_ne!(rows[0]["pixel_hash"], rows[3]["pixel_hash"]);
+}
+
+#[test]
 #[ignore = "Requires a desktop display and GPU/software Vulkan; Linux CI uses Xvfb."]
 fn native_window_presents_resizes_and_reads_back_changed_cameras() {
     run_window(false, TextureMode::Diffuse);

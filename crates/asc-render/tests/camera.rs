@@ -3,6 +3,22 @@ use asc_render::scene::orbit::Orbit;
 use glam::{Mat4, Vec3};
 
 #[test]
+fn camera_follow_translates_the_target_without_changing_view_direction_and_rejects_bad_updates() {
+    let mut camera = Orbit::new([[-1.; 3], [1.; 3]], [[-20.; 3], [20.; 3]]).unwrap();
+    let before = camera.view(800, 600, true).unwrap();
+    let delta = glam::DVec3::new(2., 3., -4.);
+    camera.translate_target(delta.to_array()).unwrap();
+    let after = camera.view(800, 600, true).unwrap();
+    assert_eq!(before.direction, after.direction);
+    let p = Vec3::new(0.2, 0.3, -0.4);
+    let a = Mat4::from_cols_array(&before.matrix) * p.extend(1.);
+    let b = Mat4::from_cols_array(&after.matrix) * (p + delta.as_vec3()).extend(1.);
+    assert!((a - b).length() < 1e-5);
+    assert!(camera.translate_target([f64::NAN; 3]).is_err());
+    assert_eq!(camera.view(800, 600, true).unwrap().matrix, after.matrix);
+}
+
+#[test]
 fn camera_fits_all_corners_in_webgpu_clip_space_including_portrait() {
     let bounds = [[-123., -12., -23.], [25., 4., 100.]];
     for (w, h) in [(1240, 900), (319, 177), (177, 319)] {

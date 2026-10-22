@@ -566,3 +566,38 @@ Supply 1..64 keys starting at time zero, separated by at least 1e-6 s, within 0.
 Reports mark `fixed_racks` false and count `prescribed_racks`. Each upright reports the actual source-frame `rack_motion`, required actuator force and power. The sample's `rack_actuator_power_w` sums corners. Record-level `actuator_input_power_w` sums motor and rack input power; brake/contact/spring losses stay in total dissipation. A rack can return energy to its ideal drive. Force models see the steered wheel axes and velocities at every stage, so contact forces turn the chassis through the coupled mechanism.
 
 The native core rejects a step that jumps rack position or velocity, fails a rack/force callback, or exceeds geometry/numeric bounds, preserving the prior mechanical state. The CLI prints no partial JSON on a failed run. Live steering input, steering assist/FFB, source rack/steering-wheel mapping, collision edges/CCD and calibrated tyre behavior remain work ahead. See [rack dynamics](ARCHITECTURE.md#prescribed-rack-dynamics-and-steering) and [validation](FORMATS.md#prescribed-rack-validation).
+
+
+## Native keyboard-driving window
+
+```sh
+cargo run --release --locked -p asc-app -- drive examples/native-drive.json --captures reports/native-captures
+```
+
+This opens the Rust/wgpu BMW M3 E30/Drift driving workbench using your local installation. It shares the coupled chassis/upright/wheel and finite road-contact solver with `chassis-run`, and updates the car's GPU root from its physical COM pose. It starts paused. Use the optimized build for interactive operation; the example runs physics at 2000 Hz.
+
+| Input | Action |
+| --- | --- |
+| Enter | Pause/resume; clears pedal/steering commands |
+| W | Apply the configured signed motor torque |
+| S or Space | Apply regularized wheel brakes |
+| A / D | Left/right rack target; both together centre the target |
+| R, while paused | Toggle forward/reverse motor direction |
+| F5 | Restore initial physical state, forward direction and paused input |
+| C | Toggle camera following |
+| Mouse left/right drag, wheel | Orbit, pan, zoom |
+| Home | Fit the car at its current position |
+| F12 | Save a new PNG when `--captures` is supplied |
+| Escape | Close |
+
+Focus loss, hiding/minimizing, resize/DPI change and suspension pause the simulation and clear held commands. Resume explicitly and press the controls again; key autorepeat does not restore a cleared pedal. No elapsed physics is silently skipped while running. Work per frame is bounded; a backlog above a quarter second pauses at the last successful tick. Invalid physics also pauses with its diagnostic in the title/console. Pause discards the pending wall-clock debt while retaining mechanical velocities and the committed pose. Reset restores the original state.
+
+The [window configuration](https://github.com/openASC-project/openASC/blob/main/examples/native-drive.json) is at most 8192 bytes and rejects unknown fields. `dynamics_config` resolves relative to it and supplies all mechanical inputs. It must configure four wheels with normal/tangential contact and brakes, explicit steering axes, one common car/data source and `support_track`. `step_s` must be the reciprocal of an integer rate in 30..10000 Hz. Offline `steps`/`record_every` still validate but do not limit interactive duration. Scheduled drive/brake keys are overridden by live input; steering keys supply the initial rack state and axes, with later motion supplied by the live actuator.
+
+`model_origin_in_chassis_m` and `model_orientation_in_chassis_xyzw` explicitly map model coordinates into the physical chassis COM frame, then the reader's source graphics offset/pitch is composed. The example's 0.2-m vertical offset is a synthetic visual mapping, not a verified original COM/setup conversion. Optional `compound` selects the vehicle reader compound. Car/track source diagnostics, including unrelated duplicate markers, remain visible in console metadata.
+
+The `steering` object specifies `displacement_limit_m` (0..0.1), `frequency_rad_s` (0.1..100), `acceleration_limit_m_s2` (1e-4..10) and `rate_limit_m_s` (1e-4..1). Each physical tick uses a critically damped target response, bounded acceleration and endpoint rate, with a consistent quadratic rack position/velocity prescription through the step. The displacement limit bounds the commanded target, not a hard position clamp. Geometry and numeric bounds still apply. W and R control explicit motor torques directly; source engine/clutch/gearing, ABS and original steering/FFB are not implemented by these controls.
+
+`--fallback`, `--diagnostic` and `--rgba-textures` retain native adapter/material fallback choices. F12 captures are new GPU readbacks rather than screenshots of window decorations. `--smoke` runs a diagnostic 2.4-second throttle/steer/brake sequence through the shared native key handler and exits after four presented/read-back states; adding `--captures` saves `drive-smoke-0.png` through `drive-smoke-3.png` and refuses existing names. This automation verifies the software control path and rendered motion, not independent physical keyboard use.
+
+The car body moves and rotates as a whole. Individual wheel mesh steer/spin/suspension animation, body/wall collision, edge/vertex contact/CCD, source-calibrated vehicle forces, gamepad/FFB, sound, AI and networking remain incomplete. The separate browser prototype still has its own planar WALL response; that response is not available in this native path. See [window architecture](ARCHITECTURE.md#native-driving-window) and [validation](FORMATS.md#native-driving-window-validation).

@@ -25,3 +25,11 @@ remain covered by their stated MIT license.
 Add representative captures after future visual milestones. Keep diagnostic
 reports, temporary captures and source game assets in ignored local directories;
 only selected website illustrations belong here.
+
+
+2026-10-22 native driving milestone:
+
+- `native-drive-start.png`: 800 x 600 GPU surface readback from the Rust/wgpu BMW M3 E30/Drift driving window at time zero.
+- `native-drive-turn.png`: the same fixed camera at 1.6 simulated seconds, after throttle and rack steering through the diagnostic shared native key handler. The actual coupled chassis pose drives the car root; wheel meshes are not individually animated. Synthetic masses/mounts/forces and explicit visual COM mapping remain uncalibrated against the original game.
+
+These selected flattened images contain no reusable source models or texture files. Their underlying game-content rights are unchanged.

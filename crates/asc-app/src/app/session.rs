@@ -1,4 +1,4 @@
-//! Static native car/track preview. Marker pose is not solved chassis equilibrium.
+//! Native car/track scene assembly for static previews and explicit physical body poses.
 use asc_kn5::Scene;
 use asc_render::{
     gpu::scene::{InstanceDescriptor, Result},
@@ -153,6 +153,41 @@ pub fn load(
         focus,
         metadata,
     })
+}
+
+/// Compose explicit physical COM-to-model mapping with retained source graphics correction.
+pub(super) fn load_body(
+    car_dir: &Path,
+    config: &Path,
+    mode: Mode,
+    compound: Option<u32>,
+    body: RigidPose,
+    model_in_body: RigidPose,
+) -> Result<(Preview, RigidPose)> {
+    let vehicle = asc_vehicle::load(car_dir, mode, compound)?;
+    let graphics = RigidPose::new(
+        vehicle.graphics_offset_m,
+        DQuat::from_rotation_x(vehicle.graphics_pitch_deg.to_radians()).to_array(),
+    )?;
+    let correction = model_in_body.compose(graphics)?;
+    let pose = body.compose(correction)?;
+    let root = car_dir.canonicalize()?;
+    let path = asc_vehicle::data::confined(&root, &vehicle.model.file, "<native drive>", 0)?;
+    let car = asc_kn5::load(&path)?;
+    let mut track = asc_scene::load(config)?;
+    let (draws, focus) = append(&mut track, car, path, pose)?;
+    let metadata = serde_json::json!({"scope":"native_driving_visual_source","car":vehicle.car,"graphics_offset_m":vehicle.graphics_offset_m,
+        "graphics_pitch_deg":vehicle.graphics_pitch_deg,"body_to_model":correction,"vehicle_diagnostics":vehicle.diagnostics,
+        "original_vehicle_dynamics_validated":false,"wheel_mesh_animation":false,"material_parity":false});
+    Ok((
+        Preview {
+            track,
+            instance: InstanceDescriptor { draws, pose },
+            focus,
+            metadata,
+        },
+        correction,
+    ))
 }
 
 #[cfg(test)]

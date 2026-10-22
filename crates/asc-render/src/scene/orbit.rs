@@ -13,6 +13,15 @@ pub struct Orbit {
     pub perspective: bool,
 }
 impl Orbit {
+    /// Move the camera's orbit target without changing its orientation or zoom.
+    pub fn translate_target(&mut self, delta: [f64; 3]) -> Result<()> {
+        let target = self.target + DVec3::from_array(delta);
+        if !target.is_finite() || target.abs().max_element() > 1e7 {
+            return Err("Camera follow target exceeds numeric bounds".into());
+        }
+        self.target = target;
+        Ok(())
+    }
     pub fn new(bounds: [[f32; 3]; 2], world: [[f32; 3]; 2]) -> Result<Self> {
         let decode = |b: [[f32; 3]; 2]| -> Result<(DVec3, f64)> {
             let lo = DVec3::from_array(b[0].map(f64::from));

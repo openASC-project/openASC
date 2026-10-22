@@ -199,7 +199,17 @@ impl Environment {
         time_s: f64,
         k: &ChassisKinematics,
     ) -> asc_physics::Result<(Control, Vec<Option<WheelBrakeSample>>, f64)> {
-        let control = if let Some(timeline) = &self.controls {
+        self.actuation_override(time_s, k, None)
+    }
+    fn actuation_override(
+        &self,
+        time_s: f64,
+        k: &ChassisKinematics,
+        command: Option<Control>,
+    ) -> asc_physics::Result<(Control, Vec<Option<WheelBrakeSample>>, f64)> {
+        let control = if let Some(command) = command {
+            command
+        } else if let Some(timeline) = &self.controls {
             timeline.sample(time_s)?
         } else {
             Control {
@@ -274,8 +284,16 @@ impl Environment {
             .collect()
     }
     fn loads(&self, time_s: f64, k: &ChassisKinematics) -> asc_physics::Result<ChassisLoads> {
+        self.loads_override(time_s, k, None)
+    }
+    fn loads_override(
+        &self,
+        time_s: f64,
+        k: &ChassisKinematics,
+        command: Option<Control>,
+    ) -> asc_physics::Result<ChassisLoads> {
         let mut loads = self.base.clone();
-        let (control, brakes, _) = self.actuation(time_s, k)?;
+        let (control, brakes, _) = self.actuation_override(time_s, k, command)?;
         for (load, brake) in loads.wheels.iter_mut().zip(brakes) {
             load.set_internal_torque(control.drive_fraction * load.internal_torque_nm())?;
             if let Some(brake) = brake {
@@ -357,7 +375,133 @@ impl Environment {
         Ok(result)
     }
 }
-pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
+pub(super) struct Workbench {
+    config: Configuration,
+    environment: Environment,
+    pub system: ChassisSystem,
+    initial: ChassisSystem,
+    sources: Vec<serde_json::Value>,
+    spawn_diagnostics: Vec<asc_scene::spawns::Diagnostic>,
+    wheel_count: usize,
+    contact_count: usize,
+    tangential_count: usize,
+    live_ticks: u64,
+    parent: std::path::PathBuf,
+}
+impl Workbench {
+    pub fn step_s(&self) -> f64 {
+        self.config.step_s
+    }
+    pub fn time_s(&self) -> f64 {
+        self.live_ticks as f64 * self.config.step_s
+    }
+    pub fn reset(&mut self) {
+        self.system = self.initial.clone();
+        self.live_ticks = 0;
+    }
+    pub fn diagnostics(&self) -> serde_json::Value {
+        serde_json::json!({"source_geometry":self.sources,"spawn_diagnostics":self.spawn_diagnostics,
+            "track_geometry":self.environment.track.as_ref().map(|(g,_)|g.summary()),
+            "track_diagnostics":self.environment.track.as_ref().map(|(g,_)|g.diagnostics())})
+    }
+    pub fn visual_paths(
+        &self,
+    ) -> Result<
+        (
+            std::path::PathBuf,
+            std::path::PathBuf,
+            asc_vehicle::data::Mode,
+        ),
+        Box<dyn Error>,
+    > {
+        if self.wheel_count != 4
+            || self.contact_count != 4
+            || self.tangential_count != 4
+            || self.environment.brakes.iter().flatten().count() != 4
+            || self.environment.steering_count == 0
+        {
+            return Err("Native drive requires four wheels with normal/tangential contact and brakes, plus explicit steering axes".into());
+        }
+        let track = self
+            .config
+            .support_track
+            .as_ref()
+            .ok_or("Native drive requires support_track")?;
+        let first = &self.config.uprights[0];
+        let car = self.parent.join(&first.car_directory).canonicalize()?;
+        for u in &self.config.uprights {
+            if self.parent.join(&u.car_directory).canonicalize()? != car || u.data != first.data {
+                return Err(
+                    "Native visual driving requires one car/data source across all four corners"
+                        .into(),
+                );
+            }
+        }
+        let mode = match first.data.as_str() {
+            "auto" => asc_vehicle::data::Mode::Auto,
+            "packed" => asc_vehicle::data::Mode::Packed,
+            _ => asc_vehicle::data::Mode::Unpacked,
+        };
+        Ok((car, self.parent.join(&track.models_ini), mode))
+    }
+    pub fn live_step(
+        &mut self,
+        command: super::drive_input::Command,
+        actuator: super::drive_input::SteeringActuator,
+    ) -> asc_physics::Result<ChassisSample> {
+        use glam::DVec3;
+        command.validate()?;
+        actuator.validate()?;
+        let dt = self.config.step_s;
+        let time = self.time_s();
+        let start = self.system.rack_motions();
+        let mut accelerations = Vec::new();
+        for (u, r) in self.config.uprights.iter().zip(&start) {
+            let a = if let Some(s) = &u.steering {
+                let axis = DVec3::from_array(s.axis_in_source).normalize();
+                let p = axis.dot(DVec3::from_array(r.position_m) - DVec3::from_array(u.rack_m));
+                let v = axis.dot(DVec3::from_array(r.velocity_m_s));
+                axis * actuator.acceleration(p, v, command.steering, dt)?
+            } else {
+                DVec3::ZERO
+            };
+            accelerations.push(a);
+        }
+        let sample = self.system.step_with_racks_and_forces(
+            dt,
+            |offset| {
+                start
+                    .iter()
+                    .zip(&accelerations)
+                    .map(|(r, a)| {
+                        RackMotion::new(
+                            (DVec3::from_array(r.position_m)
+                                + DVec3::from_array(r.velocity_m_s) * offset
+                                + 0.5 * (*a) * offset * offset)
+                                .to_array(),
+                            (DVec3::from_array(r.velocity_m_s) + (*a) * offset).to_array(),
+                            a.to_array(),
+                        )
+                    })
+                    .collect()
+            },
+            |offset, k| {
+                self.environment.loads_override(
+                    time + offset,
+                    k,
+                    Some(Control {
+                        time_s: time + offset,
+                        drive_fraction: command.drive,
+                        brake_fraction: command.brake,
+                    }),
+                )
+            },
+        )?;
+        self.live_ticks += 1;
+        Ok(sample)
+    }
+}
+pub(super) fn load(configuration: &Path) -> Result<Workbench, Box<dyn Error>> {
     let mut bytes = Vec::new();
     File::open(configuration)?
         .take(65537)
@@ -607,13 +751,39 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
     if environment.controls.is_some() && wheel_count == 0 {
         return Err("Wheel controls require at least one wheel".into());
     }
-    let mut system = if environment.needs_provider() {
+    let system = if environment.needs_provider() {
         ChassisSystem::new_with_forces(body, uprights, config.gravity_world_m_s2, |offset, k| {
             environment.loads(offset, k)
         })?
     } else {
         ChassisSystem::new(body, uprights, config.gravity_world_m_s2)?
     };
+    Ok(Workbench {
+        initial: system.clone(),
+        system,
+        config,
+        environment,
+        sources,
+        spawn_diagnostics,
+        wheel_count,
+        contact_count,
+        tangential_count,
+        live_ticks: 0,
+        parent: parent.to_path_buf(),
+    })
+}
+pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
+    let Workbench {
+        config,
+        environment,
+        mut system,
+        sources,
+        spawn_diagnostics,
+        wheel_count,
+        contact_count,
+        tangential_count,
+        ..
+    } = load(configuration)?;
     let first = if environment.needs_provider() {
         system.sample_with_forces(|offset, k| environment.loads(offset, k))?
     } else {
@@ -673,4 +843,124 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
             "Synthetic sample parameters; no original-game mass/inertia/preload calibration",
             "Explicit Lie-midpoint integration on a bounded local branch; no universal stability guarantee"]
     }))
+}
+
+#[cfg(test)]
+mod live_tests {
+    use super::*;
+    use crate::app::drive_input::{Command, SteeringActuator};
+    struct Directory(std::path::PathBuf);
+    impl Drop for Directory {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+    fn fixture() -> (Directory, Workbench) {
+        let root = asc_test_support::temp_path("live-dynamics");
+        std::fs::create_dir_all(root.join("data")).unwrap();
+        std::fs::write(
+            root.join("data/suspensions.ini"),
+            asc_test_support::suspension_motion_file(),
+        )
+        .unwrap();
+        let mut c: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../examples/chassis-steering-track.json"
+        ))
+        .unwrap();
+        c.as_object_mut().unwrap().remove("support_track");
+        c.as_object_mut().unwrap().remove("initial_spawn");
+        c["support_plane"] =
+            serde_json::json!({"point_world_m":[0,0,0],"normal_world":[0,1,0],"friction_scale":1});
+        c["chassis"]["position_world_m"] = serde_json::json!([0, 0.29, 0]);
+        for u in c["uprights"].as_array_mut().unwrap() {
+            u["car_directory"] = ".".into();
+        }
+        let path = root.join("dynamics.json");
+        std::fs::write(&path, c.to_string()).unwrap();
+        let bench = load(&path).unwrap();
+        (Directory(root), bench)
+    }
+    fn actuator() -> SteeringActuator {
+        SteeringActuator {
+            displacement_limit_m: 0.01,
+            frequency_rad_s: 8.,
+            acceleration_limit_m_s2: 0.2,
+            rate_limit_m_s: 0.08,
+        }
+    }
+    #[test]
+    fn live_commands_override_offline_schedule_steer_brake_reverse_and_reset_mechanical_state() {
+        let (_dir, mut bench) = fixture();
+        let initial = serde_json::to_value(bench.system.kinematics().unwrap()).unwrap();
+        let mut peak = 0_f64;
+        for i in 0..1600 {
+            let input = if i < 800 {
+                Command {
+                    drive: 1.,
+                    steering: 1.,
+                    brake: 0.,
+                }
+            } else {
+                Command {
+                    drive: 0.,
+                    steering: 0.,
+                    brake: 1.,
+                }
+            };
+            let sample = bench.live_step(input, actuator()).unwrap();
+            peak = peak.max(sample.chassis.velocity_world_m_s[2]);
+        }
+        let k = bench.system.kinematics().unwrap();
+        assert!(peak > 0.1);
+        assert!(k.chassis.velocity_world_m_s[2] < 0.8 * peak);
+        assert!(bench.time_s() > 0.79);
+        assert!(k.uprights[0].rack_motion.position_m[0] > 0.);
+        bench.reset();
+        assert_eq!(bench.time_s(), 0.);
+        assert_eq!(
+            serde_json::to_value(bench.system.kinematics().unwrap()).unwrap(),
+            initial
+        );
+        for _ in 0..400 {
+            bench
+                .live_step(
+                    Command {
+                        drive: -1.,
+                        ..Command::default()
+                    },
+                    actuator(),
+                )
+                .unwrap();
+        }
+        assert!(
+            bench
+                .system
+                .kinematics()
+                .unwrap()
+                .chassis
+                .velocity_world_m_s[2]
+                < -0.01
+        );
+    }
+    #[test]
+    fn invalid_live_commands_preserve_state_and_clock() {
+        let (_dir, mut bench) = fixture();
+        let before = serde_json::to_value(bench.system.kinematics().unwrap()).unwrap();
+        assert!(
+            bench
+                .live_step(
+                    Command {
+                        drive: f64::NAN,
+                        ..Command::default()
+                    },
+                    actuator()
+                )
+                .is_err()
+        );
+        assert_eq!(bench.time_s(), 0.);
+        assert_eq!(
+            serde_json::to_value(bench.system.kinematics().unwrap()).unwrap(),
+            before
+        );
+    }
 }

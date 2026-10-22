@@ -218,4 +218,4 @@ pub fn material_file(
 }
 
 mod vehicle;
-pub use vehicle::vehicle_files;
+pub use vehicle::{suspension_motion_file, vehicle_files};

@@ -26,7 +26,7 @@ cargo test -p asc-render --locked --test gpu --test track_textures -- --ignored 
 
 Five single-model GPU tests check non-background geometry, occlusion independent of triangle order, non-aligned row readback, PNG pixels/overwrite refusal, UV orientation, opaque versus cutout alpha, opacity and linear-light blending, read-only/disabled depth and back-to-front transparency ordering. Another GPU test checks BC1/2/3 direct upload against a device created without BC support, including alpha and authored non-power-of-two/sub-block mip tails. Two multilayer GPU tests check linear unnormalised RGBA weights, magic gain, alpha-as-a-fourth-weight and world-XZ versus source-UV coordinates. A separate composition GPU test proves that two composed models with identical texture names retain distinct red/green pixels. CPU fixtures cover native config parsing, translation and rebasing, resource confinement, model/texture budgets and per-model resource isolation. Set `OPENASC_TEST_FALLBACK=1` to request a software adapter; Linux CI installs Mesa Vulkan and runs these tests explicitly. GPU adapter absence fails the explicit tests. Structural, DDS and resource-resolution tests remain GPU-independent. Cargo build outputs under `target/` are ignored; commit `Cargo.lock` with dependency changes.
 
-The four explicit desktop tests open real windows for a KN5, a composed models.ini scene, forced RGBA fallback and multilayer colour/toggle, and therefore require a display:
+Six explicit desktop tests require a display: four scene/material inspection fixtures, a car/track composition fixture and a coupled native-drive fixture:
 
 ```sh
 cargo test -p asc-app --locked --test window -- --ignored --nocapture
@@ -124,3 +124,6 @@ cargo run --locked -p asc-app -- preview ./assettocorsa/content/cars/bmw_m3_e30 
 ```
 
 The optional real-content smoke verifies native presentation/camera/resize/readback, not actual keyboard driving or independent physical mouse gestures. New source/capture names must remain outside tracked game content; publish only selected flattened frames with accurate scope captions.
+
+
+The native-drive window fixture creates its own car/track/configuration, injects throttle/steer/brake through the shared key handler, and checks chassis motion/yaw, braking and changed surface pixels at a fixed camera. It uses no game installation. Physical keyboard use, focus/monitor changes and real device-loss remain outside independent desktop validation. Ordinary CPU fixtures cover key release/clear/brake aliases, ignored autorepeat, smooth rack target response, forward/reverse/braking/reset behavior, invalid-input atomicity and camera-follow projection.

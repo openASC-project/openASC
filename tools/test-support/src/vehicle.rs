@@ -1,5 +1,33 @@
 //! Original vehicle configuration literals shared by native tests.
 use std::collections::BTreeMap;
+/// Original constrained-dynamics fixture, independent of installed game data.
+pub fn suspension_motion_file() -> String {
+    let mut text = "[HEADER]\nVERSION=1\n[BASIC]\nWHEELBASE=2.4\nCG_LOCATION=.5\n".to_owned();
+    for (axle, kind) in [("FRONT", "STRUT"), ("REAR", "DWB")] {
+        text +=
+            &format!("[{axle}]\nTYPE={kind}\nTRACK=1.5\nBASEY=-.2\nROD_LENGTH=.1\nHUB_MASS=30\n");
+        text += "WBCAR_TOP_FRONT=-.3,.2,.12\nWBCAR_TOP_REAR=-.3,.2,-.12\nWBTYRE_TOP=0,.2,0\nWBCAR_BOTTOM_FRONT=-.3,-.2,.12\nWBCAR_BOTTOM_REAR=-.3,-.2,-.12\nWBTYRE_BOTTOM=0,-.2,0\nWBCAR_STEER=-.3,0,.15\nWBTYRE_STEER=0,0,.15\nSTRUT_CAR=-.2,.4,0\nSTRUT_TYRE=0,-.2,0\n";
+        for key in [
+            "SPRING_RATE",
+            "PROGRESSIVE_SPRING_RATE",
+            "BUMP_STOP_RATE",
+            "BUMPSTOP_UP",
+            "BUMPSTOP_DN",
+            "PACKER_RANGE",
+            "DAMP_BUMP",
+            "DAMP_FAST_BUMP",
+            "DAMP_FAST_BUMPTHRESHOLD",
+            "DAMP_REBOUND",
+            "DAMP_FAST_REBOUND",
+            "DAMP_FAST_REBOUNDTHRESHOLD",
+            "TOE_OUT",
+            "STATIC_CAMBER",
+        ] {
+            text += &format!("{key}=0\n");
+        }
+    }
+    text
+}
 pub fn vehicle_files() -> BTreeMap<&'static str, String> {
     [
     ("car.ini","[HEADER]\nVERSION=1\n[BASIC]\nTOTALMASS=900\nINERTIA=1.5,1.2,3.5\nGRAPHICS_OFFSET=0,-.3,.1\nGRAPHICS_PITCH_ROTATION=.5\n[CONTROLS]\nSTEER_LOCK=360\nSTEER_RATIO=12\n"),
