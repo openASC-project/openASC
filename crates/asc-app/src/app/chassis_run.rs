@@ -29,6 +29,8 @@ struct Upright {
     car_directory: String,
     axle: String,
     data: String,
+    #[serde(default)]
+    source_geometry_reflect_x: bool,
     travel_axis: [f64; 3],
     rack_m: [f64; 3],
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -663,10 +665,16 @@ pub(super) fn load(configuration: &Path) -> Result<Workbench, Box<dyn Error>> {
             .get(&input.axle)
             .ok_or("Choose an explicit front or rear axle")?;
         let geometry = match selected.kind.as_str() {
-            "DWB" => TravelMechanism::Dwb(asc_session::dwb_geometry(selected, input.travel_axis)?),
-            "STRUT" => {
-                TravelMechanism::Strut(asc_session::strut_geometry(selected, input.travel_axis)?)
-            }
+            "DWB" => TravelMechanism::Dwb(asc_session::dwb_geometry_with_reflection(
+                selected,
+                input.travel_axis,
+                input.source_geometry_reflect_x,
+            )?),
+            "STRUT" => TravelMechanism::Strut(asc_session::strut_geometry_with_reflection(
+                selected,
+                input.travel_axis,
+                input.source_geometry_reflect_x,
+            )?),
             _ => return Err("Unsupported suspension geometry type".into()),
         };
         let rack = if let Some(s) = &input.steering {
@@ -803,7 +811,9 @@ pub(super) fn load(configuration: &Path) -> Result<Workbench, Box<dyn Error>> {
         )?);
         sources.push(
             serde_json::json!({"car":source.car,"axle":input.axle,"type":selected.kind,
-            "data_source":source.data_source,"source_diagnostics":source.diagnostics,"resolved_wheel_geometry":resolved_geometry}),
+            "data_source":source.data_source,"source_diagnostics":source.diagnostics,"resolved_wheel_geometry":resolved_geometry,
+            "source_geometry_reflect_x":input.source_geometry_reflect_x,
+            "source_frame_policy":"reflect raw hardpoint X only; all explicit vectors, tensors, frame rotations and loads already use the resulting coordinates"}),
         );
     }
     if (plane.is_some() || track.is_some()) != (contact_count > 0) {
@@ -1057,6 +1067,110 @@ mod live_tests {
             std::fs::read(dir.0.join("data/suspensions.ini")).unwrap(),
             original
         );
+    }
+    #[test]
+    fn reflected_source_corner_preserves_coupled_dynamics_contact_and_axial_motor_reactions() {
+        use glam::{DQuat, DVec3};
+        let mirror = |v: [f64; 3]| [-v[0], v[1], v[2]];
+        let axial = |v: [f64; 3]| [v[0], -v[1], -v[2]];
+        let near = |a: [f64; 3], b: [f64; 3]| {
+            assert!(
+                (DVec3::from_array(a) - DVec3::from_array(b)).length() < 1e-7,
+                "{a:?} != {b:?}"
+            )
+        };
+        for index in [0, 2] {
+            let (dir, mut c) = source_fixture();
+            c["uprights"] = serde_json::json!([c["uprights"][index].clone()]);
+            c["support_plane"] = serde_json::json!({"point_world_m":[0,0,0],"normal_world":[0,1,0],"friction_scale":1});
+            c["gravity_world_m_s2"] = serde_json::json!([0, -9.81, 0]);
+            c["chassis"]["position_world_m"] = serde_json::json!([0, 0.515, 0]);
+            c["chassis"]["velocity_world_m_s"] = serde_json::json!([0.05, -0.01, 0.1]);
+            c["chassis"]["angular_velocity_world_rad_s"] = serde_json::json!([0.01, 0.02, -0.03]);
+            c["uprights"][0]["wheel"]["initial_rate_rad_s"] = 2.into();
+            c["uprights"][0]["wheel"]["drive_torque_nm"] = 100.into();
+            c["uprights"][0]["wheel"]["normal_contact"] = serde_json::json!({"stiffness_n_m":200000,"damping_n_s_m":1500,"max_penetration_m":0.08});
+            c["uprights"][0]["wheel"]["tangential_contact"] = serde_json::json!({"longitudinal_viscosity_n_s_m":300,"lateral_viscosity_n_s_m":400,"longitudinal_friction":0.9,"lateral_friction":0.9});
+            let mut left = load_config(&dir, &c).unwrap();
+            let u = &mut c["uprights"][0];
+            u["source_geometry_reflect_x"] = true.into();
+            u["source_wheel_geometry"]["corner"] = if index == 0 {
+                "front_right"
+            } else {
+                "rear_right"
+            }
+            .into();
+            let center: [f64; 3] =
+                serde_json::from_value(u["center_of_mass_local_m"].clone()).unwrap();
+            u["center_of_mass_local_m"] = serde_json::json!(mirror(center));
+            for i in 0..3 {
+                for j in 0..3 {
+                    let sign = if (i == 0) ^ (j == 0) { -1. } else { 1. };
+                    u["inertia_rows_kg_m2"][i][j] =
+                        (sign * u["inertia_rows_kg_m2"][i][j].as_f64().unwrap()).into();
+                }
+            }
+            for spring in u["springs"].as_array_mut().unwrap() {
+                for name in ["fixed_anchor_m", "upright_local_point_m"] {
+                    spring[name][0] = (-spring[name][0].as_f64().unwrap()).into();
+                }
+            }
+            if index == 0 {
+                u["steering"]["axis_in_source"] = serde_json::json!([-1, 0, 0]);
+            }
+            c["chassis"]["velocity_world_m_s"] = serde_json::json!([-0.05, -0.01, 0.1]);
+            c["chassis"]["angular_velocity_world_rad_s"] = serde_json::json!([0.01, -0.02, 0.03]);
+            let mut right = load_config(&dir, &c).unwrap();
+            for _ in 0..50 {
+                let command = Command {
+                    drive: 0.5,
+                    brake: 0.1,
+                    steering: 0.4,
+                };
+                let ls = left.live_step(command, actuator()).unwrap();
+                let rs = right.live_step(command, actuator()).unwrap();
+                near(
+                    rs.linear_momentum_world_kg_m_s,
+                    mirror(ls.linear_momentum_world_kg_m_s),
+                );
+                near(
+                    rs.angular_momentum_about_world_origin_kg_m2_s,
+                    axial(ls.angular_momentum_about_world_origin_kg_m2_s),
+                );
+                assert!((ls.kinetic_energy_j - rs.kinetic_energy_j).abs() < 1e-7);
+                let l = left.system.kinematics().unwrap();
+                let r = right.system.kinematics().unwrap();
+                near(r.chassis.position_m, mirror(l.chassis.position_m));
+                near(
+                    r.chassis.angular_velocity_world_rad_s,
+                    axial(l.chassis.angular_velocity_world_rad_s),
+                );
+                let lw = l.uprights[0].wheel.as_ref().unwrap();
+                let rw = r.uprights[0].wheel.as_ref().unwrap();
+                near(rw.body.position_m, mirror(lw.body.position_m));
+                assert!((lw.state.rate_rad_s - rw.state.rate_rad_s).abs() < 1e-8);
+                let q = l.chassis.orientation_xyzw;
+                let expected = DQuat::from_xyzw(q[0], -q[1], -q[2], q[3]);
+                assert!(
+                    expected
+                        .dot(DQuat::from_array(r.chassis.orientation_xyzw))
+                        .abs()
+                        > 1. - 1e-12
+                );
+                let lc = left.environment.contacts(&l).unwrap();
+                let rc = right.environment.contacts(&r).unwrap();
+                near(
+                    rc[0].normal.as_ref().unwrap().force_world_n,
+                    mirror(lc[0].normal.as_ref().unwrap().force_world_n),
+                );
+                assert!(
+                    (lc[0].tangential.as_ref().unwrap().dissipated_power_w
+                        - rc[0].tangential.as_ref().unwrap().dissipated_power_w)
+                        .abs()
+                        < 1e-7
+                );
+            }
+        }
     }
     #[test]
     fn source_radius_reaches_contact_law_and_source_changes_are_reloaded() {

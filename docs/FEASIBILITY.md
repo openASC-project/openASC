@@ -62,3 +62,7 @@ The native Rust/wgpu driving window now supports explicit source-node bindings f
 ## Source footprint and tyre dimensions
 
 The native drive now registers its four initial physical wheel centres to explicitly selected typed source corners and uses selected compound tyre radii. Chassis-frame model-pivot differences remain visible in diagnostics (about 11.42/19.57 mm front/rear for local BMW). This removes arbitrary sample wheelbase/track/height/radius values from the default native path, while preserving explicit raw-frame orientations and synthetic masses/forces. Full setup, source force-law/mass mapping, original-game comparison and native body collision still require development and validation.
+
+## Explicit source-side reflection
+
+The coupled workbench now supports explicit X reflection of raw DWB/STRUT hardpoints. The BMW example selects its source side from the inspected chassis-anchor direction: left mechanisms reflect, right mechanisms retain raw points, and identity frames preserve source fore/aft axes on both sides. Synthetic local COM/tensor/spring inputs are explicitly mirrored, with invariant dynamics/virtual-work fixtures. This removes the previous illustrative Y half-turn from the default drive while leaving original source setup, camber/toe, mass/force laws and live-game validation open.

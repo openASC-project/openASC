@@ -5,7 +5,9 @@ mod kinematics;
 use asc_scene::spawns::{Diagnostic, Spawn};
 pub use body::body_with_spawn_basis;
 pub use ground_contact::{TrackContact, TrackFace, face_contact, face_contact_with_friction};
-pub use kinematics::{dwb_geometry, strut_geometry};
+pub use kinematics::{
+    dwb_geometry, dwb_geometry_with_reflection, strut_geometry, strut_geometry_with_reflection,
+};
 use serde::Serialize;
 use std::{
     collections::{BTreeMap, BTreeSet},
