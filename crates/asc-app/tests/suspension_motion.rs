@@ -622,6 +622,95 @@ fn normal_configuration() -> serde_json::Value {
 }
 
 #[test]
+fn cli_prescribed_steering_turns_a_contact_supported_vehicle_and_reports_rack_work() {
+    let fixture = fixture();
+    let path = fixture.0.join("steering.json");
+    let mut c = normal_configuration();
+    c["support_plane"]["friction_scale"] = 1.into();
+    c["steps"] = 1000.into();
+    c["step_s"] = 0.001.into();
+    c["record_every"] = 10.into();
+    for (i, u) in c["uprights"].as_array_mut().unwrap().iter_mut().enumerate() {
+        u["wheel"]["tangential_contact"] = serde_json::json!({"longitudinal_viscosity_n_s_m":3000,"lateral_viscosity_n_s_m":4000,"longitudinal_friction":0.9,"lateral_friction":0.9});
+        u["wheel"]["drive_torque_nm"] = if i % 2 == 0 { 100 } else { -100 }.into();
+        if i < 2 {
+            u["steering"] = serde_json::json!({"axis_in_source":[1,0,0],"keys":[
+            {"time_s":0,"displacement_m":0,"velocity_m_s":0},
+            {"time_s":0.6,"displacement_m":0.005,"velocity_m_s":0},
+            {"time_s":1,"displacement_m":0,"velocity_m_s":0}]});
+        }
+    }
+    let invoke = |c: &serde_json::Value| {
+        fs::write(&path, c.to_string()).unwrap();
+        Command::new(env!("CARGO_BIN_EXE_openasc"))
+            .arg("chassis-run")
+            .arg(&path)
+            .output()
+            .unwrap()
+    };
+    let output = invoke(&c);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let report: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(report["fixed_racks"], false);
+    assert_eq!(report["prescribed_racks"], 2);
+    let rows = report["records"].as_array().unwrap();
+    assert!(rows.iter().any(|r| {
+        r["sample"]["chassis"]["angular_velocity_world_rad_s"][1]
+            .as_f64()
+            .unwrap()
+            .abs()
+            > 0.001
+    }));
+    assert!(
+        rows.iter()
+            .any(|r| r["sample"]["rack_actuator_power_w"].as_f64().unwrap().abs() > 1e-6)
+    );
+    for r in rows {
+        let sample = &r["sample"];
+        let power = sample["uprights"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|u| u["rack_actuator_power_w"].as_f64().unwrap())
+            .sum::<f64>();
+        assert!((power - sample["rack_actuator_power_w"].as_f64().unwrap()).abs() < 1e-8);
+        assert!(
+            (r["actuator_input_power_w"].as_f64().unwrap()
+                - r["motor_power_w"].as_f64().unwrap()
+                - power)
+                .abs()
+                < 1e-8
+        );
+        for u in &sample["uprights"].as_array().unwrap()[2..] {
+            assert_eq!(
+                u["rack_motion"]["position_m"],
+                serde_json::json!([0., 0., 0.])
+            );
+        }
+    }
+    for case in 0..6 {
+        let mut bad = c.clone();
+        let steering = &mut bad["uprights"][0]["steering"];
+        match case {
+            0 => steering["axis_in_source"] = serde_json::json!([0, 0, 0]),
+            1 => steering["keys"] = serde_json::json!([]),
+            2 => steering["keys"][1]["time_s"] = 0.into(),
+            3 => steering["keys"][0]["velocity_m_s"] = 1.into(),
+            4 => steering["keys"][1]["displacement_m"] = 0.3.into(),
+            _ => steering["keys"][0]["unknown"] = 1.into(),
+        }
+        let r = invoke(&bad);
+        assert!(!r.status.success());
+        assert!(r.stdout.is_empty());
+    }
+    fs::remove_file(path).unwrap();
+}
+
+#[test]
 fn cli_brakes_actuate_airborne_wheels_without_requiring_a_support_provider() {
     let fixture = fixture();
     let path = fixture.0.join("airborne-brake.json");

@@ -527,6 +527,21 @@ fn rotor_four(
     spins: [WheelState; 4],
     gravity: [f64; 3],
 ) -> ChassisSystem {
+    rotor_four_racks(
+        chassis,
+        states,
+        spins,
+        gravity,
+        [asc_physics::RackMotion::fixed([0.; 3]).unwrap(); 4],
+    )
+}
+fn rotor_four_racks(
+    chassis: Body,
+    states: [TravelState; 4],
+    spins: [WheelState; 4],
+    gravity: [f64; 3],
+    racks: [asc_physics::RackMotion; 4],
+) -> ChassisSystem {
     let mounts = [
         [0.8, 0., 1.2],
         [-0.8, 0., 1.2],
@@ -548,6 +563,7 @@ fn rotor_four(
                 states[i],
                 Some(0.6),
             );
+            u.set_rack_motion(racks[i]).unwrap();
             u.attach_wheel(rotor(spins[i])).unwrap();
             u
         })
@@ -1332,6 +1348,319 @@ fn normal_support_system(height_offset: f64) -> (ChassisSystem, f64) {
         .unwrap(),
         equilibrium,
     )
+}
+
+fn moving_racks(time: f64) -> [asc_physics::RackMotion; 4] {
+    std::array::from_fn(|i| {
+        let sign = if i % 2 == 0 { 1. } else { -1. };
+        let p = DVec3::new(0.002 * sign, -0.001, 0.001);
+        let v = DVec3::new(0.01 * sign, 0.005, -0.004);
+        let a = DVec3::new(0.03 * sign, -0.01, 0.02);
+        asc_physics::RackMotion::new(
+            (p + v * time + 0.5 * a * time * time).to_array(),
+            (v + a * time).to_array(),
+            a.to_array(),
+        )
+        .unwrap()
+    })
+}
+
+#[test]
+fn prescribed_internal_rack_work_converges_and_fixed_prescriptions_preserve_existing_steps() {
+    let zero = [TravelState {
+        travel_m: 0.02,
+        rate_m_s: 0.,
+    }; 4];
+    let spin = [WheelState {
+        angle_rad: 0.1,
+        rate_rad_s: 5.,
+    }; 4];
+    let mut residuals = Vec::new();
+    for (steps, dt) in [(100, 0.001), (200, 0.0005)] {
+        let mut system = rotor_four_racks(
+            body(DVec3::ZERO, DQuat::IDENTITY, DVec3::ZERO, DVec3::ZERO),
+            zero,
+            spin,
+            [0.; 3],
+            moving_racks(0.),
+        );
+        let initial = system
+            .sample_with_forces(|_, _| ChassisLoads::zero(4))
+            .unwrap();
+        let mut prev = initial.rack_actuator_power_w - initial.dissipated_power_w;
+        let mut work = 0.;
+        let mut final_sample = initial;
+        let energy = total_energy(&final_sample);
+        let momentum = vector(final_sample.linear_momentum_world_kg_m_s);
+        let angular = vector(final_sample.angular_momentum_about_world_origin_kg_m2_s);
+        for i in 0..steps {
+            let start = f64::from(i) * dt;
+            final_sample = system
+                .step_with_racks_and_forces(
+                    dt,
+                    |offset| Ok(moving_racks(start + offset).to_vec()),
+                    |_, _| ChassisLoads::zero(4),
+                )
+                .unwrap();
+            let power = final_sample.rack_actuator_power_w - final_sample.dissipated_power_w;
+            work += 0.5 * dt * (prev + power);
+            prev = power;
+        }
+        let residual = (total_energy(&final_sample) - energy - work).abs();
+        residuals.push(residual);
+        close(final_sample.linear_momentum_world_kg_m_s, momentum, 1e-4);
+        close(
+            final_sample.angular_momentum_about_world_origin_kg_m2_s,
+            angular,
+            1e-4,
+        );
+    }
+    assert!(
+        residuals[1] < 1e-3 && residuals[1] < 0.4 * residuals[0],
+        "{residuals:?}"
+    );
+    let mut legacy = rotor_four(
+        body(DVec3::ZERO, DQuat::IDENTITY, DVec3::ZERO, DVec3::ZERO),
+        zero,
+        spin,
+        [0.; 3],
+    );
+    let mut prescribed = legacy.clone();
+    let racks = prescribed.rack_motions();
+    let a = legacy
+        .step_with_forces(0.001, |_, _| ChassisLoads::zero(4))
+        .unwrap();
+    let b = prescribed
+        .step_with_racks_and_forces(0.001, |_| Ok(racks.clone()), |_, _| ChassisLoads::zero(4))
+        .unwrap();
+    close(b.chassis.position_m, vector(a.chassis.position_m), 1e-12);
+    close(
+        b.chassis.velocity_world_m_s,
+        vector(a.chassis.velocity_world_m_s),
+        1e-12,
+    );
+    near(total_energy(&a), total_energy(&b), 1e-10);
+}
+#[test]
+fn moving_rack_velocities_power_and_global_momenta_match_independent_state_differences() {
+    let p = DVec3::new(3., 4., 5.);
+    let q = DQuat::from_euler(glam::EulerRot::XYZ, 0.2, -0.3, 0.1);
+    let v = DVec3::new(1., -0.2, 0.3);
+    let w = DVec3::new(0.2, -0.15, 0.3);
+    let g = [0.3, -9.81, 0.1];
+    let states = diverse_states();
+    let spin = spins();
+    let wheel_external = Wrench::new([2., -3., 1.], [0.3, 0.1, -0.2]).unwrap();
+    let motors = [8., -6., 4., -2.].map(|t| WheelLoad::new(wheel_external, t).unwrap());
+    let system = rotor_four_racks(body(p, q, v, w), states, spin, g, moving_racks(0.));
+    let sample = system
+        .sample_with_wheels(Wrench::default(), &[Wrench::default(); 4], &motors)
+        .unwrap();
+    let mut power = sample.rack_actuator_power_w - sample.dissipated_power_w;
+    let mut force = DVec3::from_array(g) * sample.total_mass_kg;
+    let mut moment = vector(sample.center_of_mass_world_m).cross(force);
+    for (i, u) in sample.uprights.iter().enumerate() {
+        let wheel = u.wheel.as_ref().unwrap();
+        power += [8., -6., 4., -2.][i] * spin[i].rate_rad_s
+            + vector(wheel_external.force_world_n()).dot(vector(wheel.body.velocity_world_m_s))
+            + vector(wheel_external.torque_world_nm())
+                .dot(vector(wheel.body.angular_velocity_world_rad_s));
+        force += vector(wheel_external.force_world_n());
+        moment += vector(wheel.body.position_m).cross(vector(wheel_external.force_world_n()))
+            + vector(wheel_external.torque_world_nm());
+    }
+    let eps = 1e-5;
+    let mut neighbors = Vec::new();
+    for dt in [-eps, eps] {
+        let hs = std::array::from_fn(|i| TravelState {
+            travel_m: states[i].travel_m + dt * states[i].rate_m_s,
+            rate_m_s: states[i].rate_m_s + dt * sample.uprights[i].travel_acceleration_m_s2,
+        });
+        let ss = std::array::from_fn(|i| WheelState {
+            angle_rad: spin[i].angle_rad + dt * spin[i].rate_rad_s,
+            rate_rad_s: spin[i].rate_rad_s
+                + dt * sample.uprights[i]
+                    .wheel
+                    .as_ref()
+                    .unwrap()
+                    .spin_acceleration_rad_s2,
+        });
+        let b = body(
+            p + v * dt,
+            DQuat::from_scaled_axis(w * dt) * q,
+            v + vector(sample.acceleration_world_m_s2) * dt,
+            w + vector(sample.angular_acceleration_world_rad_s2) * dt,
+        );
+        neighbors.push(
+            rotor_four_racks(b, hs, ss, g, moving_racks(dt))
+                .sample_with_wheels(Wrench::default(), &[Wrench::default(); 4], &motors)
+                .unwrap(),
+        );
+    }
+    near(
+        (total_energy(&neighbors[1]) - total_energy(&neighbors[0])) / (2. * eps),
+        power,
+        0.02,
+    );
+    for (i, u) in sample.uprights.iter().enumerate() {
+        let bodies = [
+            (
+                &u.body,
+                &neighbors[0].uprights[i].body,
+                &neighbors[1].uprights[i].body,
+            ),
+            (
+                &u.wheel.as_ref().unwrap().body,
+                &neighbors[0].uprights[i].wheel.as_ref().unwrap().body,
+                &neighbors[1].uprights[i].wheel.as_ref().unwrap().body,
+            ),
+        ];
+        for (b, minus, plus) in bodies {
+            close(
+                ((vector(plus.position_m) - vector(minus.position_m)) / (2. * eps)).to_array(),
+                vector(b.velocity_world_m_s),
+                1e-6,
+            );
+            let dq = DQuat::from_array(plus.orientation_xyzw)
+                * DQuat::from_array(minus.orientation_xyzw).conjugate();
+            close(
+                (dq.to_scaled_axis() / (2. * eps)).to_array(),
+                vector(b.angular_velocity_world_rad_s),
+                1e-5,
+            );
+        }
+    }
+    close(
+        ((vector(neighbors[1].linear_momentum_world_kg_m_s)
+            - vector(neighbors[0].linear_momentum_world_kg_m_s))
+            / (2. * eps))
+            .to_array(),
+        force,
+        0.01,
+    );
+    close(
+        ((vector(neighbors[1].angular_momentum_about_world_origin_kg_m2_s)
+            - vector(neighbors[0].angular_momentum_about_world_origin_kg_m2_s))
+            / (2. * eps))
+            .to_array(),
+        moment,
+        0.03,
+    );
+}
+
+#[test]
+fn prescribed_racks_are_sampled_before_forces_commit_final_state_and_rollback_each_failure() {
+    let states = [TravelState {
+        travel_m: 0.02,
+        rate_m_s: 0.,
+    }; 4];
+    let spin = [WheelState {
+        angle_rad: 0.,
+        rate_rad_s: 1.,
+    }; 4];
+    let original = rotor_four_racks(
+        body(DVec3::ZERO, DQuat::IDENTITY, DVec3::ZERO, DVec3::ZERO),
+        states,
+        spin,
+        [0.; 3],
+        moving_racks(0.),
+    );
+    let before = serde_json::to_value(original.kinematics().unwrap()).unwrap();
+    let mut invalid = moving_racks(0.);
+    invalid[3].acceleration_m_s2 = [f64::NAN; 3];
+    assert!(
+        original
+            .sample_with_racks_and_forces(&invalid, |_, _| ChassisLoads::zero(4))
+            .is_err()
+    );
+    assert_eq!(
+        serde_json::to_value(original.kinematics().unwrap()).unwrap(),
+        before
+    );
+    for failure in [0., 0.0005, 0.001] {
+        let mut s = original.clone();
+        let result = s.step_with_racks_and_forces(
+            0.001,
+            |time| {
+                if time == failure {
+                    return Err(asc_physics::Error::new(
+                        "rack_fixture",
+                        "Deliberate rack failure",
+                    ));
+                }
+                Ok(moving_racks(time).to_vec())
+            },
+            |_, _| ChassisLoads::zero(4),
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            serde_json::to_value(s.kinematics().unwrap()).unwrap(),
+            before
+        );
+        let result = s.step_with_racks_and_forces(
+            0.001,
+            |t| Ok(moving_racks(t).to_vec()),
+            |time, _| {
+                if time == failure {
+                    return Err(asc_physics::Error::new(
+                        "force_fixture",
+                        "Deliberate force failure",
+                    ));
+                }
+                ChassisLoads::zero(4)
+            },
+        );
+        assert!(result.is_err());
+        assert_eq!(
+            serde_json::to_value(s.kinematics().unwrap()).unwrap(),
+            before
+        );
+    }
+    let mut s = original.clone();
+    assert!(
+        s.step_with_racks_and_forces(
+            0.001,
+            |t| {
+                if t == 0.001 {
+                    Ok(vec![])
+                } else {
+                    Ok(moving_racks(t).to_vec())
+                }
+            },
+            |_, _| ChassisLoads::zero(4)
+        )
+        .is_err()
+    );
+    assert_eq!(
+        serde_json::to_value(s.kinematics().unwrap()).unwrap(),
+        before
+    );
+    assert!(
+        s.step_with_forces(0.001, |_, _| ChassisLoads::zero(4))
+            .is_err()
+    );
+    let mut seen = Vec::new();
+    s.step_with_racks_and_forces(
+        0.001,
+        |t| Ok(moving_racks(t).to_vec()),
+        |t, k| {
+            for (u, r) in k.uprights.iter().zip(moving_racks(t)) {
+                assert_eq!(u.rack_motion, r);
+            }
+            seen.push(t);
+            ChassisLoads::zero(4)
+        },
+    )
+    .unwrap();
+    assert_eq!(seen, vec![0., 0.0005, 0.001]);
+    assert_eq!(s.rack_motions(), moving_racks(0.001));
+    let result = s.step_with_racks_and_forces(
+        0.001,
+        |_| Ok(moving_racks(0.).to_vec()),
+        |_, _| ChassisLoads::zero(4),
+    );
+    assert_eq!(result.unwrap_err().code, "physics_rack_discontinuity");
+    assert!(asc_physics::RackMotion::new([f64::NAN; 3], [0.; 3], [0.; 3]).is_err());
 }
 
 #[test]

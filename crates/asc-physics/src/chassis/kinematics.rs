@@ -10,6 +10,7 @@ pub struct WheelKinematics {
 #[derive(Debug, Serialize)]
 pub struct UprightKinematics {
     pub state: TravelState,
+    pub rack_motion: RackMotion,
     pub source_position_m: [f64; 3],
     pub source_orientation_xyzw: [f64; 4],
     pub body: State,
@@ -63,15 +64,16 @@ impl ChassisSystem {
         let omega = DVec3::from_array(chassis.angular_velocity_world_rad_s);
         let mut uprights = Vec::with_capacity(self.uprights.len());
         for upright in &self.uprights {
-            let map =
-                upright
-                    .geometry
-                    .map(upright.state.travel_m, upright.rack, Some(upright.pose))?;
+            let map = upright.geometry.map(
+                upright.state.travel_m,
+                upright.rack.position_m,
+                Some(upright.pose),
+            )?;
             let pose = map.pose();
             let frame_rotation = rotation * upright.frame.rotation;
             let frame_lever = rotation * upright.frame.position;
             let orientation = frame_rotation * pose.rotation;
-            let relative = map.velocity(upright.state.rate_m_s, [0.; 3])?;
+            let relative = map.velocity(upright.state.rate_m_s, upright.rack.velocity_m_s)?;
             let up_omega =
                 omega + frame_rotation * DVec3::from_array(relative.angular_velocity_rad_s());
             let point = |local: [f64; 3]| -> Result<(DVec3, DVec3)> {
@@ -120,6 +122,7 @@ impl ChassisSystem {
             };
             uprights.push(UprightKinematics {
                 state: upright.state,
+                rack_motion: upright.rack,
                 source_position_m: pose.position_m(),
                 source_orientation_xyzw: pose.orientation_xyzw(),
                 body,
@@ -144,6 +147,7 @@ impl ChassisSystem {
         dt_s: f64,
         mut forces: impl FnMut(f64, &ChassisKinematics) -> Result<ChassisLoads>,
     ) -> Result<ChassisSample> {
+        self.require_fixed_racks()?;
         self.integrate(dt_s, |system, offset| {
             let state = system.kinematics()?;
             let loads = forces(offset, &state).map_err(|error| {

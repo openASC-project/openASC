@@ -1,4 +1,4 @@
-//! Floating chassis with 1..4 massive uprights, fixed racks and massless links.
+//! Floating chassis with 1..4 massive uprights, prescribed racks and massless links.
 use crate::{
     Body, ConstraintBalance, Error, LinkDifferential, LinkLoad, LinkPose, LinkSpring,
     LinkSpringSample, MassProperties, Result, State, TravelMechanism, TravelState, Wheel,
@@ -7,7 +7,9 @@ use crate::{
 use glam::{DQuat, DVec3};
 use serde::Serialize;
 mod kinematics;
+mod rack;
 pub use kinematics::{ChassisKinematics, ChassisLoads, UprightKinematics, WheelKinematics};
+pub use rack::RackMotion;
 
 fn scalar(value: f64, limit: f64) -> Result<f64> {
     if !value.is_finite() || value.abs() > limit {
@@ -33,7 +35,7 @@ pub struct MountedUpright {
     geometry: TravelMechanism,
     properties: MassProperties,
     com: [f64; 3],
-    rack: [f64; 3],
+    rack: RackMotion,
     frame: LinkPose,
     springs: Vec<LinkSpring>,
     state: TravelState,
@@ -58,7 +60,7 @@ impl MountedUpright {
             geometry,
             properties,
             com: center_of_mass_local_m,
-            rack: rack_m,
+            rack: RackMotion::fixed(rack_m)?,
             frame: frame_in_chassis,
             springs: Vec::new(),
             state,
@@ -75,8 +77,8 @@ impl MountedUpright {
         }
         let map = self
             .geometry
-            .map(self.state.travel_m, self.rack, Some(self.pose))?;
-        spring.sample(&map, self.state.rate_m_s, [0.; 3])?;
+            .map(self.state.travel_m, self.rack.position_m, Some(self.pose))?;
+        spring.sample(&map, self.state.rate_m_s, self.rack.velocity_m_s)?;
         self.springs.push(spring);
         Ok(())
     }
@@ -89,8 +91,8 @@ impl MountedUpright {
         }
         let map = self
             .geometry
-            .map(self.state.travel_m, self.rack, Some(self.pose))?;
-        map.velocity(self.state.rate_m_s, [0.; 3])?
+            .map(self.state.travel_m, self.rack.position_m, Some(self.pose))?;
+        map.velocity(self.state.rate_m_s, self.rack.velocity_m_s)?
             .point_velocity_m_s(wheel.center.to_array())?;
         self.wheel = Some(wheel);
         Ok(())
@@ -99,6 +101,9 @@ impl MountedUpright {
 #[derive(Debug, Serialize)]
 pub struct UprightSample {
     pub state: TravelState,
+    pub rack_motion: RackMotion,
+    pub rack_actuator_force_in_source_n: [f64; 3],
+    pub rack_actuator_power_w: f64,
     pub travel_acceleration_m_s2: f64,
     pub source_position_m: [f64; 3],
     pub source_orientation_xyzw: [f64; 4],
@@ -128,6 +133,7 @@ pub struct ChassisSample {
     pub kinetic_energy_j: f64,
     pub potential_energy_j: f64,
     pub dissipated_power_w: f64,
+    pub rack_actuator_power_w: f64,
     pub chassis_force_balance_residual_n: [f64; 3],
     pub chassis_torque_balance_residual_nm: [f64; 3],
 }
@@ -250,10 +256,11 @@ impl ChassisSystem {
         let mut dissipated = 0.;
         for (index, (upright, external)) in self.uprights.iter().zip(upright_loads).enumerate() {
             upright.state.validate()?;
-            let map =
-                upright
-                    .geometry
-                    .map(upright.state.travel_m, upright.rack, Some(upright.pose))?;
+            let map = upright.geometry.map(
+                upright.state.travel_m,
+                upright.rack.position_m,
+                Some(upright.pose),
+            )?;
             let pose = map.pose();
             let frame_rotation = rotation * upright.frame.rotation;
             let frame_lever = rotation * upright.frame.position;
@@ -261,18 +268,28 @@ impl ChassisSystem {
             let lever = frame_lever + frame_rotation * pose.position + com_lever;
             let center = position + lever;
             let orientation = frame_rotation * pose.rotation;
-            let relative = map.velocity(upright.state.rate_m_s, [0.; 3])?;
+            let relative = map.velocity(upright.state.rate_m_s, upright.rack.velocity_m_s)?;
             let relative_v =
                 frame_rotation * DVec3::from_array(relative.point_velocity_m_s(upright.com)?);
             let relative_w = frame_rotation * DVec3::from_array(relative.angular_velocity_rad_s());
             let point_v = velocity + omega.cross(lever) + relative_v;
             let point_w = omega + relative_w;
-            let bias = upright.geometry.acceleration(
+            let bias = upright.geometry.controlled_acceleration(
                 upright.state.travel_m,
-                upright.rack,
+                upright.rack.position_m,
                 pose,
-                upright.state.rate_m_s,
-                0.,
+                [
+                    upright.state.rate_m_s,
+                    upright.rack.velocity_m_s[0],
+                    upright.rack.velocity_m_s[1],
+                    upright.rack.velocity_m_s[2],
+                ],
+                [
+                    0.,
+                    upright.rack.acceleration_m_s2[0],
+                    upright.rack.acceleration_m_s2[1],
+                    upright.rack.acceleration_m_s2[2],
+                ],
             )?;
             let bias_a = omega.cross(omega.cross(lever))
                 + 2. * omega.cross(relative_v)
@@ -308,7 +325,8 @@ impl ChassisSystem {
             let mut total_force = applied_force;
             let mut springs = Vec::with_capacity(upright.springs.len());
             for spring in &upright.springs {
-                let sample = spring.sample(&map, upright.state.rate_m_s, [0.; 3])?;
+                let sample =
+                    spring.sample(&map, upright.state.rate_m_s, upright.rack.velocity_m_s)?;
                 rhs[6 + index] += sample.generalized_loads.travel_n;
                 total_force += frame_rotation * DVec3::from_array(sample.upright_load.force_n());
                 applied_origin_torque += frame_rotation
@@ -427,6 +445,7 @@ impl ChassisSystem {
         let mut force_on_chassis = chassis_force;
         let mut torque_on_chassis = chassis_torque;
         let mut samples = Vec::with_capacity(prepared.len());
+        let mut rack_power = 0.;
         for (index, (upright, p)) in self.uprights.iter().zip(prepared).enumerate() {
             let mut a = p.bias_a;
             let mut alpha = p.bias_alpha;
@@ -538,6 +557,10 @@ impl ChassisSystem {
                 (p.frame_rotation.conjugate() * (applied_torque - inertial_torque)).to_array(),
             )?;
             let balance = p.map.hold_load(load)?;
+            let rack_force = -DVec3::from_array(balance.steering_anchor_force_n);
+            let actuator_power = rack_force.dot(DVec3::from_array(upright.rack.velocity_m_s));
+            scalar(actuator_power, 1e30)?;
+            rack_power += actuator_power;
             let scale = applied_force
                 .abs()
                 .max_element()
@@ -577,6 +600,9 @@ impl ChassisSystem {
             let pose = p.map.pose();
             samples.push(UprightSample {
                 state: upright.state,
+                rack_motion: upright.rack,
+                rack_actuator_force_in_source_n: rack_force.to_array(),
+                rack_actuator_power_w: actuator_power,
                 travel_acceleration_m_s2: accelerations[6 + index],
                 source_position_m: pose.position_m(),
                 source_orientation_xyzw: pose.orientation_xyzw(),
@@ -624,6 +650,7 @@ impl ChassisSystem {
             kinetic_energy_j: kinetic,
             potential_energy_j: potential,
             dissipated_power_w: dissipated,
+            rack_actuator_power_w: rack_power,
             chassis_force_balance_residual_n: force_error.to_array(),
             chassis_torque_balance_residual_nm: torque_error.to_array(),
         })
@@ -706,6 +733,7 @@ impl ChassisSystem {
         upright_loads: &[Wrench],
         wheel_loads: &[WheelLoad],
     ) -> Result<ChassisSample> {
+        self.require_fixed_racks()?;
         self.integrate(dt_s, |system, _| {
             system.sample_with_wheels(chassis_load, upright_loads, wheel_loads)
         })
@@ -713,7 +741,7 @@ impl ChassisSystem {
     fn integrate(
         &mut self,
         dt_s: f64,
-        mut evaluate: impl FnMut(&Self, f64) -> Result<ChassisSample>,
+        mut evaluate: impl FnMut(&mut Self, f64) -> Result<ChassisSample>,
     ) -> Result<ChassisSample> {
         if !dt_s.is_finite() || !(1e-6..=1. / 30.).contains(&dt_s) {
             return Err(Error::new(
@@ -721,11 +749,12 @@ impl ChassisSystem {
                 "Step must lie within 1e-6..1/30 seconds",
             ));
         }
-        let first = evaluate(self, 0.)?;
-        let middle = self.advance(&first, 0.5 * dt_s)?;
-        let midpoint = evaluate(&middle, 0.5 * dt_s)?;
-        let mut final_system = self.advance(&midpoint, dt_s)?;
-        let final_sample = evaluate(&final_system, dt_s)?;
+        let mut start = self.clone();
+        let first = evaluate(&mut start, 0.)?;
+        let mut middle = start.advance(&first, 0.5 * dt_s)?;
+        let midpoint = evaluate(&mut middle, 0.5 * dt_s)?;
+        let mut final_system = start.advance(&midpoint, dt_s)?;
+        let final_sample = evaluate(&mut final_system, dt_s)?;
         for (upright, sample) in final_system.uprights.iter_mut().zip(&final_sample.uprights) {
             upright.pose = LinkPose::new(sample.source_position_m, sample.source_orientation_xyzw)?;
         }

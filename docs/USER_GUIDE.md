@@ -549,3 +549,20 @@ Each optional `wheel.brake` contains `maximum_torque_nm` (0..1e6) and `transitio
 Controls and brake torque are evaluated at initial, midpoint and final stage times. Reports add the current `controls`, parallel `wheel_brakes`, `motor_power_w`, and `brake_dissipated_power_w`; total dissipation includes brake losses. The existing per-wheel sample field `drive_torque_nm` now describes the net internal actuator torque, including the brake. Configured nominal motor torque remains in `explicit_configuration`. The report marks `scheduled_wheel_controls`, counts `wheel_brake_models` and keeps `static_wheel_lock` false.
 
 This continuous regularization approaches rest with a small residual rate. It supplies neither static wheel locking nor slope holding, ABS, thermal fade or hydraulic timing. Small-step passivity checks do not guarantee stability at an arbitrary explicit step. Increasing capacity or decreasing transition rate stiffens the low-speed response; reduce the step accordingly. See [torque and power conventions](ARCHITECTURE.md#scheduled-wheel-actuation-and-passive-brakes) and [validation](FORMATS.md#scheduled-brake-validation).
+
+
+## Native prescribed rack steering
+
+```sh
+cargo run --locked -p asc-app -- chassis-run examples/chassis-steering-track.json
+```
+
+The [steering example](https://github.com/openASC-project/openASC/blob/main/examples/chassis-steering-track.json) combines rear drive, front rack motion and braking on local Drift. It runs three seconds with synthetic masses, source-frame mounts, force parameters and actuator paths. Front rack displacement reaches 0.01 m, holds, then returns to zero while drive is removed and brakes engage. This is still an offline JSON workbench without keyboard/gamepad control or rendered motion; no original steering/setup calibration is implied.
+
+Add optional `steering` to an `uprights` entry. It requires `axis_in_source` (a unit vector in that corner's raw linkage frame) and `keys`, each with `time_s`, `displacement_m` and `velocity_m_s`. The scalar displacement is added along that axis to the existing `rack_m` base. Choose per-corner axis/sign explicitly; the example's proper right-side mounting rotations and source coordinates are synthetic conventions, not verified AC side/setup mapping.
+
+Supply 1..64 keys starting at time zero, separated by at least 1e-6 s, within 0..1e6 s. Initial and final key velocities must be zero. Cubic Hermite interpolation gives continuous position/velocity and analytical acceleration. It rejects scalar excursions beyond +/-0.25 m, +/-1000 m/s or +/-1e6 m/s^2 even between keys; combined rack positions and local geometry have their own stage checks. Displacement holds after the last key. Acceleration may jump at a key; this is not a jerk-limited steering actuator. Use smaller steps to check convergence for faster inputs.
+
+Reports mark `fixed_racks` false and count `prescribed_racks`. Each upright reports the actual source-frame `rack_motion`, required actuator force and power. The sample's `rack_actuator_power_w` sums corners. Record-level `actuator_input_power_w` sums motor and rack input power; brake/contact/spring losses stay in total dissipation. A rack can return energy to its ideal drive. Force models see the steered wheel axes and velocities at every stage, so contact forces turn the chassis through the coupled mechanism.
+
+The native core rejects a step that jumps rack position or velocity, fails a rack/force callback, or exceeds geometry/numeric bounds, preserving the prior mechanical state. The CLI prints no partial JSON on a failed run. Live steering input, steering assist/FFB, source rack/steering-wheel mapping, collision edges/CCD and calibrated tyre behavior remain work ahead. See [rack dynamics](ARCHITECTURE.md#prescribed-rack-dynamics-and-steering) and [validation](FORMATS.md#prescribed-rack-validation).

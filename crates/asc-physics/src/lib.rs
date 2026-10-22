@@ -18,7 +18,7 @@ mod wheel;
 pub use body::{Body, State, Wrench};
 pub use brake::{WheelBrake, WheelBrakeSample};
 pub use chassis::{
-    ChassisKinematics, ChassisLoads, ChassisSample, ChassisSystem, MountedUpright,
+    ChassisKinematics, ChassisLoads, ChassisSample, ChassisSystem, MountedUpright, RackMotion,
     UprightKinematics, UprightSample, WheelKinematics,
 };
 pub use clock::{Batch, FixedClock, Tick};

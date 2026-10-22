@@ -40,9 +40,19 @@ impl TravelMechanism {
         rate: f64,
         a: f64,
     ) -> Result<RelativeAcceleration> {
+        self.controlled_acceleration(h, rack, pose, [rate, 0., 0., 0.], [a, 0., 0., 0.])
+    }
+    pub(super) fn controlled_acceleration(
+        &self,
+        h: f64,
+        rack: [f64; 3],
+        pose: LinkPose,
+        rates: [f64; 4],
+        accelerations: [f64; 4],
+    ) -> Result<RelativeAcceleration> {
         match self {
-            Self::Dwb(m) => m.acceleration(h, rack, pose, [rate, 0., 0., 0.], [a, 0., 0., 0.]),
-            Self::Strut(m) => m.acceleration(h, rack, pose, [rate, 0., 0., 0.], [a, 0., 0., 0.]),
+            Self::Dwb(m) => m.acceleration(h, rack, pose, rates, accelerations),
+            Self::Strut(m) => m.acceleration(h, rack, pose, rates, accelerations),
         }
     }
 }

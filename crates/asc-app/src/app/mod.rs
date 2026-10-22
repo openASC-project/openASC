@@ -1,5 +1,6 @@
 mod chassis_controls;
 pub mod chassis_run;
+mod chassis_steering;
 mod dynamics_config;
 pub mod session;
 pub mod suspension;

@@ -9,9 +9,9 @@
 
 An independent open-source engine project for **Assetto Corsa (2014)** content, inspired by [openOMSI](https://github.com/openOMSI-org/openOMSI).
 
-**Target: 1:1 behavioral compatibility with Assetto Corsa (2014).** This includes vehicle physics, controls and force feedback, visuals, audio, AI, session rules, networking and original content behavior. This is the project objective, not an achieved compatibility claim. The production stack is Rust with wgpu. A first native KN5 reader and offscreen diffuse renderer now run independently of Python and the browser; production simulation remains unimplemented. The Python implementation remains a research prototype and tooling foundation.
+**Target: 1:1 behavioral compatibility with Assetto Corsa (2014).** This includes vehicle physics, controls and force feedback, visuals, audio, AI, session rules, networking and original content behavior. This is the project objective, not an achieved compatibility claim. The production stack is Rust with wgpu. A first native KN5 reader and offscreen diffuse renderer now run independently of Python and the browser; production native driving remains incomplete. The Python implementation remains a research prototype and tooling foundation.
 
-**Status: native window/diffuse preview and first local keyboard-driving prototype. Original physics parity is not established.** The repository contains local inventory, INI/LUT readers, a bounded KN5 static geometry importer, an interactive local WebGL viewer, original tests, and a documentation website. Supported embedded diffuse textures, alpha test, approximate transparency, typed track surfaces, vertical ground support queries, ordinary ACD car-data reading and geometric spawn placement checks are available. An independent 120 Hz driving model now moves a locally loaded car with keyboard input. Static WALL triangles now contact an upright box derived from collider.kn5. Full convex/6DOF collision, suspension dynamics, original tyre/drivetrain behavior, audio and FFB are not implemented.
+**Status: native window/diffuse preview and first local keyboard-driving prototype. Original physics parity is not established.** The repository contains local inventory, INI/LUT readers, a bounded KN5 static geometry importer, an interactive local WebGL viewer, original tests, and a documentation website. Supported embedded diffuse textures, alpha test, approximate transparency, typed track surfaces, vertical ground support queries, ordinary ACD car-data reading and geometric spawn placement checks are available. An independent 120 Hz driving model now moves a locally loaded car with keyboard input. Static WALL triangles now contact an upright box derived from collider.kn5. Full native collision, source-calibrated suspension/tyre/drivetrain behavior, audio and FFB remain incomplete.
 
 [Website](https://openasc-project.github.io/openASC/) · [User guide](docs/USER_GUIDE.md) · [Compatibility record](docs/FORMATS.md) · [Architecture](docs/ARCHITECTURE.md) · [Roadmap](docs/FEASIBILITY.md)
 
@@ -35,6 +35,7 @@ cargo run --locked -p asc-app -- chassis-run examples/chassis-normal-plane.json
 cargo run --locked -p asc-app -- chassis-run examples/chassis-normal-track.json
 cargo run --locked -p asc-app -- chassis-run examples/chassis-traction-track.json
 cargo run --locked -p asc-app -- chassis-run examples/chassis-accelerate-brake.json
+cargo run --locked -p asc-app -- chassis-run examples/chassis-steering-track.json
 cargo run --locked -p asc-app -- preview ./assettocorsa/content/cars/bmw_m3_e30 ./assettocorsa/content/tracks/drift/models.ini
 ```
 
@@ -148,4 +149,6 @@ Assetto Corsa is a Kunos Simulazioni product. openASC is independent and unaffil
 
 Native [traction workbench](docs/USER_GUIDE.md#native-tangential-contact-and-traction) couples explicit wheel motor torque to finite road support. It uses synthetic viscous-slip parameters; static stiction, transient tyre behavior, source drivetrain mapping and rendered native control remain incomplete.
 
-Optional [scheduled wheel controls and brakes](docs/USER_GUIDE.md#native-scheduled-wheel-controls-and-brakes) now exercise acceleration followed by passive internal braking in one native workbench run. Static wheel lock, ABS, original brake/drivetrain mapping, steering input and rendered native control remain incomplete.
+Optional [scheduled wheel controls and brakes](docs/USER_GUIDE.md#native-scheduled-wheel-controls-and-brakes) now exercise acceleration followed by passive internal braking in one native workbench run. Static wheel lock, ABS, original brake/drivetrain mapping, live steering input and rendered native control remain incomplete.
+
+[Prescribed rack steering](docs/USER_GUIDE.md#native-prescribed-rack-steering) now drives the actual DWB/STRUT mechanism through position, velocity and acceleration, including chassis reaction and actuator work. The local workbench turns on finite road contacts; native input/render integration and original steering/setup calibration remain work ahead.

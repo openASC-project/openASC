@@ -1,11 +1,12 @@
 //! Explicit coupled chassis workbench, with caller-supplied frame and mass mapping.
 use super::chassis_controls::{Control, Timeline};
+use super::chassis_steering::{Steering, SteeringKey};
 use super::dynamics_config::Spring;
 use asc_physics::{
     Body, ChassisKinematics, ChassisLoads, ChassisSample, ChassisSystem, LinkPose, MassProperties,
-    MountedUpright, NormalContact, NormalContactSample, SupportPlane, TangentialContact,
-    TangentialContactSample, TravelMechanism, TravelState, Wheel, WheelBrake, WheelBrakeSample,
-    WheelLoad, WheelState, Wrench,
+    MountedUpright, NormalContact, NormalContactSample, RackMotion, SupportPlane,
+    TangentialContact, TangentialContactSample, TravelMechanism, TravelState, Wheel, WheelBrake,
+    WheelBrakeSample, WheelLoad, WheelState, Wrench,
 };
 use serde::{Deserialize, Serialize};
 use std::{error::Error, fs::File, io::Read, path::Path};
@@ -30,6 +31,8 @@ struct Upright {
     data: String,
     travel_axis: [f64; 3],
     rack_m: [f64; 3],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    steering: Option<SteeringConfiguration>,
     frame_position_in_chassis_m: [f64; 3],
     frame_orientation_xyzw: [f64; 4],
     mass_kg: f64,
@@ -62,6 +65,24 @@ struct WheelConfiguration {
     tangential_contact: Option<TangentialConfiguration>,
     #[serde(skip_serializing_if = "Option::is_none")]
     brake: Option<BrakeConfiguration>,
+}
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct SteeringConfiguration {
+    axis_in_source: [f64; 3],
+    keys: Vec<SteeringKey>,
+}
+enum RackPrescription {
+    Fixed(RackMotion),
+    Steered(Steering),
+}
+impl RackPrescription {
+    fn sample(&self, time: f64) -> asc_physics::Result<RackMotion> {
+        match self {
+            Self::Fixed(r) => Ok(*r),
+            Self::Steered(s) => s.sample(time),
+        }
+    }
 }
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -160,10 +181,18 @@ struct Environment {
     plane_friction: Option<f64>,
     brakes: Vec<Option<WheelBrake>>,
     controls: Option<Timeline>,
+    racks: Vec<RackPrescription>,
+    steering_count: usize,
 }
 impl Environment {
+    fn racks(&self, time: f64) -> asc_physics::Result<Vec<RackMotion>> {
+        self.racks.iter().map(|r| r.sample(time)).collect()
+    }
     fn needs_provider(&self) -> bool {
-        self.has_contact() || self.controls.is_some() || self.brakes.iter().any(Option::is_some)
+        self.has_contact()
+            || self.controls.is_some()
+            || self.brakes.iter().any(Option::is_some)
+            || self.steering_count > 0
     }
     fn actuation(
         &self,
@@ -272,9 +301,13 @@ impl Environment {
     ) -> asc_physics::Result<serde_json::Value> {
         let energy = sample.kinetic_energy_j + sample.potential_energy_j;
         let dissipation = sample.dissipated_power_w;
+        let rack_power = sample.rack_actuator_power_w;
         let mut result = serde_json::json!({"step":step,"time_s":time_s,"sample":sample});
         let mut brake_dissipation = 0.;
-        if self.controls.is_some() || self.brakes.iter().any(Option::is_some) {
+        if self.controls.is_some()
+            || self.brakes.iter().any(Option::is_some)
+            || self.steering_count > 0
+        {
             let (control, brakes, motor_power) = self.actuation(time_s, &system.kinematics()?)?;
             brake_dissipation = brakes
                 .iter()
@@ -284,6 +317,7 @@ impl Environment {
             result["controls"] = serde_json::json!(control);
             result["wheel_brakes"] = serde_json::json!(brakes);
             result["motor_power_w"] = motor_power.into();
+            result["actuator_input_power_w"] = (motor_power + rack_power).into();
             result["brake_dissipated_power_w"] = brake_dissipation.into();
             result["total_dissipated_power_w"] = (dissipation + brake_dissipation).into();
         }
@@ -399,6 +433,8 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
     let mut models = Vec::new();
     let mut tangential = Vec::new();
     let mut brakes = Vec::new();
+    let mut racks = Vec::new();
+    let mut steering_count = 0;
     let mut contact_count = 0;
     let plane = config
         .support_plane
@@ -446,11 +482,18 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
             }
             _ => return Err("Unsupported suspension geometry type".into()),
         };
+        let rack = if let Some(s) = &input.steering {
+            steering_count += 1;
+            RackPrescription::Steered(Steering::new(input.rack_m, s.axis_in_source, &s.keys)?)
+        } else {
+            RackPrescription::Fixed(RackMotion::fixed(input.rack_m)?)
+        };
+        let initial_rack = rack.sample(0.)?;
         let mut upright = MountedUpright::new(
             geometry,
             MassProperties::new(input.mass_kg, input.inertia_rows_kg_m2)?,
             input.center_of_mass_local_m,
-            input.rack_m,
+            initial_rack.position_m,
             LinkPose::new(
                 input.frame_position_in_chassis_m,
                 input.frame_orientation_xyzw,
@@ -460,6 +503,8 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
                 rate_m_s: input.initial_rate_m_s,
             },
         )?;
+        upright.set_rack_motion(initial_rack)?;
+        racks.push(rack);
         for spring in &input.springs {
             upright.add_spring(spring.build()?)?;
         }
@@ -551,6 +596,8 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
         tangential,
         plane_friction,
         brakes,
+        racks,
+        steering_count,
         controls: config
             .controls
             .as_ref()
@@ -578,7 +625,14 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
     };
     let mut records = vec![environment.record(&system, 0, 0., first)?];
     for step in 1..=config.steps {
-        let sample = if environment.needs_provider() {
+        let sample = if environment.steering_count > 0 {
+            let start = f64::from(step - 1) * config.step_s;
+            system.step_with_racks_and_forces(
+                config.step_s,
+                |offset| environment.racks(start + offset),
+                |offset, k| environment.loads(start + offset, k),
+            )?
+        } else if environment.needs_provider() {
             let start = f64::from(step - 1) * config.step_s;
             system.step_with_forces(config.step_s, |offset, k| {
                 environment.loads(start + offset, k)
@@ -602,7 +656,7 @@ pub fn run(configuration: &Path) -> Result<serde_json::Value, Box<dyn Error>> {
     }
     Ok(serde_json::json!({
         "scope":"native_coupled_chassis_upright_dynamics","explicit_configuration":config,"source_geometry":sources,"records":records,
-        "moving_chassis":true,"fixed_racks":true,"massless_links":true,
+        "moving_chassis":true,"fixed_racks":environment.steering_count==0,"prescribed_racks":environment.steering_count,"massless_links":true,
         "wheel_spin_dofs":wheel_count,"wheel_mass_is_additional_to_upright":true,
         "normal_contact_wheels":contact_count,"normal_contact_uses_track_geometry":environment.track.is_some(),
         "tangential_contact_wheels":tangential_count,"tangential_contact_model":"optional_memoryless_viscous_slip_friction_ellipse",
