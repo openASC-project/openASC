@@ -37,6 +37,8 @@ jobs:
         run: cargo +stable run --locked -p asc-physics --example free_body
       - name: Verify coupled spring and damper physics fixture
         run: cargo +stable run --locked -p asc-physics --example spring_pair
+      - name: Verify coupled chassis point impulse and passive restitution fixture
+        run: cargo +stable run --locked -p asc-physics --example coupled_impulse
       - name: Compare native and Python contracts on original fixtures
         shell: bash
         run: |

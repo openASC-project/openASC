@@ -66,3 +66,7 @@ The native drive now registers its four initial physical wheel centres to explic
 ## Explicit source-side reflection
 
 The coupled workbench now supports explicit X reflection of raw DWB/STRUT hardpoints. The BMW example selects its source side from the inspected chassis-anchor direction: left mechanisms reflect, right mechanisms retain raw points, and identity frames preserve source fore/aft axes on both sides. Synthetic local COM/tensor/spring inputs are explicitly mirrored, with invariant dynamics/virtual-work fixtures. This removes the previous illustrative Y half-turn from the default drive while leaving original source setup, camber/toe, mass/force laws and live-game validation open.
+
+## Native body-collision response foundation
+
+The core now applies instantaneous chassis-point impulses through the full coupled chassis/upright/rotor mass matrix, retaining free travel/spin and ideal moving-rack work. Effective inverse mass and passive single-normal restitution are verified on original fixtures. Native driving still has no body/wall collision: feature/normal generation, TOI/CCD, friction and simultaneous contacts remain to be implemented and connected.

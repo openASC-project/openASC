@@ -18,8 +18,8 @@ mod wheel;
 pub use body::{Body, State, Wrench};
 pub use brake::{WheelBrake, WheelBrakeSample};
 pub use chassis::{
-    ChassisKinematics, ChassisLoads, ChassisSample, ChassisSystem, MountedUpright, RackMotion,
-    UprightKinematics, UprightSample, WheelKinematics,
+    ChassisImpulseSample, ChassisKinematics, ChassisLoads, ChassisPointResponse, ChassisSample,
+    ChassisSystem, MountedUpright, RackMotion, UprightKinematics, UprightSample, WheelKinematics,
 };
 pub use clock::{Batch, FixedClock, Tick};
 pub use contact::{CircleSupport, NormalContact, NormalContactSample, SupportPlane};

@@ -102,6 +102,18 @@ impl Body {
     pub fn properties(&self) -> &MassProperties {
         &self.properties
     }
+    pub(crate) fn with_velocity_delta(
+        &self,
+        velocity_delta: DVec3,
+        omega_delta: DVec3,
+    ) -> Result<Self> {
+        let mut next = self.clone();
+        next.linear_momentum += self.properties.mass * velocity_delta;
+        next.angular_momentum += self.orientation
+            * (self.properties.inertia * (self.orientation.conjugate() * omega_delta));
+        next.validate()?;
+        Ok(next)
+    }
     fn omega_at(&self, q: DQuat, momentum: DVec3) -> DVec3 {
         q * (self.properties.inverse * (q.conjugate() * momentum))
     }

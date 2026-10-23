@@ -140,6 +140,310 @@ fn close(a: [f64; 3], b: DVec3, tol: f64) {
 fn total_energy(s: &ChassisSample) -> f64 {
     s.kinetic_energy_j + s.potential_energy_j
 }
+
+#[test]
+fn chassis_impulse_distinguishes_free_vertical_travel_from_carried_horizontal_mass() {
+    for strut in [false, true] {
+        for wheel in [false, true] {
+            let make = || {
+                let mut u = corner(
+                    strut,
+                    LinkPose::new([0.; 3], [0., 0., 0., 1.]).unwrap(),
+                    TravelState {
+                        travel_m: 0.,
+                        rate_m_s: 0.,
+                    },
+                    None,
+                );
+                if wheel {
+                    u.attach_wheel(
+                        Wheel::new(
+                            [0.; 3],
+                            [1., 0., 0.],
+                            20.,
+                            1.2,
+                            0.7,
+                            WheelState {
+                                angle_rad: 0.,
+                                rate_rad_s: 0.,
+                            },
+                        )
+                        .unwrap(),
+                    )
+                    .unwrap();
+                }
+                ChassisSystem::new(
+                    body(DVec3::ZERO, DQuat::IDENTITY, DVec3::ZERO, DVec3::ZERO),
+                    vec![u],
+                    [0.; 3],
+                )
+                .unwrap()
+            };
+            let mut vertical = make();
+            let response = vertical
+                .chassis_point_response([0.; 3], [0., 1., 0.])
+                .unwrap();
+            near(response.inverse_effective_mass_kg_inv, 1. / 300., 1e-12);
+            let result = vertical
+                .impulse_at_world_point([0., 30., 0.], [0.; 3])
+                .unwrap();
+            let k = vertical.kinematics().unwrap();
+            close(k.chassis.velocity_world_m_s, DVec3::Y * 0.1, 1e-10);
+            close(k.uprights[0].body.velocity_world_m_s, DVec3::ZERO, 1e-10);
+            near(k.uprights[0].state.rate_m_s, -0.1, 1e-10);
+            near(result.kinetic_energy_after_j, 1.5, 1e-10);
+            near(result.prescribed_rack_impulse_work_j, 0., 1e-12);
+            near(result.energy_balance_residual_j, 0., 1e-10);
+            let mut horizontal = make();
+            let mass = 335. + if wheel { 20. } else { 0. };
+            near(
+                horizontal
+                    .chassis_point_response([0.; 3], [1., 0., 0.])
+                    .unwrap()
+                    .inverse_effective_mass_kg_inv,
+                1. / mass,
+                1e-12,
+            );
+            horizontal
+                .impulse_at_world_point([30., 0., 0.], [0.; 3])
+                .unwrap();
+            let k = horizontal.kinematics().unwrap();
+            close(k.chassis.velocity_world_m_s, DVec3::X * (30. / mass), 1e-10);
+            close(
+                k.uprights[0].body.velocity_world_m_s,
+                DVec3::X * (30. / mass),
+                1e-10,
+            );
+            if let Some(w) = &k.uprights[0].wheel {
+                close(w.body.velocity_world_m_s, DVec3::X * (30. / mass), 1e-10);
+            }
+        }
+    }
+}
+fn impulse_fixture(moving_racks: bool) -> ChassisSystem {
+    rotor_four_racks(
+        body(
+            DVec3::new(2., 3., 4.),
+            DQuat::from_rotation_y(0.4) * DQuat::from_rotation_x(0.1),
+            DVec3::new(1., -0.2, 0.3),
+            DVec3::new(0.1, -0.04, 0.03),
+        ),
+        [TravelState {
+            travel_m: 0.01,
+            rate_m_s: 0.02,
+        }; 4],
+        [WheelState {
+            angle_rad: 0.4,
+            rate_rad_s: 20.,
+        }; 4],
+        [0.; 3],
+        [asc_physics::RackMotion::new(
+            [0.0002, 0., 0.0001],
+            if moving_racks {
+                [0.03, -0.02, 0.01]
+            } else {
+                [0.; 3]
+            },
+            [0.; 3],
+        )
+        .unwrap(); 4],
+    )
+}
+#[test]
+fn coupled_point_impulse_preserves_pose_and_changes_global_momenta_by_external_impulse_only() {
+    for moving in [false, true] {
+        let mut system = impulse_fixture(moving);
+        let zero = [Wrench::default(); 4];
+        let before = system.sample(Wrench::default(), &zero).unwrap();
+        let initial = system.kinematics().unwrap();
+        let racks = system.rack_motions();
+        let point = DVec3::new(2.5, 3.2, 4.7);
+        let impulse = DVec3::new(4., 8., -3.);
+        let response = system
+            .chassis_point_response(point.to_array(), impulse.normalize().to_array())
+            .unwrap();
+        assert_eq!(response.dof_count, 14);
+        let result = system
+            .impulse_at_world_point(impulse.to_array(), point.to_array())
+            .unwrap();
+        let after = system.sample(Wrench::default(), &zero).unwrap();
+        close(
+            after.linear_momentum_world_kg_m_s,
+            vector(before.linear_momentum_world_kg_m_s) + impulse,
+            2e-8,
+        );
+        close(
+            after.angular_momentum_about_world_origin_kg_m2_s,
+            vector(before.angular_momentum_about_world_origin_kg_m2_s) + point.cross(impulse),
+            2e-7,
+        );
+        let final_state = system.kinematics().unwrap();
+        assert_eq!(initial.chassis.position_m, final_state.chassis.position_m);
+        assert_eq!(
+            initial.chassis.orientation_xyzw,
+            final_state.chassis.orientation_xyzw
+        );
+        assert_eq!(racks, system.rack_motions());
+        for (b, a) in initial.uprights.iter().zip(&final_state.uprights) {
+            assert_eq!(b.state.travel_m, a.state.travel_m);
+            assert_eq!(b.source_position_m, a.source_position_m);
+            assert_eq!(b.source_orientation_xyzw, a.source_orientation_xyzw);
+            assert_eq!(
+                b.wheel.as_ref().unwrap().state.angle_rad,
+                a.wheel.as_ref().unwrap().state.angle_rad
+            );
+        }
+        let dv = vector(result.point_velocity_after_world_m_s)
+            - vector(result.point_velocity_before_world_m_s);
+        close(
+            dv.to_array(),
+            vector(response.point_velocity_delta_world_per_ns) * impulse.length(),
+            1e-10,
+        );
+        near(result.energy_balance_residual_j, 0., 1e-8);
+        if moving {
+            assert!(result.prescribed_rack_impulse_work_j.abs() > 1e-5);
+        } else {
+            near(result.prescribed_rack_impulse_work_j, 0., 1e-12);
+        }
+    }
+}
+#[test]
+fn chassis_normal_restitution_impulse_is_passive_with_fixed_racks() {
+    for restitution in [0., 0.3, 1.] {
+        let mut system = impulse_fixture(false);
+        let point = [2.5, 3.2, 4.7];
+        let normal = -DVec3::X;
+        let k = system.kinematics().unwrap();
+        let velocity = vector(k.chassis.velocity_world_m_s)
+            + vector(k.chassis.angular_velocity_world_rad_s)
+                .cross(vector(point) - vector(k.chassis.position_m));
+        let speed = normal.dot(velocity);
+        assert!(speed < 0.);
+        let response = system
+            .chassis_point_response(point, normal.to_array())
+            .unwrap();
+        let magnitude = -(1. + restitution) * speed / response.inverse_effective_mass_kg_inv;
+        let result = system
+            .impulse_at_world_point((normal * magnitude).to_array(), point)
+            .unwrap();
+        near(
+            normal.dot(vector(result.point_velocity_after_world_m_s)),
+            -restitution * speed,
+            1e-10,
+        );
+        let expected_loss = 0.5 * (1. - restitution * restitution) * speed * speed
+            / response.inverse_effective_mass_kg_inv;
+        near(
+            result.kinetic_energy_before_j - result.kinetic_energy_after_j,
+            expected_loss,
+            1e-8,
+        );
+        assert!(result.external_impulse_work_j <= 1e-8);
+    }
+}
+#[test]
+fn impulsive_mass_operator_matches_instantaneous_force_response_without_bias_terms() {
+    let mut system = impulse_fixture(true);
+    let before = system.kinematics().unwrap();
+    // Subtract the force-free acceleration so springs and geometry bias do not enter the impulse.
+    let force = DVec3::new(3., 7., -2.);
+    let point = DVec3::new(0.4, 0.2, 0.7);
+    let baseline = system
+        .sample(Wrench::default(), &[Wrench::default(); 4])
+        .unwrap();
+    let loaded = system
+        .sample(
+            Wrench::new(
+                force.to_array(),
+                (point - vector(before.chassis.position_m))
+                    .cross(force)
+                    .to_array(),
+            )
+            .unwrap(),
+            &[Wrench::default(); 4],
+        )
+        .unwrap();
+    system
+        .impulse_at_world_point(force.to_array(), point.to_array())
+        .unwrap();
+    let after = system.kinematics().unwrap();
+    close(
+        (vector(after.chassis.velocity_world_m_s) - vector(before.chassis.velocity_world_m_s))
+            .to_array(),
+        vector(loaded.acceleration_world_m_s2) - vector(baseline.acceleration_world_m_s2),
+        1e-9,
+    );
+    close(
+        (vector(after.chassis.angular_velocity_world_rad_s)
+            - vector(before.chassis.angular_velocity_world_rad_s))
+        .to_array(),
+        vector(loaded.angular_acceleration_world_rad_s2)
+            - vector(baseline.angular_acceleration_world_rad_s2),
+        1e-9,
+    );
+    for (i, u) in after.uprights.iter().enumerate() {
+        near(
+            u.state.rate_m_s - before.uprights[i].state.rate_m_s,
+            loaded.uprights[i].travel_acceleration_m_s2
+                - baseline.uprights[i].travel_acceleration_m_s2,
+            1e-9,
+        );
+        near(
+            u.wheel.as_ref().unwrap().state.rate_rad_s
+                - before.uprights[i].wheel.as_ref().unwrap().state.rate_rad_s,
+            loaded.uprights[i]
+                .wheel
+                .as_ref()
+                .unwrap()
+                .spin_acceleration_rad_s2
+                - baseline.uprights[i]
+                    .wheel
+                    .as_ref()
+                    .unwrap()
+                    .spin_acceleration_rad_s2,
+            1e-9,
+        );
+    }
+}
+#[test]
+fn malformed_impulses_response_directions_and_post_impulse_bounds_leave_state_unchanged() {
+    let mut system = impulse_fixture(true);
+    let snapshot = serde_json::to_value(system.kinematics().unwrap()).unwrap();
+    let racks = system.rack_motions();
+    system
+        .impulse_at_world_point([0.; 3], [2., 3., 4.])
+        .unwrap();
+    assert_eq!(
+        serde_json::to_value(system.kinematics().unwrap()).unwrap(),
+        snapshot
+    );
+    for (impulse, point) in [
+        ([f64::NAN, 0., 0.], [0.; 3]),
+        ([f64::INFINITY, 0., 0.], [0.; 3]),
+        ([1e19, 0., 0.], [0.; 3]),
+        ([0.; 3], [1e8, 0., 0.]),
+        ([1e18, 0., 0.], [2., 3., 4.]),
+    ] {
+        assert!(system.impulse_at_world_point(impulse, point).is_err());
+        assert_eq!(
+            serde_json::to_value(system.kinematics().unwrap()).unwrap(),
+            snapshot
+        );
+        assert_eq!(system.rack_motions(), racks);
+    }
+    for direction in [[0.; 3], [2., 0., 0.], [f64::NAN, 0., 0.]] {
+        assert!(
+            system
+                .chassis_point_response([2., 3., 4.], direction)
+                .is_err()
+        );
+    }
+    assert_eq!(
+        serde_json::to_value(system.kinematics().unwrap()).unwrap(),
+        snapshot
+    );
+}
 fn inertia(p: &MassProperties, q: DQuat, v: DVec3) -> DVec3 {
     let local = q.conjugate() * v;
     q * DVec3::from_array(p.inertia_rows_kg_m2().map(|r| vector(r).dot(local)))

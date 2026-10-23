@@ -633,3 +633,19 @@ The choice is explicit and independent of `source_wheel_geometry.corner`. The lo
 This flag changes source hardpoints only. Travel axis, rack vectors/axis, local wheel centre/axle, COM, inertia tensor, springs, explicit frame rotation and world loads must already be expressed consistently with the selected result. For X reflection S = diag(-1,1,1), polar vectors (positions, velocities, forces) transform by S; axial vectors (angular velocities and torques) transform by -S. Inertia transforms as S*I*S. A reflected rotation is S*R*S, which still has determinant +1. Thus mirroring a local tensor changes the XY/XZ cross-term signs, and mirroring a spring changes its local endpoint/anchor X values. The example explicitly supplies those synthetic reflected inputs; the loader does not silently reinterpret them.
 
 The example uses +X wheel axles and signed motor torque in the common chassis axes, replacing the old opposite motor signs needed by the rotated right frames. Its live front rack axes both describe the chosen global rack direction; a mathematical reflected-input fixture instead reflects the rack vector when testing exact symmetry. Neither choice establishes original steering, static camber/toe, rod-length/setup or mass/force calibration. See [reflection architecture](ARCHITECTURE.md#source-reflection-and-handedness) and [validation](FORMATS.md#source-reflection-validation).
+
+## Coupled chassis impulses
+
+```sh
+cargo run --locked -p asc-physics --example coupled_impulse
+```
+
+This original synthetic fixture demonstrates an instantaneous chassis-point impact with a massive constrained upright and an independent wheel rotor. It queries effective inverse mass, selects a normal impulse for restitution 0.4, applies it through the coupled mass matrix and prints states/work balance. It needs no game files, display or collision detector. The native driving window still has no body/wall collision response.
+
+The Rust API adds `ChassisSystem::chassis_point_response(point_world_m, direction_world)` and `ChassisSystem::impulse_at_world_point(impulse_world_ns, point_world_m)`. The point is an absolute world point rigidly attached to the chassis; impulse uses N s. Free suspension travel and rotor spin participate in the velocity jump. Positions, orientations, travel, wheel angles and rack prescriptions stay unchanged; a zero impulse is an exact no-op. No integration or finite force callback runs. Errors commit no physical state.
+
+The response requires a unit direction within 1e-8 and reports full point-velocity change per N s, positive inverse effective mass in 1/kg and the DOF count. For a closing frictionless fixed-wall normal contact, a caller may choose `j = -(1+e)*v_normal/inverse_mass` with restitution e in 0..1. Detection, valid points/normals, friction, multiple contacts and nonpenetration remain caller work. The query alone detects no collision.
+
+The apply report includes point velocities and kinetic energies before/after, external impulse work, independently computed work supplied/recovered by ideal moving racks, and an energy residual. Powered moving racks can exchange energy during an impact, so static-rack passivity does not generalize to them. Their prescribed state does not jump.
+
+World point components are within +/-10000000 m; impulse and its chassis-COM moment components are within +/-1e18 in their respective impulse units. Existing body speed/angular-speed, travel-rate and rotor-rate bounds apply to the resulting state; finite energy/work reports are bounded to +/-1e30 J. Rejected impacts are not clamped. See [impulse architecture](ARCHITECTURE.md#coupled-impulse-response) and [validation](FORMATS.md#coupled-impulse-validation).

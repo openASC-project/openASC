@@ -6,8 +6,10 @@ use crate::{
 };
 use glam::{DQuat, DVec3};
 use serde::Serialize;
+mod impulse;
 mod kinematics;
 mod rack;
+pub use impulse::{ChassisImpulseSample, ChassisPointResponse};
 pub use kinematics::{ChassisKinematics, ChassisLoads, UprightKinematics, WheelKinematics};
 pub use rack::RackMotion;
 
@@ -28,6 +30,20 @@ fn vector(value: DVec3, limit: f64) -> Result<DVec3> {
 }
 fn inertia(properties: &MassProperties, q: DQuat, v: DVec3) -> DVec3 {
     q * (properties.inertia * (q.conjugate() * v))
+}
+fn mass_contribution(
+    matrix: &mut [[f64; 14]; 14],
+    n: usize,
+    mass: f64,
+    jv: &[DVec3; 14],
+    jw: &[DVec3; 14],
+    apply_i: impl Fn(DVec3) -> DVec3,
+) {
+    for i in 0..n {
+        for j in 0..n {
+            matrix[i][j] += mass * jv[i].dot(jv[j]) + jw[i].dot(apply_i(jw[j]));
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -317,10 +333,8 @@ impl ChassisSystem {
             for i in 0..n {
                 rhs[i] += jv[i].dot(applied_force - mass * bias_a)
                     + jw[i].dot(applied_com_torque - bias_torque);
-                for j in 0..n {
-                    matrix[i][j] += mass * jv[i].dot(jv[j]) + jw[i].dot(apply_i(jw[j]));
-                }
             }
+            mass_contribution(&mut matrix, n, mass, &jv, &jw, apply_i);
             let mut applied_origin_torque = applied_com_torque + com_lever.cross(applied_force);
             let mut total_force = applied_force;
             let mut springs = Vec::with_capacity(upright.springs.len());
@@ -373,11 +387,15 @@ impl ChassisSystem {
                 for i in 0..n {
                     rhs[i] += wheel_jv[i].dot(force - wheel.properties.mass * wheel_bias_a)
                         + wheel_jw[i].dot(torque - bias_torque);
-                    for j in 0..n {
-                        matrix[i][j] += wheel.properties.mass * wheel_jv[i].dot(wheel_jv[j])
-                            + wheel_jw[i].dot(wheel_inertia(wheel_jw[j]));
-                    }
                 }
+                mass_contribution(
+                    &mut matrix,
+                    n,
+                    wheel.properties.mass,
+                    &wheel_jv,
+                    &wheel_jw,
+                    wheel_inertia,
+                );
                 rhs[spin_index] += load.drive;
                 potential -= wheel.properties.mass * self.gravity.dot(center);
                 let spin = DQuat::from_axis_angle(
