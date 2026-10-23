@@ -7,6 +7,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+asc-kn5.workspace = true
 asc-physics.workspace = true
 glam.workspace = true
 asc-config.workspace = true
@@ -17,5 +18,4 @@ serde.workspace = true
 
 [dev-dependencies]
 asc-test-support.workspace = true
-asc-kn5.workspace = true
 serde_json.workspace = true

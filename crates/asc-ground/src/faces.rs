@@ -73,38 +73,20 @@ impl Ground {
         }
         let lo: [f64; 3] = std::array::from_fn(|i| center[i] - half_extent[i]);
         let hi: [f64; 3] = std::array::from_fn(|i| center[i] + half_extent[i]);
-        let overlaps =
-            |b: Bounds| (0..3).all(|i| b.hi[i] >= lo[i] - 1e-8 && b.lo[i] <= hi[i] + 1e-8);
-        let mut indices = Vec::new();
-        let mut stack = Vec::new();
-        if !self.nodes.is_empty() {
-            stack.push(0);
-        }
-        while let Some(index) = stack.pop() {
-            let node = &self.nodes[index];
-            if !overlaps(node.bounds) {
-                continue;
-            }
-            if let Some(children) = node.children {
-                stack.extend(children);
-                continue;
-            }
-            for &index in &self.order[node.start..node.end] {
-                if !overlaps(self.triangles[index].bounds) {
-                    continue;
-                }
-                if indices.len() == 4096 {
-                    return Err(Error::new(
-                        "ground_face_limit",
-                        "<ground face query>",
-                        0,
-                        "Local query exceeds 4096 face candidates",
-                    ));
-                }
-                indices.push(index);
-            }
-        }
-        indices.sort_unstable();
+        let indices = spatial::candidates(
+            &self.triangles,
+            &self.order,
+            &self.nodes,
+            Bounds { lo, hi },
+            || {
+                Error::new(
+                    "ground_face_limit",
+                    "<ground face query>",
+                    0,
+                    "Local query exceeds 4096 face candidates",
+                )
+            },
+        )?;
         Ok(indices
             .into_iter()
             .map(|index| {

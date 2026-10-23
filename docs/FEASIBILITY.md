@@ -70,3 +70,7 @@ The coupled workbench now supports explicit X reflection of raw DWB/STRUT hardpo
 ## Native body-collision response foundation
 
 The core now applies instantaneous chassis-point impulses through the full coupled chassis/upright/rotor mass matrix, retaining free travel/spin and ideal moving-rack work. Effective inverse mass and passive single-normal restitution are verified on original fixtures. Native driving still has no body/wall collision: feature/normal generation, TOI/CCD, friction and simultaneous contacts remain to be implemented and connected.
+
+## Native WALL contact queries
+
+The native spatial path now loads WALL geometry separately from road support and queries full 3D box/finite-triangle overlap and clipped contact patches. A bounded collider.kn5 box proxy and source-spawn JSON preflight are verified on original fixtures and local BMW/Drift. The next integration requires a coupled multiple-contact solver and continuous motion safeguards; the driving window still has no body/wall collision response. Original convex shapes and game collision/setup semantics remain unvalidated.

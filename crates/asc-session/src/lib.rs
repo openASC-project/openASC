@@ -1,5 +1,7 @@
-//! Geometric session preparation. Native driving simulation remains unimplemented.
+//! Native session preparation, explicit vehicle geometry adapters and contact queries.
 mod body;
+mod collider;
+pub use collider::ColliderBox;
 mod ground_contact;
 mod kinematics;
 use asc_scene::spawns::{Diagnostic, Spawn};

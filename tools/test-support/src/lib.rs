@@ -5,6 +5,31 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
     time::{SystemTime, UNIX_EPOCH},
 };
+/// Original tetrahedron with an unreferenced outlier; no game-derived geometry.
+pub fn collider_tetrahedron_file() -> Vec<u8> {
+    file(
+        base(
+            &[mesh(
+                &[
+                    [-0.5, 0., -1.],
+                    [0.5, 0., -1.],
+                    [0., 1., -1.],
+                    [0., 0.5, 1.],
+                    [99., 99., 99.],
+                ],
+                &[0, 1, 2, 0, 3, 1, 1, 3, 2, 2, 3, 0],
+                2,
+                1,
+                1,
+                0.,
+                0,
+            )],
+            Mat4::IDENTITY.to_cols_array(),
+            1,
+        ),
+        6,
+    )
+}
 
 /// Distinct within a test process even when several calls see the same clock tick.
 pub fn temp_path(label: &str) -> PathBuf {

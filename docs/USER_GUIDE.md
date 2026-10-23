@@ -649,3 +649,19 @@ The response requires a unit direction within 1e-8 and reports full point-veloci
 The apply report includes point velocities and kinetic energies before/after, external impulse work, independently computed work supplied/recovered by ideal moving racks, and an energy residual. Powered moving racks can exchange energy during an impact, so static-rack passivity does not generalize to them. Their prescribed state does not jump.
 
 World point components are within +/-10000000 m; impulse and its chassis-COM moment components are within +/-1e18 in their respective impulse units. Existing body speed/angular-speed, travel-rate and rotor-rate bounds apply to the resulting state; finite energy/work reports are bounded to +/-1e30 J. Rejected impacts are not clamped. See [impulse architecture](ARCHITECTURE.md#coupled-impulse-response) and [validation](FORMATS.md#coupled-impulse-validation).
+
+## Native collider and WALL queries
+
+```sh
+cargo run --release --locked -p asc-app -- wall-query examples/wall-query.json
+```
+
+This geometry preflight loads the local BMW `collider.kn5` and Drift WALL triangles. The example queries the selected PIT pose, a deliberately overlapping offset, and that offset with roll. It prints contact patches, normals, SAT separation and retained triangle/model/mesh identifiers. No physics step, collision impulse or rendering occurs. Native driving still has no body/wall response.
+
+The JSON requires `car_directory`, `models_ini`, `data` (`auto`, `packed`, `unpacked`), explicit model-in-chassis translation/quaternion, and 1..64 `probes`. Optional `compound` selects the typed reader compound; optional `spawn` selects a supported unique marker. Each probe requires `position_m`, a unit `orientation_xyzw` and `margin_m` in 0..0.1 m. With a spawn, probe positions/rotations are relative to its basis; without one they are world poses. Paths resolve relative to the JSON. The 8192-byte schema rejects unknown fields. Selected spawn errors are fatal; unrelated catalog diagnostics remain visible through `spawn_diagnostics` and `has_source_errors`.
+
+The body proxy encloses only referenced vertices of supported active, visible, near-LOD static collider geometry. The transform order is `model-in-chassis * source-graphics * collider-node`, matching native model placement: graphics correction acts on vertices before the explicit model mapping. The resulting box is aligned to chassis axes, then follows arbitrary chassis orientation. A skinned, empty, flat or unsupported collider fails. Input is limited to 4 MiB, mapped coordinates to +/-20 m and proxy half extents to 0.01..10 m. This box is an approximation; original convex/decomposed shapes and auxiliary colliders are not reconstructed.
+
+The separate native wall index retains active static numeric-prefix meshes containing WALL, including hidden physical geometry. It preserves existing supported source transforms, omits unsupported positive near-LOD/skinned content with diagnostics, and rejects excessive counts/metadata. It requires no fabricated surface coefficients. Finite 3D SAT uses triangle/box face axes and edge cross-products; patches are clipped to the margin-expanded box. Contact normals point from the triangle toward the box. Wall faces are double-sided. Negative SAT separation indicates overlap along the selected exit axis; positive values within the margin indicate a conservative proximity contact. SAT separation is a lower bound, not an exact Euclidean distance.
+
+Limits are 250000 input WALL triangles, 200000 combined source nodes, 32 MiB retained wall metadata and 4096 AABB candidates per query. The CLI also caps the whole report at 4096 triangle contacts. Overflow fails without truncation or partial JSON. No continuity/TOI, contact impulse, friction or nonpenetration is established. See [geometry architecture](ARCHITECTURE.md#native-wall-contact-geometry) and [validation](FORMATS.md#native-wall-geometry-validation).

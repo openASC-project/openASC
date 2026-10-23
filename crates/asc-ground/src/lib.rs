@@ -1,5 +1,10 @@
 //! Static vertical probes and bounded finite face views, independent of rendering and force laws.
 mod faces;
+mod spatial;
+mod walls;
+pub use walls::{WallContact, WallIndex};
+mod wall_geometry;
+pub use wall_geometry::{BoxTriangleContact, OrientedBox};
 pub mod surfaces;
 use asc_config::{Error, Result};
 pub use faces::Face;
@@ -92,35 +97,14 @@ impl Ground {
         Ok(())
     }
     fn build_node(&mut self, start: usize, end: usize) -> usize {
-        let bounds = self.order[start + 1..end]
-            .iter()
-            .fold(self.triangles[self.order[start]].bounds, |a, &i| {
-                a.union(self.triangles[i].bounds)
-            });
-        let index = self.nodes.len();
-        self.nodes.push(Node {
-            bounds,
+        spatial::build(
+            &self.triangles,
+            &mut self.order,
+            &mut self.nodes,
             start,
             end,
-            children: None,
-        });
-        if end - start > 8 {
-            let axis = if bounds.hi[0] - bounds.lo[0] >= bounds.hi[2] - bounds.lo[2] {
-                0
-            } else {
-                2
-            };
-            let triangles = &self.triangles;
-            self.order[start..end].sort_unstable_by(|&a, &b| {
-                let centre = |i: usize| triangles[i].bounds.lo[axis] + triangles[i].bounds.hi[axis];
-                centre(a).total_cmp(&centre(b)).then(a.cmp(&b))
-            });
-            let middle = start + (end - start) / 2;
-            let left = self.build_node(start, middle);
-            let right = self.build_node(middle, end);
-            self.nodes[index].children = Some([left, right]);
-        }
-        index
+            false,
+        )
     }
     pub fn summary(&self) -> serde_json::Value {
         serde_json::json!({"scope":"native_static_ground_query","triangles":self.triangles.len(),"input_triangles":self.input_triangles,"meshes":self.meshes,"bvh_ready":!self.nodes.is_empty(),"skipped_vertical_or_degenerate":self.skipped_degenerate,"diagnostics":self.diagnostics,"simulation_ready":false})
