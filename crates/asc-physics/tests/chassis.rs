@@ -140,6 +140,312 @@ fn close(a: [f64; 3], b: DVec3, tol: f64) {
 fn total_energy(s: &ChassisSample) -> f64 {
     s.kinetic_energy_j + s.potential_energy_j
 }
+fn contact_fixture(q: DQuat, shift: DVec3) -> ChassisSystem {
+    let chassis = Body::new(
+        MassProperties::new(300., [[220., 0., 0.], [0., 400., 0.], [0., 0., 350.]]).unwrap(),
+        shift.to_array(),
+        q.to_array(),
+        (q * DVec3::new(-2., 2., 0.)).to_array(),
+        [0.; 3],
+    )
+    .unwrap();
+    let mut u = corner(
+        false,
+        LinkPose::new([0.; 3], [0., 0., 0., 1.]).unwrap(),
+        TravelState {
+            travel_m: 0.,
+            rate_m_s: 0.,
+        },
+        None,
+    );
+    u.attach_wheel(
+        Wheel::new(
+            [0.; 3],
+            [1., 0., 0.],
+            20.,
+            1.2,
+            0.7,
+            WheelState {
+                angle_rad: 0.,
+                rate_rad_s: 0.,
+            },
+        )
+        .unwrap(),
+    )
+    .unwrap();
+    ChassisSystem::new(chassis, vec![u], [0.; 3]).unwrap()
+}
+fn wall_contacts(mu: f64, q: DQuat, shift: DVec3) -> Vec<asc_physics::ChassisContact> {
+    [-1., 1.]
+        .into_iter()
+        .map(|y| asc_physics::ChassisContact {
+            point_world_m: (shift + q * DVec3::new(0., y, 0.)).to_array(),
+            normal_world: (q * DVec3::X).to_array(),
+            friction: mu,
+        })
+        .collect()
+}
+#[test]
+fn simultaneous_chassis_contacts_match_analytic_sticking_and_sliding_with_free_suspension_mass() {
+    for mu in [0., 0.2, 0.9] {
+        let mut system = contact_fixture(DQuat::IDENTITY, DVec3::ZERO);
+        let snapshot = system.kinematics().unwrap();
+        let result = system
+            .resolve_chassis_contacts(
+                &wall_contacts(mu, DQuat::IDENTITY, DVec3::ZERO),
+                Default::default(),
+            )
+            .unwrap();
+        let after = system.kinematics().unwrap();
+        near(after.chassis.velocity_world_m_s[0], 0., 1e-6);
+        let tangential_impulse = (mu * 710.).min(600.);
+        near(
+            after.chassis.velocity_world_m_s[1],
+            2. - tangential_impulse / 300.,
+            1e-6,
+        );
+        near(result.net_impulse_world_ns[0], 710., 1e-5);
+        near(result.net_impulse_world_ns[1], -tangential_impulse, 1e-5);
+        close(
+            after.chassis.angular_velocity_world_rad_s,
+            DVec3::ZERO,
+            1e-6,
+        );
+        assert_eq!(snapshot.chassis.position_m, after.chassis.position_m);
+        assert_eq!(
+            snapshot.chassis.orientation_xyzw,
+            after.chassis.orientation_xyzw
+        );
+        near(result.work.energy_balance_residual_j, 0., 1e-7);
+        assert!(result.work.external_impulse_work_j < 0.);
+        for c in &result.contacts {
+            let impulse = vector(c.tangent_impulse_world_ns);
+            assert!(impulse.length() <= mu * c.normal_impulse_ns + 1e-7);
+            assert!(
+                vector(c.point_velocity_after_world_m_s).dot(vector(c.contact.normal_world))
+                    >= -1e-7
+            );
+        }
+        near(after.uprights[0].body.velocity_world_m_s[1], 2., 1e-6);
+    }
+}
+#[test]
+fn coupled_contact_friction_is_covariant_and_redundant_constraints_do_not_create_spin_or_energy() {
+    let q = DQuat::from_rotation_y(0.7) * DQuat::from_rotation_z(-0.4);
+    let shift = DVec3::new(10., 3., -4.);
+    let mut reference = contact_fixture(DQuat::IDENTITY, DVec3::ZERO);
+    let base = reference
+        .resolve_chassis_contacts(
+            &wall_contacts(0.2, DQuat::IDENTITY, DVec3::ZERO),
+            Default::default(),
+        )
+        .unwrap();
+    let mut rotated = contact_fixture(q, shift);
+    let mut contacts = wall_contacts(0.2, q, shift);
+    let original = contacts.clone();
+    for _ in 0..31 {
+        contacts.extend(original.clone());
+    }
+    contacts.reverse();
+    let result = rotated
+        .resolve_chassis_contacts(&contacts, Default::default())
+        .unwrap();
+    close(
+        result.net_impulse_world_ns,
+        q * vector(base.net_impulse_world_ns),
+        1e-5,
+    );
+    let a = rotated.kinematics().unwrap();
+    let b = reference.kinematics().unwrap();
+    close(
+        a.chassis.velocity_world_m_s,
+        q * vector(b.chassis.velocity_world_m_s),
+        1e-6,
+    );
+    close(
+        a.chassis.angular_velocity_world_rad_s,
+        q * vector(b.chassis.angular_velocity_world_rad_s),
+        1e-6,
+    );
+    near(
+        result.work.kinetic_energy_after_j,
+        base.work.kinetic_energy_after_j,
+        1e-5,
+    );
+    assert!(result.max_projected_velocity_residual_m_s <= 1e-7);
+}
+#[test]
+fn oblique_sliding_friction_minimizes_tangent_energy_in_anisotropic_point_mobility() {
+    let mut initial = contact_fixture(DQuat::IDENTITY, DVec3::ZERO);
+    initial
+        .impulse_at_world_point([0., 0., 355.], [0.; 3])
+        .unwrap();
+    let c = asc_physics::ChassisContact {
+        point_world_m: [0., 1., 0.],
+        normal_world: [1., 0., 0.],
+        friction: 0.2,
+    };
+    let mut system = initial.clone();
+    let result = system
+        .resolve_chassis_contacts(&[c], Default::default())
+        .unwrap();
+    let contact = &result.contacts[0];
+    let tangent = vector(contact.tangent_impulse_world_ns);
+    let radius = c.friction * contact.normal_impulse_ns;
+    near(tangent.length(), radius, 1e-8);
+    let final_speed = vector(contact.point_velocity_after_world_m_s);
+    let slip = DVec3::new(0., final_speed.y, final_speed.z);
+    assert!(slip.length() > 0.1);
+    close(
+        (tangent / tangent.length()).to_array(),
+        -slip.normalize(),
+        1e-7,
+    );
+    for angle in [-0.2, -0.05, 0.05, 0.2] {
+        let trial_tangent = DQuat::from_rotation_x(angle) * tangent;
+        let mut alternative = initial.clone();
+        let trial = alternative
+            .impulse_at_world_point(
+                (DVec3::X * contact.normal_impulse_ns + trial_tangent).to_array(),
+                c.point_world_m,
+            )
+            .unwrap();
+        assert!(trial.kinetic_energy_after_j >= result.work.kinetic_energy_after_j - 1e-8);
+    }
+}
+#[test]
+fn multi_contact_momentum_energy_and_moving_rack_work_balance_are_transactional() {
+    for moving in [false, true] {
+        let mut system = impulse_fixture(moving);
+        let before = system
+            .sample(Wrench::default(), &[Wrench::default(); 4])
+            .unwrap();
+        let state = system.kinematics().unwrap();
+        let racks = system.rack_motions();
+        let points = [
+            DVec3::X,
+            -DVec3::X,
+            DVec3::Y,
+            -DVec3::Y,
+            DVec3::Z,
+            -DVec3::Z,
+        ]
+        .map(|n| asc_physics::ChassisContact {
+            point_world_m: state.chassis.position_m,
+            normal_world: n.to_array(),
+            friction: 0.,
+        });
+        let result = system
+            .resolve_chassis_contacts(&points, Default::default())
+            .unwrap();
+        let after = system
+            .sample(Wrench::default(), &[Wrench::default(); 4])
+            .unwrap();
+        close(after.chassis.velocity_world_m_s, DVec3::ZERO, 1e-7);
+        close(
+            after.linear_momentum_world_kg_m_s,
+            vector(before.linear_momentum_world_kg_m_s) + vector(result.net_impulse_world_ns),
+            1e-7,
+        );
+        close(
+            after.angular_momentum_about_world_origin_kg_m2_s,
+            vector(before.angular_momentum_about_world_origin_kg_m2_s)
+                + vector(state.chassis.position_m).cross(vector(result.net_impulse_world_ns))
+                + vector(result.net_moment_about_chassis_com_nms),
+            1e-6,
+        );
+        near(result.work.energy_balance_residual_j, 0., 1e-7);
+        assert!(result.work.external_impulse_work_j <= 1e-7);
+        if moving {
+            assert!(result.work.prescribed_rack_impulse_work_j.abs() > 1e-5);
+        }
+        assert_eq!(system.rack_motions(), racks);
+        let final_state = system.kinematics().unwrap();
+        assert_eq!(
+            state.chassis.orientation_xyzw,
+            final_state.chassis.orientation_xyzw
+        );
+        for (a, b) in state.uprights.iter().zip(final_state.uprights) {
+            assert_eq!(a.state.travel_m, b.state.travel_m);
+            assert_eq!(
+                a.wheel.as_ref().unwrap().state.angle_rad,
+                b.wheel.unwrap().state.angle_rad
+            );
+        }
+    }
+}
+#[test]
+fn separating_and_empty_manifolds_are_exact_noops_and_invalid_or_unconverged_solves_preserve_state()
+{
+    let mut system = contact_fixture(DQuat::IDENTITY, DVec3::ZERO);
+    let snapshot = serde_json::to_value(system.kinematics().unwrap()).unwrap();
+    system
+        .resolve_chassis_contacts(&[], Default::default())
+        .unwrap();
+    let separating = [asc_physics::ChassisContact {
+        point_world_m: [0.; 3],
+        normal_world: [-1., 0., 0.],
+        friction: 0.5,
+    }];
+    let result = system
+        .resolve_chassis_contacts(&separating, Default::default())
+        .unwrap();
+    assert_eq!(result.net_impulse_world_ns, [0.; 3]);
+    assert_eq!(
+        serde_json::to_value(system.kinematics().unwrap()).unwrap(),
+        snapshot
+    );
+    let contacts = wall_contacts(0.2, DQuat::IDENTITY, DVec3::ZERO);
+    for settings in [
+        asc_physics::ChassisContactSettings {
+            max_iterations: 0,
+            velocity_tolerance_m_s: 1e-7,
+        },
+        asc_physics::ChassisContactSettings {
+            max_iterations: 1,
+            velocity_tolerance_m_s: 1e-9,
+        },
+    ] {
+        assert!(
+            system
+                .resolve_chassis_contacts(&contacts, settings)
+                .is_err()
+        );
+        assert_eq!(
+            serde_json::to_value(system.kinematics().unwrap()).unwrap(),
+            snapshot
+        );
+    }
+    for c in [
+        asc_physics::ChassisContact {
+            normal_world: [0.; 3],
+            ..contacts[0]
+        },
+        asc_physics::ChassisContact {
+            friction: 2.1,
+            ..contacts[0]
+        },
+        asc_physics::ChassisContact {
+            point_world_m: [f64::NAN, 0., 0.],
+            ..contacts[0]
+        },
+    ] {
+        assert!(
+            system
+                .resolve_chassis_contacts(&[c], Default::default())
+                .is_err()
+        );
+        assert_eq!(
+            serde_json::to_value(system.kinematics().unwrap()).unwrap(),
+            snapshot
+        );
+    }
+    assert!(
+        system
+            .resolve_chassis_contacts(&vec![contacts[0]; 65], Default::default())
+            .is_err()
+    );
+}
 
 #[test]
 fn chassis_impulse_distinguishes_free_vertical_travel_from_carried_horizontal_mass() {

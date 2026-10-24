@@ -6,9 +6,14 @@ use crate::{
 };
 use glam::{DQuat, DVec3};
 use serde::Serialize;
+mod contacts;
 mod impulse;
 mod kinematics;
 mod rack;
+pub use contacts::{
+    ChassisContact, ChassisContactResult, ChassisContactSample, ChassisContactSettings,
+};
+pub use impulse::ChassisImpulseWork;
 pub use impulse::{ChassisImpulseSample, ChassisPointResponse};
 pub use kinematics::{ChassisKinematics, ChassisLoads, UprightKinematics, WheelKinematics};
 pub use rack::RackMotion;

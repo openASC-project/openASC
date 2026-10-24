@@ -1,0 +1,21 @@
+{
+  "dynamics_config": "chassis-wall-impact.json",
+  "model_origin_in_chassis_m": [
+    0,
+    0,
+    0
+  ],
+  "model_orientation_in_chassis_xyzw": [
+    0,
+    0,
+    0,
+    1
+  ],
+  "compound": null,
+  "margin_m": 0,
+  "friction": 0.3,
+  "settings": {
+    "max_iterations": 1024,
+    "velocity_tolerance_m_s": 0.0001
+  }
+}

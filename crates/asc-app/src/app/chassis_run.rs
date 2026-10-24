@@ -466,6 +466,19 @@ impl Workbench {
         {
             return Err("Native drive requires four wheels with normal/tangential contact and brakes, plus explicit steering axes".into());
         }
+        self.source_paths()
+    }
+    /// Common car/data and track source, independent of interactive driving requirements.
+    pub fn source_paths(
+        &self,
+    ) -> Result<
+        (
+            std::path::PathBuf,
+            std::path::PathBuf,
+            asc_vehicle::data::Mode,
+        ),
+        Box<dyn Error>,
+    > {
         let track = self
             .config
             .support_track
@@ -1027,6 +1040,99 @@ mod live_tests {
         let path = dir.0.join("registered.json");
         std::fs::write(&path, c.to_string())?;
         load(&path)
+    }
+    #[test]
+    fn static_wall_impact_connects_original_geometry_to_coupled_impulses_without_advancing_pose() {
+        use asc_test_support as f;
+        use glam::Mat4;
+        let (dir, _) = fixture();
+        for (name, text) in f::vehicle_files() {
+            if name != "suspensions.ini" {
+                std::fs::write(dir.0.join("data").join(name), text).unwrap();
+            }
+        }
+        std::fs::write(dir.0.join("collider.kn5"), f::collider_tetrahedron_file()).unwrap();
+        std::fs::write(dir.0.join("original.kn5"), f::collider_tetrahedron_file()).unwrap();
+        let wall = f::named(
+            f::mesh(
+                &[[-10., -10., 0.], [10., -10., 0.], [0., 10., 0.]],
+                &[0, 1, 2],
+                2,
+                0,
+                0,
+                0.,
+                0,
+            ),
+            "1WALL",
+        );
+        let road = f::named(
+            f::mesh(
+                &[[-100., 0., -100.], [0., 0., 100.], [100., 0., -100.]],
+                &[0, 1, 2],
+                2,
+                1,
+                1,
+                0.,
+                0,
+            ),
+            "1ROAD",
+        );
+        std::fs::write(
+            dir.0.join("track.kn5"),
+            f::file(f::base(&[wall, road], Mat4::IDENTITY.to_cols_array(), 1), 6),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.0.join("models.ini"),
+            "[MODEL_0]\nFILE=track.kn5\nPOSITION=0,0,0\nROTATION=0,0,0\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.0.join("surfaces.ini"),
+            "[SURFACE_0]\nKEY=ROAD\nIS_VALID_TRACK=1\nFRICTION=1\nDAMPING=0\nIS_PITLANE=0\n",
+        )
+        .unwrap();
+        let mut c: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.0.join("dynamics.json")).unwrap()).unwrap();
+        c.as_object_mut().unwrap().remove("support_plane");
+        c["support_track"] = serde_json::json!({"models_ini":"models.ini","surface_files":["surfaces.ini"],"min_normal_y":0.1});
+        c["chassis"]["position_world_m"] = serde_json::json!([0, 0.29, 0.5]);
+        c["chassis"]["velocity_world_m_s"] = serde_json::json!([0.3, 0, -3]);
+        std::fs::write(dir.0.join("dynamics.json"), c.to_string()).unwrap();
+        let config = serde_json::json!({"dynamics_config":"dynamics.json","model_origin_in_chassis_m":[0,0,0],"model_orientation_in_chassis_xyzw":[0,0,0,1],"margin_m":0,"friction":0.3});
+        let path = dir.0.join("impact.json");
+        std::fs::write(&path, config.to_string()).unwrap();
+        let report = crate::app::wall_impact::run(&path).unwrap();
+        assert_eq!(report["patches"][0]["mesh"], "1WALL");
+        assert!(
+            report["response"]["net_impulse_world_ns"][2]
+                .as_f64()
+                .unwrap()
+                > 100.
+        );
+        assert_eq!(
+            report["before"]["chassis"]["position_m"],
+            report["after"]["chassis"]["position_m"]
+        );
+        assert_eq!(
+            report["before"]["chassis"]["orientation_xyzw"],
+            report["after"]["chassis"]["orientation_xyzw"]
+        );
+        assert!(
+            report["response"]["work"]["external_impulse_work_j"]
+                .as_f64()
+                .unwrap()
+                < 0.
+        );
+        assert!(
+            report["response"]["work"]["energy_balance_residual_j"]
+                .as_f64()
+                .unwrap()
+                .abs()
+                < 1e-6
+        );
+        assert_eq!(report["time_advanced_s"], 0);
+        assert_eq!(report["native_driving_collision_response"], false);
     }
     #[test]
     fn source_centres_register_nonzero_wheel_levers_and_initial_linkage_poses_in_rotated_chassis() {

@@ -20,12 +20,21 @@ pub struct ChassisImpulseSample {
     pub energy_balance_residual_j: f64,
     pub dof_count: usize,
 }
-fn point_velocity(body: &State, point: DVec3) -> DVec3 {
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct ChassisImpulseWork {
+    pub kinetic_energy_before_j: f64,
+    pub kinetic_energy_after_j: f64,
+    pub external_impulse_work_j: f64,
+    pub prescribed_rack_impulse_work_j: f64,
+    pub energy_balance_residual_j: f64,
+    pub dof_count: usize,
+}
+pub(super) fn point_velocity(body: &State, point: DVec3) -> DVec3 {
     DVec3::from_array(body.velocity_world_m_s)
         + DVec3::from_array(body.angular_velocity_world_rad_s)
             .cross(point - DVec3::from_array(body.position_m))
 }
-fn energy(k: &ChassisKinematics) -> f64 {
+pub(super) fn energy(k: &ChassisKinematics) -> f64 {
     k.chassis.kinetic_energy_j
         + k.uprights
             .iter()
@@ -35,7 +44,7 @@ fn energy(k: &ChassisKinematics) -> f64 {
             .sum::<f64>()
 }
 impl ChassisSystem {
-    fn impulse_matrix(&self) -> Result<([[f64; 14]; 14], usize)> {
+    pub(super) fn impulse_matrix(&self) -> Result<([[f64; 14]; 14], usize)> {
         let n =
             6 + self.uprights.len() + self.uprights.iter().filter(|u| u.wheel.is_some()).count();
         let mut matrix = [[0.; 14]; 14];
@@ -161,6 +170,46 @@ impl ChassisSystem {
             });
         }
         let (delta, n) = self.impulse_delta(point, impulse)?;
+        let work = self.apply_impulse_delta(
+            &before,
+            delta,
+            n,
+            impulse,
+            (point - DVec3::from_array(before.chassis.position_m)).cross(impulse),
+        )?;
+        Ok(ChassisImpulseSample {
+            point_velocity_before_world_m_s: point_velocity(&before.chassis, point).to_array(),
+            point_velocity_after_world_m_s: point_velocity(&self.chassis.state(), point).to_array(),
+            kinetic_energy_before_j: work.kinetic_energy_before_j,
+            kinetic_energy_after_j: work.kinetic_energy_after_j,
+            external_impulse_work_j: work.external_impulse_work_j,
+            prescribed_rack_impulse_work_j: work.prescribed_rack_impulse_work_j,
+            energy_balance_residual_j: work.energy_balance_residual_j,
+            dof_count: n,
+        })
+    }
+    pub(super) fn apply_impulse_delta(
+        &mut self,
+        before: &ChassisKinematics,
+        delta: [f64; 14],
+        n: usize,
+        linear: DVec3,
+        moment: DVec3,
+    ) -> Result<ChassisImpulseWork> {
+        vector(linear, 1e18)?;
+        vector(moment, 1e18)?;
+        if linear == DVec3::ZERO && moment == DVec3::ZERO {
+            let k = energy(before);
+            scalar(k, 1e30)?;
+            return Ok(ChassisImpulseWork {
+                kinetic_energy_before_j: k,
+                kinetic_energy_after_j: k,
+                external_impulse_work_j: 0.,
+                prescribed_rack_impulse_work_j: 0.,
+                energy_balance_residual_j: 0.,
+                dof_count: n,
+            });
+        }
         let mut next = self.clone();
         let c = &before.chassis;
         next.chassis = self.chassis.with_velocity_delta(
@@ -211,19 +260,21 @@ impl ChassisSystem {
                 rack_work += work(&w.properties, w.center.to_array(), &bw.body, &aw.body)?;
             }
         }
-        let v0 = point_velocity(c, point);
-        let v1 = point_velocity(&after.chassis, point);
-        let k0 = energy(&before);
+        let k0 = energy(before);
         let k1 = energy(&after);
-        let external_work = impulse.dot(0.5 * (v0 + v1));
+        let external_work = linear.dot(
+            0.5 * (DVec3::from_array(c.velocity_world_m_s)
+                + DVec3::from_array(after.chassis.velocity_world_m_s)),
+        ) + moment.dot(
+            0.5 * (DVec3::from_array(c.angular_velocity_world_rad_s)
+                + DVec3::from_array(after.chassis.angular_velocity_world_rad_s)),
+        );
         let residual = k1 - k0 - external_work - rack_work;
         for value in [k0, k1, external_work, rack_work, residual] {
             scalar(value, 1e30)?;
         }
         *self = next;
-        Ok(ChassisImpulseSample {
-            point_velocity_before_world_m_s: v0.to_array(),
-            point_velocity_after_world_m_s: v1.to_array(),
+        Ok(ChassisImpulseWork {
             kinetic_energy_before_j: k0,
             kinetic_energy_after_j: k1,
             external_impulse_work_j: external_work,
