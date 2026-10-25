@@ -2465,3 +2465,189 @@ fn normal_support_has_analytical_static_equilibrium_and_damped_coupled_settling(
     let final_state = falling.kinematics().unwrap();
     near(final_state.chassis.position_m[1], height, 5e-5);
 }
+
+#[test]
+fn selected_midpoint_path_fraction_matches_retained_translation_rotation_and_full_step() {
+    use std::cell::RefCell;
+    for fraction in [0., 1e-8, 0.2, 0.7, 1.] {
+        let mut system = impulse_fixture(true);
+        let initial = system.kinematics().unwrap();
+        let racks = system.rack_motions();
+        let dt = 0.002;
+        let offsets = RefCell::new(Vec::new());
+        let force = |_: f64, _: &ChassisKinematics| {
+            Ok(ChassisLoads {
+                chassis: Wrench::new([170., 30., -50.], [2., -3., 1.]).unwrap(),
+                uprights: vec![Wrench::default(); 4],
+                wheels: vec![WheelLoad::default(); 4],
+            })
+        };
+        let prescribe = |t: f64| {
+            racks
+                .iter()
+                .map(|r| {
+                    asc_physics::RackMotion::new(
+                        (DVec3::from_array(r.position_m) + DVec3::from_array(r.velocity_m_s) * t)
+                            .to_array(),
+                        r.velocity_m_s,
+                        [0.; 3],
+                    )
+                })
+                .collect()
+        };
+        let mut ordinary = system.clone();
+        let full = ordinary
+            .step_with_racks_and_forces(dt, prescribe, force)
+            .unwrap();
+        let result = system
+            .step_with_racks_and_forces_until(
+                dt,
+                |t| {
+                    offsets.borrow_mut().push(t);
+                    prescribe(t)
+                },
+                force,
+                |path| {
+                    assert_eq!(path.duration_s, dt);
+                    assert_eq!(path.start.position_m, initial.chassis.position_m);
+                    close(
+                        path.end.position_m,
+                        DVec3::from_array(full.chassis.position_m),
+                        1e-12,
+                    );
+                    Ok(fraction)
+                },
+            )
+            .unwrap();
+        near(result.elapsed_s, dt * fraction, 1e-20);
+        assert_eq!(*offsets.borrow(), vec![0., dt * 0.5, dt * fraction]);
+        let expected = DVec3::from_array(result.proposal.start.position_m)
+            .lerp(DVec3::from_array(result.proposal.end.position_m), fraction);
+        close(result.sample.chassis.position_m, expected, 1e-12);
+        let q = DQuat::from_scaled_axis(
+            DVec3::from_array(result.proposal.rotation_world_rad) * fraction,
+        ) * DQuat::from_array(initial.chassis.orientation_xyzw);
+        assert!(
+            (DQuat::from_array(result.sample.chassis.orientation_xyzw)
+                .dot(q)
+                .abs()
+                - 1.)
+                .abs()
+                < 1e-12
+        );
+        for (u, r) in system
+            .kinematics()
+            .unwrap()
+            .uprights
+            .iter()
+            .zip(prescribe(dt * fraction).unwrap())
+        {
+            assert_eq!(u.rack_motion, r);
+        }
+        if fraction == 1. {
+            assert_eq!(
+                serde_json::to_value(system.kinematics().unwrap()).unwrap(),
+                serde_json::to_value(ordinary.kinematics().unwrap()).unwrap()
+            );
+        }
+        if fraction == 0. {
+            assert_eq!(
+                serde_json::to_value(system.kinematics().unwrap()).unwrap(),
+                serde_json::to_value(initial).unwrap()
+            );
+        }
+    }
+}
+#[test]
+fn fraction_selector_and_final_callbacks_fail_atomically_for_all_rack_and_mechanical_state() {
+    use asc_physics::{Error, RackMotion};
+    for case in 0..6 {
+        let mut system = impulse_fixture(false);
+        let before = serde_json::to_value(system.kinematics().unwrap()).unwrap();
+        let racks = system.rack_motions();
+        let result = system.step_with_racks_and_forces_until(
+            0.002,
+            |t| {
+                if case == 4 && t == 0.0005 {
+                    return Err(Error::new("test_final_rack", "rejected selected endpoint"));
+                }
+                Ok(racks.clone())
+            },
+            |t, _| {
+                if case == 5 && t == 0.0005 {
+                    return Err(Error::new("test_final_force", "rejected selected endpoint"));
+                }
+                Ok(ChassisLoads {
+                    chassis: Wrench::default(),
+                    uprights: vec![Wrench::default(); 4],
+                    wheels: vec![WheelLoad::default(); 4],
+                })
+            },
+            |_| match case {
+                0 => Err(Error::new("test_selector", "rejected path")),
+                1 => Ok(-0.1),
+                2 => Ok(1.1),
+                3 => Ok(f64::NAN),
+                _ => Ok(0.25),
+            },
+        );
+        assert!(result.is_err(), "case {case}");
+        assert_eq!(
+            serde_json::to_value(system.kinematics().unwrap()).unwrap(),
+            before
+        );
+        assert!(
+            system
+                .rack_motions()
+                .iter()
+                .all(|r| r == &RackMotion::fixed(r.position_m).unwrap())
+        );
+    }
+}
+#[test]
+fn partial_midpoint_impact_and_remaining_time_match_analytical_free_translation() {
+    use asc_physics::{ChassisContact, ChassisContactSettings};
+    let mut system = contact_fixture(DQuat::IDENTITY, DVec3::ZERO);
+    let racks = system.rack_motions();
+    let dt = 0.01;
+    let force = |_: f64, _: &ChassisKinematics| {
+        Ok(ChassisLoads {
+            chassis: Wrench::default(),
+            uprights: vec![Wrench::default()],
+            wheels: vec![WheelLoad::default()],
+        })
+    };
+    let result = system
+        .step_with_racks_and_forces_until(
+            dt,
+            |_| Ok(racks.clone()),
+            force,
+            |path| {
+                // A plane at x=-0.01 constrains this reference point. Initial x speed is -2 m/s.
+                let x0 = path.start.position_m[0];
+                let x1 = path.end.position_m[0];
+                Ok((-0.01 - x0) / (x1 - x0))
+            },
+        )
+        .unwrap();
+    near(result.elapsed_s, 0.005, 1e-12);
+    near(result.sample.chassis.position_m[0], -0.01, 1e-12);
+    let impact = system
+        .resolve_chassis_contacts(
+            &[ChassisContact {
+                point_world_m: result.sample.chassis.position_m,
+                normal_world: [1., 0., 0.],
+                friction: 0.,
+            }],
+            ChassisContactSettings::default(),
+        )
+        .unwrap();
+    assert!(impact.net_impulse_world_ns[0] > 0.);
+    let rest = system
+        .step_with_racks_and_forces(dt - result.elapsed_s, |_| Ok(racks.clone()), force)
+        .unwrap();
+    near(rest.chassis.position_m[0], -0.01, 1e-12);
+    near(rest.chassis.velocity_world_m_s[0], 0., 1e-12);
+    near(rest.chassis.position_m[1], 0.02, 1e-12);
+    assert!(impact.work.external_impulse_work_j < 0.);
+}

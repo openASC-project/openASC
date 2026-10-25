@@ -1,7 +1,7 @@
 //! One fixed-pose, inelastic chassis/WALL velocity solve. No time advance or overlap repair.
-use asc_physics::{ChassisContact, ChassisContactSettings};
+use asc_physics::ChassisContactSettings;
+use asc_session::chassis_wall_contacts as manifold;
 use asc_vehicle::Result;
-use glam::DVec3;
 use serde::{Deserialize, Serialize};
 use std::{io::Read, path::Path};
 #[derive(Deserialize, Serialize)]
@@ -15,35 +15,17 @@ struct Configuration {
     friction: f64,
     #[serde(default)]
     settings: ChassisContactSettings,
-}
-fn manifold(patches: &[asc_ground::WallContact<'_>], friction: f64) -> Result<Vec<ChassisContact>> {
-    let mut contacts: Vec<ChassisContact> = Vec::new();
-    for patch in patches {
-        for &point in &patch.geometry.points_world_m {
-            let normal = patch.geometry.normal_world;
-            if contacts.iter().any(|c| {
-                (DVec3::from_array(c.point_world_m) - DVec3::from_array(point)).length() <= 1e-6
-                    && (DVec3::from_array(c.normal_world) - DVec3::from_array(normal)).length()
-                        <= 1e-8
-            }) {
-                continue;
-            }
-            if contacts.len() == 64 {
-                return Err(
-                    "wall-impact exceeds 64 distinct contact points; no truncation is applied"
-                        .into(),
-                );
-            }
-            contacts.push(ChassisContact {
-                point_world_m: point,
-                normal_world: normal,
-                friction,
-            });
-        }
-    }
-    Ok(contacts)
+    step_s: Option<f64>,
+    #[serde(default)]
+    sweep_settings: asc_ground::WallSweepSettings,
 }
 pub fn run(path: &Path) -> Result<serde_json::Value> {
+    run_inner(path, false)
+}
+pub fn run_step(path: &Path) -> Result<serde_json::Value> {
+    run_inner(path, true)
+}
+fn run_inner(path: &Path, moving: bool) -> Result<serde_json::Value> {
     let mut bytes = Vec::new();
     std::fs::File::open(path)?
         .take(8193)
@@ -52,6 +34,9 @@ pub fn run(path: &Path) -> Result<serde_json::Value> {
         return Err("wall-impact config exceeds 8192 bytes".into());
     }
     let c: Configuration = serde_json::from_slice(&bytes)?;
+    if moving != c.step_s.is_some() {
+        return Err("wall-step requires step_s; static wall-impact requires it absent".into());
+    }
     if !c.friction.is_finite() || !(0. ..=2.).contains(&c.friction) {
         return Err("wall-impact requires explicit friction in 0..2".into());
     }
@@ -67,6 +52,27 @@ pub fn run(path: &Path) -> Result<serde_json::Value> {
     )?;
     let walls = asc_ground::WallIndex::load(&track)?;
     let before = bench.system.kinematics()?;
+    if let Some(dt_s) = c.step_s {
+        let step = bench.step_to_wall(
+            dt_s,
+            &collider,
+            &walls,
+            asc_session::WallStepSettings {
+                sweep: c.sweep_settings,
+                contacts: c.settings,
+                friction: c.friction,
+            },
+        )?;
+        let after = bench.system.kinematics()?;
+        return Ok(
+            serde_json::json!({"scope":"native_midpoint_first_wall_event",
+            "explicit_configuration":c,"collider_proxy":collider,"walls":walls.summary(),
+            "source_diagnostics":bench.diagnostics(),"before":before,"after":after,"step":step,
+            "remaining_time_advanced":false,"position_correction":false,
+            "native_driving_collision_response":false,"original_vehicle_dynamics_validated":false,
+            "simulation_ready":false}),
+        );
+    }
     let body = collider.at_pose(before.chassis.position_m, before.chassis.orientation_xyzw)?;
     let patches = walls.contacts(&body, c.margin_m)?;
     let contacts = manifold(&patches, c.friction)?;

@@ -100,38 +100,57 @@ impl ChassisSystem {
     pub fn step_with_racks_and_forces(
         &mut self,
         dt_s: f64,
+        racks: impl FnMut(f64) -> Result<Vec<RackMotion>>,
+        forces: impl FnMut(f64, &ChassisKinematics) -> Result<ChassisLoads>,
+    ) -> Result<ChassisSample> {
+        Ok(self
+            .step_with_racks_and_forces_until(dt_s, racks, forces, |_| Ok(1.))?
+            .sample)
+    }
+    /// Select a fraction of the actual retained midpoint proposal before committing.
+    /// Callbacks evaluate at 0, dt/2 and the selected time (which may precede dt/2).
+    /// The midpoint proposal is not recomputed at the selected time; selectors must be read-only.
+    /// Errors, invalid fractions and final validation failures preserve all mechanical/rack state.
+    pub fn step_with_racks_and_forces_until(
+        &mut self,
+        dt_s: f64,
         mut racks: impl FnMut(f64) -> Result<Vec<RackMotion>>,
         mut forces: impl FnMut(f64, &ChassisKinematics) -> Result<ChassisLoads>,
-    ) -> Result<ChassisSample> {
-        self.integrate(dt_s, |stage, offset| {
-            let prescribed = racks(offset).map_err(|e| {
-                Error::new(
-                    e.code,
-                    &format!("Rack callback at +{offset} s: {}", e.message),
-                )
-            })?;
-            if offset == 0. && prescribed.len() == stage.uprights.len() {
-                for (u, r) in stage.uprights.iter().zip(&prescribed) {
-                    if (0..3).any(|i| {
-                        (u.rack.position_m[i] - r.position_m[i]).abs() > 1e-10
-                            || (u.rack.velocity_m_s[i] - r.velocity_m_s[i]).abs() > 1e-8
-                    }) {
-                        return Err(Error::new(
-                            "physics_rack_discontinuity",
-                            "Rack start position/velocity must match committed state",
-                        ));
+        choose_fraction: impl FnOnce(&ChassisStepPath) -> Result<f64>,
+    ) -> Result<ChassisPartialStep> {
+        self.integrate_until(
+            dt_s,
+            |stage, offset| {
+                let prescribed = racks(offset).map_err(|e| {
+                    Error::new(
+                        e.code,
+                        &format!("Rack callback at +{offset} s: {}", e.message),
+                    )
+                })?;
+                if offset == 0. && prescribed.len() == stage.uprights.len() {
+                    for (u, r) in stage.uprights.iter().zip(&prescribed) {
+                        if (0..3).any(|i| {
+                            (u.rack.position_m[i] - r.position_m[i]).abs() > 1e-10
+                                || (u.rack.velocity_m_s[i] - r.velocity_m_s[i]).abs() > 1e-8
+                        }) {
+                            return Err(Error::new(
+                                "physics_rack_discontinuity",
+                                "Rack start position/velocity must match committed state",
+                            ));
+                        }
                     }
                 }
-            }
-            stage.assign_racks(&prescribed)?;
-            let state = stage.kinematics()?;
-            let loads = forces(offset, &state).map_err(|e| {
-                Error::new(
-                    e.code,
-                    &format!("Force callback at +{offset} s: {}", e.message),
-                )
-            })?;
-            stage.sample_with_wheels(loads.chassis, &loads.uprights, &loads.wheels)
-        })
+                stage.assign_racks(&prescribed)?;
+                let state = stage.kinematics()?;
+                let loads = forces(offset, &state).map_err(|e| {
+                    Error::new(
+                        e.code,
+                        &format!("Force callback at +{offset} s: {}", e.message),
+                    )
+                })?;
+                stage.sample_with_wheels(loads.chassis, &loads.uprights, &loads.wheels)
+            },
+            choose_fraction,
+        )
     }
 }

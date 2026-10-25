@@ -1,0 +1,26 @@
+{
+  "dynamics_config": "chassis-wall-step.json",
+  "model_origin_in_chassis_m": [
+    0,
+    0,
+    0
+  ],
+  "model_orientation_in_chassis_xyzw": [
+    0,
+    0,
+    0,
+    1
+  ],
+  "compound": null,
+  "margin_m": 0,
+  "friction": 0.3,
+  "settings": {
+    "max_iterations": 1024,
+    "velocity_tolerance_m_s": 0.0001
+  },
+  "step_s": 0.01,
+  "sweep_settings": {
+    "max_iterations": 512,
+    "distance_tolerance_m": 1e-06
+  }
+}

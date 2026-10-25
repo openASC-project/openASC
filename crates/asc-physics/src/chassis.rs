@@ -18,6 +18,23 @@ pub use impulse::{ChassisImpulseSample, ChassisPointResponse};
 pub use kinematics::{ChassisKinematics, ChassisLoads, UprightKinematics, WheelKinematics};
 pub use rack::RackMotion;
 
+/// The reference path actually used by one explicit Lie-midpoint proposal.
+/// Positions interpolate linearly and rotation uses the retained world rotation increment.
+#[derive(Clone, Debug, Serialize)]
+pub struct ChassisStepPath {
+    pub start: State,
+    pub end: State,
+    pub duration_s: f64,
+    pub rotation_world_rad: [f64; 3],
+}
+#[derive(Debug, Serialize)]
+pub struct ChassisPartialStep {
+    pub elapsed_s: f64,
+    pub fraction: f64,
+    pub proposal: ChassisStepPath,
+    pub sample: ChassisSample,
+}
+
 fn scalar(value: f64, limit: f64) -> Result<f64> {
     if !value.is_finite() || value.abs() > limit {
         return Err(Error::new(
@@ -764,8 +781,16 @@ impl ChassisSystem {
     fn integrate(
         &mut self,
         dt_s: f64,
-        mut evaluate: impl FnMut(&mut Self, f64) -> Result<ChassisSample>,
+        evaluate: impl FnMut(&mut Self, f64) -> Result<ChassisSample>,
     ) -> Result<ChassisSample> {
+        Ok(self.integrate_until(dt_s, evaluate, |_| Ok(1.))?.sample)
+    }
+    fn integrate_until(
+        &mut self,
+        dt_s: f64,
+        mut evaluate: impl FnMut(&mut Self, f64) -> Result<ChassisSample>,
+        choose_fraction: impl FnOnce(&ChassisStepPath) -> Result<f64>,
+    ) -> Result<ChassisPartialStep> {
         if !dt_s.is_finite() || !(1e-6..=1. / 30.).contains(&dt_s) {
             return Err(Error::new(
                 "physics_chassis_step",
@@ -776,12 +801,41 @@ impl ChassisSystem {
         let first = evaluate(&mut start, 0.)?;
         let mut middle = start.advance(&first, 0.5 * dt_s)?;
         let midpoint = evaluate(&mut middle, 0.5 * dt_s)?;
-        let mut final_system = start.advance(&midpoint, dt_s)?;
-        let final_sample = evaluate(&mut final_system, dt_s)?;
+        let proposed = start.advance(&midpoint, dt_s)?;
+        let proposal = ChassisStepPath {
+            start: start.chassis.state(),
+            end: proposed.chassis.state(),
+            duration_s: dt_s,
+            rotation_world_rad: (DVec3::from_array(midpoint.chassis.angular_velocity_world_rad_s)
+                * dt_s)
+                .to_array(),
+        };
+        let fraction = choose_fraction(&proposal)?;
+        if !fraction.is_finite() || !(0. ..=1.).contains(&fraction) {
+            return Err(Error::new(
+                "physics_chassis_fraction",
+                "Selected proposal fraction must lie in 0..1",
+            ));
+        }
+        let elapsed_s = dt_s * fraction;
+        // This truncates the retained midpoint proposal; it does not recompute a different midpoint.
+        let mut final_system = if fraction == 1. {
+            proposed
+        } else if fraction == 0. {
+            start
+        } else {
+            start.advance(&midpoint, elapsed_s)?
+        };
+        let final_sample = evaluate(&mut final_system, elapsed_s)?;
         for (upright, sample) in final_system.uprights.iter_mut().zip(&final_sample.uprights) {
             upright.pose = LinkPose::new(sample.source_position_m, sample.source_orientation_xyzw)?;
         }
         *self = final_system;
-        Ok(final_sample)
+        Ok(ChassisPartialStep {
+            elapsed_s,
+            fraction,
+            proposal,
+            sample: final_sample,
+        })
     }
 }

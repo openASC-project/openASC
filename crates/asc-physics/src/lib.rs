@@ -19,9 +19,9 @@ pub use body::{Body, State, Wrench};
 pub use brake::{WheelBrake, WheelBrakeSample};
 pub use chassis::{
     ChassisContact, ChassisContactResult, ChassisContactSample, ChassisContactSettings,
-    ChassisImpulseSample, ChassisImpulseWork, ChassisKinematics, ChassisLoads,
-    ChassisPointResponse, ChassisSample, ChassisSystem, MountedUpright, RackMotion,
-    UprightKinematics, UprightSample, WheelKinematics,
+    ChassisImpulseSample, ChassisImpulseWork, ChassisKinematics, ChassisLoads, ChassisPartialStep,
+    ChassisPointResponse, ChassisSample, ChassisStepPath, ChassisSystem, MountedUpright,
+    RackMotion, UprightKinematics, UprightSample, WheelKinematics,
 };
 pub use clock::{Batch, FixedClock, Tick};
 pub use contact::{CircleSupport, NormalContact, NormalContactSample, SupportPlane};

@@ -163,3 +163,5 @@ Use `cargo run --release --locked -p asc-app -- wall-query examples/wall-query.j
 Run `cargo run --release --locked -p asc-app -- wall-impact examples/wall-impact.json` for a [static coupled WALL impact](docs/USER_GUIDE.md#static-native-wall-impact), including Coulomb friction, per-contact impulses and energy balance. This diagnostic advances zero time and leaves initial overlap unchanged.
 
 Use `cargo run --release --locked -p asc-app -- wall-sweep examples/wall-sweep.json` to [check a complete prescribed collider path](docs/USER_GUIDE.md#prescribed-collider-and-wall-sweeps), including shortest-arc rotation about the chassis reference. This conservative geometry query detects intermediate crossings; integration with actual driving trajectories remains incomplete.
+
+Run `cargo run --release --locked -p asc-app -- wall-step examples/wall-step.json` to [advance a numerical physics proposal to its first WALL event](docs/USER_GUIDE.md#first-wall-event-in-a-numerical-physics-step) and apply a coupled impulse atomically. Remaining time is reported; a full persistent-contact driving loop is still incomplete.

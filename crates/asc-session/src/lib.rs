@@ -2,6 +2,8 @@
 mod body;
 mod collider;
 pub use collider::ColliderBox;
+mod wall_step;
+pub use wall_step::{WallStep, WallStepSettings, chassis_wall_contacts, step_to_wall};
 mod ground_contact;
 mod kinematics;
 use asc_scene::spawns::{Diagnostic, Spawn};

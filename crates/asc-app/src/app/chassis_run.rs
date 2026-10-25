@@ -433,6 +433,24 @@ pub(super) struct Workbench {
     parent: std::path::PathBuf,
 }
 impl Workbench {
+    pub fn step_to_wall<'a>(
+        &mut self,
+        dt_s: f64,
+        collider: &asc_session::ColliderBox,
+        walls: &'a asc_ground::WallIndex,
+        settings: asc_session::WallStepSettings,
+    ) -> Result<asc_session::WallStep<'a>, Box<dyn Error>> {
+        let time = self.time_s();
+        asc_session::step_to_wall(
+            &mut self.system,
+            dt_s,
+            collider,
+            walls,
+            settings,
+            |offset| self.environment.racks(time + offset),
+            |offset, k| self.environment.loads(time + offset, k),
+        )
+    }
     pub fn step_s(&self) -> f64 {
         self.config.step_s
     }
@@ -1133,6 +1151,35 @@ mod live_tests {
         );
         assert_eq!(report["time_advanced_s"], 0);
         assert_eq!(report["native_driving_collision_response"], false);
+        // Start separated, then stop the actual midpoint proposal at its first source-wall event.
+        let half = report["collider_proxy"]["half_extent_m"][2]
+            .as_f64()
+            .unwrap();
+        let center = report["collider_proxy"]["center_in_chassis_m"][2]
+            .as_f64()
+            .unwrap();
+        c["chassis"]["position_world_m"][2] = (half - center + 0.015).into();
+        std::fs::write(dir.0.join("dynamics.json"), c.to_string()).unwrap();
+        let mut moving = config.clone();
+        moving["step_s"] = 0.01.into();
+        moving["friction"] = 0.0.into();
+        moving["settings"] =
+            serde_json::json!({"max_iterations":1024,"velocity_tolerance_m_s":1e-7});
+        std::fs::write(&path, moving.to_string()).unwrap();
+        let event = crate::app::wall_impact::run_step(&path).unwrap();
+        let elapsed = event["step"]["integration"]["elapsed_s"].as_f64().unwrap();
+        assert!(elapsed > 0. && elapsed < 0.01);
+        assert!(
+            event["step"]["impact"]["net_impulse_world_ns"][2]
+                .as_f64()
+                .unwrap()
+                > 100.
+        );
+        assert_eq!(
+            event["after"]["chassis"]["position_m"],
+            event["step"]["integration"]["sample"]["chassis"]["position_m"]
+        );
+        assert_eq!(event["remaining_time_advanced"], false);
     }
     #[test]
     fn source_centres_register_nonzero_wheel_levers_and_initial_linkage_poses_in_rotated_chassis() {
