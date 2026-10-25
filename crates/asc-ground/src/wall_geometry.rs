@@ -63,14 +63,7 @@ impl OrientedBox {
         }
         Ok((self.center.to_array(), half.to_array()))
     }
-    /// Static overlap/margin query, not a sweep or a continuous collision guarantee.
-    pub fn contact_triangle(
-        &self,
-        triangle_world_m: [[f64; 3]; 3],
-        margin_m: f64,
-    ) -> Result<Option<BoxTriangleContact>> {
-        margin(margin_m)?;
-        self.aabb(margin_m)?;
+    fn triangle_local(&self, triangle_world_m: [[f64; 3]; 3]) -> Result<[DVec3; 3]> {
         let mut p = [DVec3::ZERO; 3];
         for (i, point) in triangle_world_m.into_iter().enumerate() {
             let point = DVec3::from_array(point);
@@ -79,6 +72,9 @@ impl OrientedBox {
             }
             p[i] = self.rotation.conjugate() * (point - self.center);
         }
+        Ok(p)
+    }
+    fn separation_local(&self, p: [DVec3; 3]) -> Result<(f64, DVec3)> {
         let edges = [p[1] - p[0], p[2] - p[1], p[0] - p[2]];
         let normal = edges[0].cross(p[2] - p[0]);
         if normal.length() <= 1e-12 * (edges[0].length() * (p[2] - p[0]).length()).max(1.) {
@@ -112,6 +108,7 @@ impl OrientedBox {
         });
         let mut best = f64::NEG_INFINITY;
         let mut direction = DVec3::ZERO;
+        let mut maximum = f64::NEG_INFINITY;
         for axis in axes {
             let projection = p.map(|p| axis.dot(p));
             let low = projection.into_iter().fold(f64::INFINITY, f64::min);
@@ -120,13 +117,34 @@ impl OrientedBox {
             let a = low - radius;
             let b = -radius - high;
             let gap = a.max(b);
-            if gap > margin_m + 1e-9 {
-                return Ok(None);
-            }
+            maximum = maximum.max(gap);
             if gap > best + 1e-10 {
                 best = gap;
                 direction = if a >= b { -axis } else { axis };
             }
+        }
+        Ok((maximum, direction))
+    }
+    /// Maximum normalized separating-axis gap; positive values bound geometric distance below.
+    /// This does not return closest features or an exact Euclidean distance.
+    pub fn separation_triangle(&self, triangle_world_m: [[f64; 3]; 3]) -> Result<f64> {
+        self.aabb(0.)?;
+        Ok(self
+            .separation_local(self.triangle_local(triangle_world_m)?)?
+            .0)
+    }
+    /// Static overlap/margin query, not a sweep or a continuous collision guarantee.
+    pub fn contact_triangle(
+        &self,
+        triangle_world_m: [[f64; 3]; 3],
+        margin_m: f64,
+    ) -> Result<Option<BoxTriangleContact>> {
+        margin(margin_m)?;
+        self.aabb(margin_m)?;
+        let p = self.triangle_local(triangle_world_m)?;
+        let (best, direction) = self.separation_local(p)?;
+        if best > margin_m + 1e-9 {
+            return Ok(None);
         }
         let mut polygon = p.to_vec();
         let expanded = self.half + DVec3::splat(margin_m + 1e-9);

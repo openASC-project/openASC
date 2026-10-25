@@ -11,3 +11,4 @@ pub mod suspension_run;
 pub mod viewer;
 pub mod wall_impact;
 pub mod wall_query;
+pub mod wall_sweep;

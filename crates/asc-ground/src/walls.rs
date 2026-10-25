@@ -25,6 +25,15 @@ pub struct WallContact<'a> {
     pub mesh: &'a str,
     pub model: &'a str,
 }
+#[derive(Debug, Serialize)]
+pub struct WallSweep<'a> {
+    /// Conservative proximity event, not an exact time of geometric intersection.
+    pub fraction: Option<f64>,
+    pub iterations: usize,
+    pub candidate_count: usize,
+    pub distance_tolerance_m: f64,
+    pub contacts: Vec<WallContact<'a>>,
+}
 impl WallIndex {
     pub fn load(config: &Path) -> Result<Self> {
         let mut index = Self {
@@ -156,7 +165,7 @@ impl WallIndex {
                 "No supported WALL triangles assembled",
             ))?;
         }
-        index.warning(Error::new("wall_query_scope",&config.to_string_lossy(),0,"Static numeric-prefix WALL geometry only. No inferred surface coefficients, obstacle classes, collision response or CCD"))?;
+        index.warning(Error::new("wall_query_scope",&config.to_string_lossy(),0,"Static numeric-prefix WALL geometry only. No inferred surface coefficients, obstacle classes, collision response or native driving CCD; prescribed rigid-path sweep queries are available"))?;
         Ok(index)
     }
     fn retain_metadata(&mut self, bytes: usize) -> Result<()> {
@@ -177,7 +186,7 @@ impl WallIndex {
         Ok(())
     }
     pub fn summary(&self) -> serde_json::Value {
-        serde_json::json!({"scope":"native_static_wall_triangles","triangles":self.triangles.len(),"input_triangles":self.input_triangles,"meshes":self.meshes,"skipped_degenerate":self.skipped_degenerate,"bvh_ready":!self.nodes.is_empty(),"diagnostics":self.diagnostics,"collision_response":false,"continuous_collision_detection":false})
+        serde_json::json!({"scope":"native_static_wall_triangles","triangles":self.triangles.len(),"input_triangles":self.input_triangles,"meshes":self.meshes,"skipped_degenerate":self.skipped_degenerate,"bvh_ready":!self.nodes.is_empty(),"diagnostics":self.diagnostics,"collision_response":false,"continuous_collision_detection":false,"prescribed_rigid_path_sweep":true})
     }
     /// All contacts from at most 4096 full-3D AABB candidates, sorted by retained triangle index.
     /// Overflow is an error; no partial or truncated report is returned.
@@ -210,5 +219,76 @@ impl WallIndex {
             }
         }
         Ok(result)
+    }
+    /// Conservative advancement along a prescribed translation/shortest-arc rotation.
+    /// A clear result certifies this path within numeric tolerances; iteration exhaustion is an error.
+    pub fn sweep(&self, motion: &BoxMotion, settings: WallSweepSettings) -> Result<WallSweep<'_>> {
+        settings.validate()?;
+        let indices = spatial::candidates(
+            &self.triangles,
+            &self.order,
+            &self.nodes,
+            motion.bounds(settings.distance_tolerance_m)?,
+            || {
+                Error::new(
+                    "wall_sweep_limit",
+                    "<wall sweep>",
+                    0,
+                    "Swept bounds exceed 4096 WALL candidates",
+                )
+            },
+        )?;
+        let mut result = WallSweep {
+            fraction: None,
+            iterations: 0,
+            candidate_count: indices.len(),
+            distance_tolerance_m: settings.distance_tolerance_m,
+            contacts: Vec::new(),
+        };
+        if indices.is_empty() {
+            return Ok(result);
+        }
+        let speed = motion.speed_bound();
+        let mut fraction = 0.;
+        for iteration in 1..=settings.max_iterations {
+            let body = motion.at(fraction)?;
+            let mut gap = f64::INFINITY;
+            for &i in &indices {
+                gap = gap.min(body.separation_triangle(self.triangles[i].points)?);
+            }
+            result.iterations = iteration;
+            if gap <= settings.distance_tolerance_m + 1e-9 {
+                result.fraction = Some(fraction);
+                result.contacts = self.contacts(&body, settings.distance_tolerance_m)?;
+                if result.contacts.is_empty() {
+                    return Err(Error::new(
+                        "wall_sweep_patch",
+                        "<wall sweep>",
+                        0,
+                        "Proximity event has no finite contact patch",
+                    ));
+                }
+                return Ok(result);
+            }
+            if fraction == 1. || speed == 0. {
+                return Ok(result);
+            }
+            let advance = (gap - settings.distance_tolerance_m) / speed;
+            if !advance.is_finite() || advance <= 1e-15 {
+                return Err(Error::new(
+                    "wall_sweep_progress",
+                    "<wall sweep>",
+                    0,
+                    "Conservative sweep cannot make finite progress",
+                ));
+            }
+            fraction = (fraction + advance).min(1.);
+        }
+        Err(Error::new(
+            "wall_sweep_iterations",
+            "<wall sweep>",
+            0,
+            "Conservative sweep exceeded the iteration budget; path is not certified clear",
+        ))
     }
 }

@@ -252,3 +252,285 @@ fn wall_index_bvh_uses_height_and_rejects_candidate_overflow_without_truncating(
         "wall_limit"
     );
 }
+
+fn sweep_fixture() -> (Directory, WallIndex) {
+    let d = fixture(
+        &[mesh(
+            "1WALL",
+            &[[-20., -20., 0.], [20., -20., 0.], [0., 20., 0.]],
+            &[0, 1, 2],
+            0.,
+        )],
+        false,
+    );
+    let index = WallIndex::load(&d.0.join("models.ini")).unwrap();
+    (d, index)
+}
+fn sweep_motion(
+    a: [f64; 3],
+    b: [f64; 3],
+    qa: DQuat,
+    qb: DQuat,
+    center: [f64; 3],
+    half: [f64; 3],
+) -> asc_ground::BoxMotion {
+    asc_ground::BoxMotion::new(a, b, qa.to_array(), qb.to_array(), center, half).unwrap()
+}
+#[test]
+fn conservative_wall_sweep_detects_pass_through_with_clear_endpoints_and_closed_boundary_cases() {
+    use asc_ground::WallSweepSettings;
+    let (_d, index) = sweep_fixture();
+    let motion = sweep_motion(
+        [0., 0., 5.],
+        [0., 0., -5.],
+        DQuat::IDENTITY,
+        DQuat::IDENTITY,
+        [0.; 3],
+        [1.; 3],
+    );
+    assert!(
+        index
+            .contacts(&motion.at(0.).unwrap(), 0.)
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        index
+            .contacts(&motion.at(1.).unwrap(), 0.)
+            .unwrap()
+            .is_empty()
+    );
+    let hit = index.sweep(&motion, WallSweepSettings::default()).unwrap();
+    let expected = (4. - 1e-6) / 10.;
+    assert!((hit.fraction.unwrap() - expected).abs() < 1e-10);
+    assert_eq!(hit.candidate_count, 1);
+    near(hit.contacts[0].geometry.normal_world, DVec3::Z);
+    assert!(hit.contacts[0].geometry.separation_m <= 1e-6 + 1e-9);
+    for (a, b, expected) in [
+        ([0., 0., 2.], [0., 0., 1.], Some(1. - 1e-6)),
+        ([0., 0., 0.5], [0., 0., 5.], Some(0.)),
+        ([0., 0., 5.], [0., 0., 5.], None),
+        ([0., 0., 5.], [0., 0., 10.], None),
+    ] {
+        let m = sweep_motion(a, b, DQuat::IDENTITY, DQuat::IDENTITY, [0.; 3], [1.; 3]);
+        let h = index.sweep(&m, WallSweepSettings::default()).unwrap();
+        match expected {
+            Some(t) => assert!((h.fraction.unwrap() - t).abs() < 1e-8),
+            None => assert!(h.fraction.is_none()),
+        }
+    }
+}
+#[test]
+fn conservative_rotation_and_offset_reference_sweeps_match_analytical_first_proximity() {
+    use asc_ground::WallSweepSettings;
+    let (_d, index) = sweep_fixture();
+    for offset in [false, true] {
+        let (reference, local, half, aa, bb, cc) = if offset {
+            (
+                [0., 0., 2.],
+                [2., 0., 0.],
+                [0.1; 3],
+                2.1_f64,
+                0.1_f64,
+                2_f64,
+            )
+        } else {
+            (
+                [0., 0., 1.5],
+                [0.; 3],
+                [2., 0.2, 0.2],
+                2_f64,
+                0.2_f64,
+                1.5_f64,
+            )
+        };
+        let m = sweep_motion(
+            reference,
+            reference,
+            DQuat::IDENTITY,
+            DQuat::from_rotation_y(std::f64::consts::PI),
+            local,
+            half,
+        );
+        assert!(index.contacts(&m.at(0.).unwrap(), 0.).unwrap().is_empty());
+        assert!(index.contacts(&m.at(1.).unwrap(), 0.).unwrap().is_empty());
+        let hit = index.sweep(&m, WallSweepSettings::default()).unwrap();
+        let angle = ((cc - 1e-6) / aa.hypot(bb)).asin() - bb.atan2(aa);
+        let fraction = hit.fraction.unwrap();
+        assert!(
+            (fraction - angle / std::f64::consts::PI).abs() < 1e-8,
+            "{fraction} vs {}",
+            angle / std::f64::consts::PI
+        );
+        assert!(hit.iterations > 2);
+        assert!(!hit.contacts.is_empty());
+        let early = m.at((fraction - 1e-5).max(0.)).unwrap();
+        assert!(index.contacts(&early, 0.).unwrap().is_empty());
+    }
+}
+#[test]
+fn swept_rotation_is_world_covariant_quaternion_sign_invariant_and_finite_face_aware() {
+    use asc_ground::WallSweepSettings;
+    let (_d, index) = sweep_fixture();
+    let rotation =
+        DQuat::from_rotation_y(0.4) * DQuat::from_rotation_z(-0.3) * DQuat::from_rotation_x(0.2);
+    let shift = DVec3::new(3., -2., 5.);
+    let points = [[-20., -20., 0.], [20., -20., 0.], [0., 20., 0.]].map(|p| {
+        (shift + rotation * DVec3::from_array(p))
+            .to_array()
+            .map(|x| x as f32)
+    });
+    let d = fixture(&[mesh("1WALL", &points, &[0, 2, 1], 0.)], false);
+    let transformed = WallIndex::load(&d.0.join("models.ini")).unwrap();
+    let start = DVec3::new(0., 0., 2.);
+    let end = DQuat::from_rotation_y(2.5);
+    let base = sweep_motion(
+        start.to_array(),
+        start.to_array(),
+        DQuat::IDENTITY,
+        end,
+        [2., 0., 0.],
+        [0.1; 3],
+    );
+    let t0 = index
+        .sweep(&base, WallSweepSettings::default())
+        .unwrap()
+        .fraction
+        .unwrap();
+    for sign in [1., -1.] {
+        let q = if sign > 0. {
+            rotation * end
+        } else {
+            -(rotation * end)
+        };
+        let m = sweep_motion(
+            (shift + rotation * start).to_array(),
+            (shift + rotation * start).to_array(),
+            rotation,
+            q,
+            [2., 0., 0.],
+            [0.1; 3],
+        );
+        let h = transformed.sweep(&m, WallSweepSettings::default()).unwrap();
+        assert!((h.fraction.unwrap() - t0).abs() < 2e-6);
+        assert!(
+            (DVec3::from_array(h.contacts[0].geometry.normal_world) - rotation * DVec3::Z).length()
+                < 2e-6
+        );
+    }
+    // A finite triangular face cannot block a path only intersecting its infinite plane/AABB.
+    let d = fixture(
+        &[mesh(
+            "1WALL",
+            &[[0., 0., 0.], [4., 0., 0.], [0., 4., 0.]],
+            &[0, 1, 2],
+            0.,
+        )],
+        false,
+    );
+    let finite = WallIndex::load(&d.0.join("models.ini")).unwrap();
+    let m = sweep_motion(
+        [3., 3., 1.],
+        [3., 3., -1.],
+        DQuat::IDENTITY,
+        DQuat::IDENTITY,
+        [0.; 3],
+        [0.1; 3],
+    );
+    let h = finite.sweep(&m, WallSweepSettings::default()).unwrap();
+    assert_eq!(h.candidate_count, 1);
+    assert!(h.fraction.is_none());
+}
+#[test]
+fn swept_bounds_caps_and_exhaustion_fail_instead_of_certifying_an_unresolved_path() {
+    use asc_ground::{BoxMotion, WallSweepSettings};
+    let (_d, index) = sweep_fixture();
+    let m = sweep_motion(
+        [0., 0., 5.],
+        [0., 0., -5.],
+        DQuat::IDENTITY,
+        DQuat::IDENTITY,
+        [0.; 3],
+        [1.; 3],
+    );
+    assert_eq!(
+        index
+            .sweep(
+                &m,
+                WallSweepSettings {
+                    max_iterations: 1,
+                    ..WallSweepSettings::default()
+                }
+            )
+            .unwrap_err()
+            .code,
+        "wall_sweep_iterations"
+    );
+    for tolerance in [-1., 0., 0.0011, f64::NAN] {
+        assert!(
+            index
+                .sweep(
+                    &m,
+                    WallSweepSettings {
+                        distance_tolerance_m: tolerance,
+                        ..WallSweepSettings::default()
+                    }
+                )
+                .is_err()
+        );
+    }
+    assert!(m.at(-0.1).is_err());
+    assert!(m.at(f64::NAN).is_err());
+    assert!(
+        BoxMotion::new(
+            [0.; 3],
+            [f64::NAN, 0., 0.],
+            [0., 0., 0., 1.],
+            [0., 0., 0., 1.],
+            [0.; 3],
+            [1.; 3]
+        )
+        .is_err()
+    );
+    assert!(
+        BoxMotion::new(
+            [0.; 3],
+            [0.; 3],
+            [0.; 4],
+            [0., 0., 0., 1.],
+            [0.; 3],
+            [1.; 3]
+        )
+        .is_err()
+    );
+    assert!(
+        BoxMotion::new(
+            [1e7, 0., 0.],
+            [0.; 3],
+            [0., 0., 0., 1.],
+            [0., 0., 0., 1.],
+            [0.; 3],
+            [1.; 3]
+        )
+        .is_err()
+    );
+    for count in [4096, 4097] {
+        let ids = (0..count).flat_map(|_| [0, 1, 2]).collect::<Vec<u16>>();
+        let d = fixture(
+            &[mesh(
+                "1WALL",
+                &[[-20., -20., 0.], [20., -20., 0.], [0., 20., 0.]],
+                &ids,
+                0.,
+            )],
+            false,
+        );
+        let walls = WallIndex::load(&d.0.join("models.ini")).unwrap();
+        let result = walls.sweep(&m, WallSweepSettings::default());
+        if count == 4096 {
+            assert_eq!(result.unwrap().contacts.len(), 4096);
+        } else {
+            assert_eq!(result.unwrap_err().code, "wall_sweep_limit");
+        }
+    }
+}

@@ -149,3 +149,123 @@ fn cli_rejects_invalid_or_oversized_queries_without_partial_json() {
     assert!(!r.status.success());
     assert!(r.stdout.is_empty());
 }
+
+fn sweep_invoke(d: &Directory, c: &serde_json::Value) -> std::process::Output {
+    std::fs::write(d.0.join("sweep.json"), c.to_string()).unwrap();
+    Command::new(env!("CARGO_BIN_EXE_openasc"))
+        .arg("wall-sweep")
+        .arg(d.0.join("sweep.json"))
+        .output()
+        .unwrap()
+}
+fn sweep_configuration(c: &serde_json::Value) -> serde_json::Value {
+    let mut c = c.clone();
+    c.as_object_mut().unwrap().remove("probes");
+    c["motions"] = serde_json::json!([{"reference_start_m":[0,0,3],"reference_end_m":[0,0,-3],"orientation_start_xyzw":[0,0,0,1],"orientation_end_xyzw":[0,0,0,1]}]);
+    c
+}
+#[test]
+fn cli_continuous_sweep_rebases_reference_and_retains_source_patch_at_first_proximity() {
+    let (d, c) = fixture();
+    let c = sweep_configuration(&c);
+    let bytes = std::fs::read(d.0.join("car/collider.kn5")).unwrap();
+    let result = sweep_invoke(&d, &c);
+    assert!(
+        result.status.success(),
+        "{}",
+        String::from_utf8_lossy(&result.stderr)
+    );
+    let v: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    let sweep = &v["records"][0]["sweep"];
+    let center = v["collider_proxy"]["center_in_chassis_m"][2]
+        .as_f64()
+        .unwrap();
+    let half = v["collider_proxy"]["half_extent_m"][2].as_f64().unwrap();
+    let expected = (3. + center - half - 1e-6) / 6.;
+    assert!((sweep["fraction"].as_f64().unwrap() - expected).abs() < 1e-9);
+    assert_eq!(sweep["contacts"][0]["mesh"], "1WALL");
+    assert_eq!(sweep["contacts"][0]["model"], "track.kn5");
+    for p in sweep["contacts"][0]["geometry"]["points_world_m"]
+        .as_array()
+        .unwrap()
+    {
+        assert!((p[2].as_f64().unwrap() - 4.).abs() < 1e-9);
+    }
+    assert_eq!(v["collision_response"], false);
+    assert_eq!(v["exact_time_of_impact"], false);
+    assert_eq!(std::fs::read(d.0.join("car/collider.kn5")).unwrap(), bytes);
+}
+#[test]
+fn cli_sweep_errors_never_emit_a_partial_successful_path_report() {
+    let (d, c) = fixture();
+    let c = sweep_configuration(&c);
+    let mut cases = Vec::new();
+    let mut q = c.clone();
+    q["motions"] = serde_json::json!([]);
+    cases.push(q);
+    let mut q = c.clone();
+    q["motions"] = serde_json::json!(vec![c["motions"][0].clone(); 33]);
+    cases.push(q);
+    let mut q = c.clone();
+    q["motions"][0]["orientation_end_xyzw"] = serde_json::json!([0, 0, 0, 0]);
+    cases.push(q);
+    let mut q = c.clone();
+    q["settings"] = serde_json::json!({"distance_tolerance_m":1e-6,"max_iterations":1});
+    cases.push(q);
+    let mut q = c.clone();
+    q["motions"][0]["extra"] = true.into();
+    cases.push(q);
+    // The first motion succeeds, but a later malformed motion invalidates the entire output.
+    let mut q = c.clone();
+    q["motions"]
+        .as_array_mut()
+        .unwrap()
+        .push(c["motions"][0].clone());
+    q["motions"][1]["orientation_end_xyzw"] = serde_json::json!([0, 0, 0, 0]);
+    cases.push(q);
+    for q in cases {
+        let result = sweep_invoke(&d, &q);
+        assert!(!result.status.success(), "{q}");
+        assert!(result.stdout.is_empty());
+    }
+    let ids = (0..4096).flat_map(|_| [0, 1, 2]).collect::<Vec<u16>>();
+    let wall = f::named(
+        f::mesh(
+            &[[-4., -4., 0.], [4., -4., 0.], [0., 4., 0.]],
+            &ids,
+            2,
+            0,
+            0,
+            0.,
+            0,
+        ),
+        "1WALL",
+    );
+    let spawn = f::named(f::base(&[], Mat4::IDENTITY.to_cols_array(), 1), "AC_PIT_0");
+    std::fs::write(
+        d.0.join("track.kn5"),
+        f::file(
+            f::base(&[wall, spawn], Mat4::IDENTITY.to_cols_array(), 1),
+            6,
+        ),
+    )
+    .unwrap();
+    assert!(sweep_invoke(&d, &c).status.success());
+    let mut q = c.clone();
+    q["motions"]
+        .as_array_mut()
+        .unwrap()
+        .push(c["motions"][0].clone());
+    let result = sweep_invoke(&d, &q);
+    assert!(!result.status.success());
+    assert!(result.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("4096 total"));
+    std::fs::write(d.0.join("sweep.json"), vec![b' '; 8193]).unwrap();
+    let result = Command::new(env!("CARGO_BIN_EXE_openasc"))
+        .arg("wall-sweep")
+        .arg(d.0.join("sweep.json"))
+        .output()
+        .unwrap();
+    assert!(!result.status.success());
+    assert!(result.stdout.is_empty());
+}

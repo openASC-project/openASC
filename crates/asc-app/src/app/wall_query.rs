@@ -50,36 +50,7 @@ pub fn run(path: &Path) -> Result<serde_json::Value> {
         c.model_orientation_in_chassis_xyzw,
     )?;
     let walls = asc_ground::WallIndex::load(&track)?;
-    let mut spawn_diagnostics = Vec::new();
-    let (origin, rotation) = if let Some(name) = &c.spawn {
-        let report = asc_scene::spawns::load(&track)?;
-        let s = report
-            .spawns
-            .iter()
-            .find(|s| s.name == *name)
-            .ok_or("Selected wall-query spawn is absent, ambiguous or unsupported")?;
-        let basis = DMat3::from_cols(
-            DVec3::from_array(s.left),
-            DVec3::from_array(s.up),
-            DVec3::from_array(s.forward),
-        );
-        if (basis.determinant() - 1.).abs() > 1e-6
-            || (basis.transpose() * basis - DMat3::IDENTITY)
-                .to_cols_array()
-                .iter()
-                .any(|v| v.abs() > 1e-6)
-        {
-            return Err("wall-query spawn must provide a rigid right-handed basis".into());
-        }
-        let value = (
-            DVec3::from_array(s.position),
-            DQuat::from_mat3(&basis).normalize(),
-        );
-        spawn_diagnostics = report.diagnostics;
-        value
-    } else {
-        (DVec3::ZERO, DQuat::IDENTITY)
-    };
+    let (origin, rotation, spawn_diagnostics) = source_pose(&track, c.spawn.as_deref())?;
     let mut count = 0;
     let mut records = Vec::new();
     for probe in &c.probes {
@@ -107,4 +78,41 @@ pub fn run(path: &Path) -> Result<serde_json::Value> {
         serde_json::json!({"scope":"native_collider_wall_geometry_preflight","explicit_configuration":c,"body_shape":"enclosing_chassis_frame_box","collider_proxy":collider,"walls":walls.summary(),"spawn":c.spawn,"spawn_diagnostics":spawn_diagnostics,"has_source_errors":has_source_errors,"records":records,
         "collision_response":false,"continuous_collision_detection":false,"original_collision_shape_validated":false,"simulation_ready":false}),
     )
+}
+
+pub(super) fn source_pose(
+    track: &Path,
+    spawn: Option<&str>,
+) -> Result<(DVec3, DQuat, Vec<asc_scene::spawns::Diagnostic>)> {
+    let mut spawn_diagnostics = Vec::new();
+    let (origin, rotation) = if let Some(name) = spawn {
+        let report = asc_scene::spawns::load(track)?;
+        let s = report
+            .spawns
+            .iter()
+            .find(|s| s.name == name)
+            .ok_or("Selected WALL query spawn is absent, ambiguous or unsupported")?;
+        let basis = DMat3::from_cols(
+            DVec3::from_array(s.left),
+            DVec3::from_array(s.up),
+            DVec3::from_array(s.forward),
+        );
+        if (basis.determinant() - 1.).abs() > 1e-6
+            || (basis.transpose() * basis - DMat3::IDENTITY)
+                .to_cols_array()
+                .iter()
+                .any(|v| v.abs() > 1e-6)
+        {
+            return Err("WALL query spawn must provide a rigid right-handed basis".into());
+        }
+        let value = (
+            DVec3::from_array(s.position),
+            DQuat::from_mat3(&basis).normalize(),
+        );
+        spawn_diagnostics = report.diagnostics;
+        value
+    } else {
+        (DVec3::ZERO, DQuat::IDENTITY)
+    };
+    Ok((origin, rotation, spawn_diagnostics))
 }

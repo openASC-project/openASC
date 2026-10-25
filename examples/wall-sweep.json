@@ -1,0 +1,96 @@
+{
+  "car_directory": "../assettocorsa/content/cars/bmw_m3_e30",
+  "models_ini": "../assettocorsa/content/tracks/drift/models.ini",
+  "data": "auto",
+  "compound": null,
+  "spawn": "AC_PIT_0",
+  "model_origin_in_chassis_m": [
+    0,
+    0,
+    0
+  ],
+  "model_orientation_in_chassis_xyzw": [
+    0,
+    0,
+    0,
+    1
+  ],
+  "settings": {
+    "distance_tolerance_m": 1e-06,
+    "max_iterations": 512
+  },
+  "motions": [
+    {
+      "reference_start_m": [
+        0,
+        -0.04,
+        0
+      ],
+      "reference_end_m": [
+        -8,
+        -0.04,
+        0
+      ],
+      "orientation_start_xyzw": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "orientation_end_xyzw": [
+        0,
+        0,
+        0,
+        1
+      ]
+    },
+    {
+      "reference_start_m": [
+        -4,
+        -0.04,
+        0
+      ],
+      "reference_end_m": [
+        -4,
+        -0.04,
+        0
+      ],
+      "orientation_start_xyzw": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "orientation_end_xyzw": [
+        0,
+        1,
+        0,
+        0
+      ]
+    },
+    {
+      "reference_start_m": [
+        0,
+        -0.04,
+        0
+      ],
+      "reference_end_m": [
+        0,
+        -0.04,
+        -2
+      ],
+      "orientation_start_xyzw": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "orientation_end_xyzw": [
+        0,
+        0,
+        0,
+        1
+      ]
+    }
+  ]
+}
