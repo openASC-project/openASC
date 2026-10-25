@@ -395,7 +395,13 @@ fn separating_and_empty_manifolds_are_exact_noops_and_invalid_or_unconverged_sol
         serde_json::to_value(system.kinematics().unwrap()).unwrap(),
         snapshot
     );
-    let contacts = wall_contacts(0.2, DQuat::IDENTITY, DVec3::ZERO);
+    let mut contacts = wall_contacts(0.2, DQuat::IDENTITY, DVec3::ZERO);
+    contacts[0].point_world_m = [0.3, 1., 0.2];
+    contacts[1].point_world_m = [0., -1., 0.1];
+    system
+        .clone()
+        .resolve_chassis_contacts(&contacts, Default::default())
+        .unwrap();
     for settings in [
         asc_physics::ChassisContactSettings {
             max_iterations: 0,
@@ -2650,4 +2656,196 @@ fn partial_midpoint_impact_and_remaining_time_match_analytical_free_translation(
     near(rest.chassis.velocity_world_m_s[0], 0., 1e-12);
     near(rest.chassis.position_m[1], 0.02, 1e-12);
     assert!(impact.work.external_impulse_work_j < 0.);
+}
+
+#[test]
+fn clustered_friction_contacts_converge_strictly_without_merging_distinct_constraints() {
+    use asc_physics::{ChassisContact, ChassisContactSettings};
+    for spacing in [0.01, 0.001, 0.0005, 0.0001] {
+        let mut initial = contact_fixture(DQuat::IDENTITY, DVec3::ZERO);
+        initial
+            .impulse_at_world_point([0., 0., -355.], [0.; 3])
+            .unwrap();
+        let contacts: Vec<_> = [
+            [0.5, 1., 0.],
+            [0.5 + spacing, 1. - 0.08 * spacing, 0.],
+            [0.5 + spacing, 1., 0.],
+        ]
+        .into_iter()
+        .map(|point| ChassisContact {
+            point_world_m: point,
+            normal_world: [0., 0., 1.],
+            friction: 0.3,
+        })
+        .collect();
+        let snapshot = initial.kinematics().unwrap();
+        let mut a = initial.clone();
+        let result = a
+            .resolve_chassis_contacts(
+                &contacts,
+                ChassisContactSettings {
+                    max_iterations: 1024,
+                    velocity_tolerance_m_s: 1e-7,
+                },
+            )
+            .unwrap();
+        assert_eq!(result.contacts.len(), 3);
+        assert!(result.max_projected_velocity_residual_m_s <= 1e-7);
+        assert!(result.work.external_impulse_work_j < 0.);
+        assert_eq!(
+            snapshot.chassis.position_m,
+            a.kinematics().unwrap().chassis.position_m
+        );
+        for c in &result.contacts {
+            assert!(c.normal_impulse_ns >= 0.);
+            assert!(
+                DVec3::from_array(c.tangent_impulse_world_ns).length()
+                    <= 0.3 * c.normal_impulse_ns + 1e-8
+            );
+            assert!(c.point_velocity_after_world_m_s[2] >= -1e-7);
+        }
+        let mut reversed = contacts.clone();
+        reversed.reverse();
+        let other = initial
+            .resolve_chassis_contacts(
+                &reversed,
+                ChassisContactSettings {
+                    max_iterations: 1024,
+                    velocity_tolerance_m_s: 1e-7,
+                },
+            )
+            .unwrap();
+        close(
+            other.net_impulse_world_ns,
+            DVec3::from_array(result.net_impulse_world_ns),
+            1e-3,
+        );
+    }
+}
+
+#[test]
+fn simultaneous_normal_projection_matches_independent_exhaustive_active_sets() {
+    use asc_physics::ChassisContact;
+    let mut initial = contact_fixture(DQuat::IDENTITY, DVec3::ZERO);
+    initial
+        .impulse_at_world_point([0., 0., -355.], [0.; 3])
+        .unwrap();
+    let points = [
+        [0.4, 1., 0.2],
+        [-0.5, 0.2, -0.1],
+        [0.3, -0.8, 0.1],
+        [-0.6, -0.6, -0.2],
+    ];
+    let normals = [
+        [0.1, 0., 1.],
+        [-0.1, 0.2, 1.],
+        [0.2, -0.1, 1.],
+        [-0.2, -0.1, 1.],
+    ]
+    .map(|n| DVec3::from_array(n).normalize());
+    let contacts: Vec<_> = (0..4)
+        .map(|i| ChassisContact {
+            point_world_m: points[i],
+            normal_world: normals[i].to_array(),
+            friction: 0.,
+        })
+        .collect();
+    let before = initial.kinematics().unwrap().chassis;
+    let speeds = |state: &asc_physics::State| -> [f64; 4] {
+        std::array::from_fn(|i| {
+            normals[i].dot(
+                DVec3::from_array(state.velocity_world_m_s)
+                    + DVec3::from_array(state.angular_velocity_world_rad_s)
+                        .cross(DVec3::from_array(points[i]) - DVec3::from_array(state.position_m)),
+            )
+        })
+    };
+    let v0 = speeds(&before);
+    let mut matrix = [[0.; 4]; 4];
+    for j in 0..4 {
+        let mut trial = initial.clone();
+        trial
+            .impulse_at_world_point(normals[j].to_array(), points[j])
+            .unwrap();
+        let v = speeds(&trial.kinematics().unwrap().chassis);
+        for i in 0..4 {
+            matrix[i][j] = v[i] - v0[i];
+        }
+    }
+    let mut reference = None;
+    for mask in 0..16 {
+        let indices: Vec<_> = (0..4).filter(|i| mask & (1 << i) != 0).collect();
+        let n = indices.len();
+        let mut augmented = [[0.; 5]; 4];
+        for i in 0..n {
+            for j in 0..n {
+                augmented[i][j] = matrix[indices[i]][indices[j]];
+            }
+            augmented[i][n] = -v0[indices[i]];
+        }
+        let mut singular = false;
+        for k in 0..n {
+            let pivot = (k..n)
+                .max_by(|&i, &j| augmented[i][k].abs().total_cmp(&augmented[j][k].abs()))
+                .unwrap();
+            if augmented[pivot][k].abs() < 1e-12 {
+                singular = true;
+                break;
+            }
+            augmented.swap(k, pivot);
+            let scale = augmented[k][k];
+            for value in &mut augmented[k][k..=n] {
+                *value /= scale;
+            }
+            let pivot_row = augmented[k];
+            for (i, row) in augmented.iter_mut().enumerate().take(n) {
+                if i != k {
+                    let f = row[k];
+                    for (value, pivot) in row[k..=n].iter_mut().zip(&pivot_row[k..=n]) {
+                        *value -= f * pivot;
+                    }
+                }
+            }
+        }
+        if singular {
+            continue;
+        }
+        let mut lambda = [0.; 4];
+        for i in 0..n {
+            lambda[indices[i]] = augmented[i][n];
+        }
+        let velocity: [f64; 4] =
+            std::array::from_fn(|i| v0[i] + (0..4).map(|j| matrix[i][j] * lambda[j]).sum::<f64>());
+        if lambda.iter().any(|x| *x < -1e-8) || velocity.iter().any(|x| *x < -1e-8) {
+            continue;
+        }
+        if (0..4).any(|i| (lambda[i] * velocity[i]).abs() > 1e-6) {
+            continue;
+        }
+        let mut solved = initial.clone();
+        for j in 0..4 {
+            solved
+                .impulse_at_world_point((normals[j] * lambda[j]).to_array(), points[j])
+                .unwrap();
+        }
+        reference = Some(solved.kinematics().unwrap().chassis);
+        break;
+    }
+    let expected = reference.expect("Independent exhaustive normal LCP has a feasible active set");
+    let result = initial
+        .resolve_chassis_contacts(&contacts, Default::default())
+        .unwrap();
+    assert!(result.normal_projection_used);
+    let actual = initial.kinematics().unwrap().chassis;
+    close(
+        actual.velocity_world_m_s,
+        DVec3::from_array(expected.velocity_world_m_s),
+        1e-8,
+    );
+    close(
+        actual.angular_velocity_world_rad_s,
+        DVec3::from_array(expected.angular_velocity_world_rad_s),
+        1e-8,
+    );
+    near(actual.kinetic_energy_j, expected.kinetic_energy_j, 1e-6);
 }

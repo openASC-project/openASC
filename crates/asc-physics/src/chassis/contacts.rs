@@ -34,6 +34,7 @@ pub struct ChassisContactResult {
 pub struct ChassisContactSample {
     pub contacts: Vec<ChassisContactResult>,
     pub iterations: usize,
+    pub normal_projection_used: bool,
     pub max_projected_velocity_residual_m_s: f64,
     pub net_impulse_world_ns: [f64; 3],
     pub net_moment_about_chassis_com_nms: [f64; 3],
@@ -111,6 +112,7 @@ fn disk(k: [f64; 3], old: [f64; 2], speed: [f64; 2], radius: f64) -> Result<[f64
     }
     Ok(x)
 }
+#[derive(Clone)]
 struct Prepared {
     contact: ChassisContact,
     directions: [DVec3; 3],
@@ -119,6 +121,137 @@ struct Prepared {
     kn: f64,
     kt: [f64; 3],
     lambda: [f64; 3],
+}
+struct NormalProjection {
+    matrix: [[f64; 64]; 64],
+    scales: Vec<f64>,
+}
+impl NormalProjection {
+    fn new(prepared: &[Prepared]) -> Self {
+        let n = prepared.len();
+        let mut matrix = [[0.; 64]; 64];
+        let scales: Vec<_> = prepared.iter().map(|p| p.kn.sqrt()).collect();
+        for i in 0..n {
+            for j in 0..=i {
+                let value = 0.5
+                    * (dot(prepared[i].rows[0], prepared[j].response[0])
+                        + dot(prepared[j].rows[0], prepared[i].response[0]))
+                    / scales[i]
+                    / scales[j];
+                matrix[i][j] = value;
+                matrix[j][i] = value;
+            }
+        }
+        Self { matrix, scales }
+    }
+}
+fn active_solve(matrix: &[[f64; 64]; 64], active: &[usize], rhs: &[f64]) -> Result<Vec<f64>> {
+    let mut lower = [[0.; 6]; 6];
+    let n = active.len();
+    if n > 6 {
+        return Err(fail("Normal active set exceeds chassis rank"));
+    }
+    for i in 0..n {
+        for j in 0..=i {
+            let v = matrix[active[i]][active[j]]
+                - (0..j).map(|k| lower[i][k] * lower[j][k]).sum::<f64>();
+            if i == j {
+                if !v.is_finite() || v <= 1e-12 {
+                    return Err(fail("Normal active block is numerically dependent"));
+                }
+                lower[i][j] = v.sqrt();
+            } else {
+                lower[i][j] = v / lower[j][j];
+            }
+        }
+    }
+    let mut x = vec![0.; n];
+    for i in 0..n {
+        x[i] = (rhs[i] - (0..i).map(|j| lower[i][j] * x[j]).sum::<f64>()) / lower[i][i];
+    }
+    for i in (0..n).rev() {
+        x[i] = (x[i] - (i + 1..n).map(|j| lower[j][i] * x[j]).sum::<f64>()) / lower[i][i];
+    }
+    if x.iter().any(|v| !v.is_finite()) {
+        return Err(fail("Nonfinite active normal solve"));
+    }
+    Ok(x)
+}
+// Dual active-set projection at fixed tangential impulses. Dependent constraints may
+// replace an active constraint by a dual-bound step; contact points are not discarded.
+fn project_normals(
+    block: &NormalProjection,
+    prepared: &mut [Prepared],
+    u: &mut [f64; 6],
+    tolerance: f64,
+) -> Result<()> {
+    let n = prepared.len();
+    let matrix = &block.matrix;
+    let scales = &block.scales;
+    for p in prepared.iter_mut() {
+        p.change(0, 0., u)?;
+    }
+    let mut active = Vec::new();
+    let mut operations = 0;
+    loop {
+        let next = (0..n)
+            .filter(|i| !active.contains(i) && dot(prepared[*i].rows[0], *u) < -tolerance * 0.1)
+            .min_by(|&a, &b| {
+                (dot(prepared[a].rows[0], *u) / scales[a])
+                    .total_cmp(&(dot(prepared[b].rows[0], *u) / scales[b]))
+            });
+        let Some(next) = next else {
+            return Ok(());
+        };
+        if dot(prepared[next].rows[0], *u) >= -tolerance * 0.1 {
+            return Ok(());
+        }
+        loop {
+            operations += 1;
+            if operations > 4096 {
+                return Err(fail(
+                    "Normal active-set projection exceeded its work budget",
+                ));
+            }
+            let rhs: Vec<_> = active.iter().map(|&i| matrix[i][next]).collect();
+            let direction = active_solve(matrix, &active, &rhs)?;
+            let curvature =
+                matrix[next][next] - rhs.iter().zip(&direction).map(|(a, b)| a * b).sum::<f64>();
+            if !curvature.is_finite() || curvature < -1e-10 {
+                return Err(fail("Normal projection has negative curvature"));
+            }
+            let primal = if curvature > 1e-12 {
+                (-dot(prepared[next].rows[0], *u) / scales[next] / curvature).max(0.)
+            } else {
+                f64::INFINITY
+            };
+            let bound = active
+                .iter()
+                .enumerate()
+                .filter(|(j, _)| direction[*j] > 1e-14)
+                .map(|(j, &i)| (j, prepared[i].lambda[0] * scales[i] / direction[j]))
+                .min_by(|a, b| a.1.total_cmp(&b.1));
+            let drop = bound.filter(|(_, limit)| *limit <= primal);
+            let step = drop.map_or(primal, |(_, limit)| limit);
+            if !step.is_finite() {
+                return Err(fail(
+                    "Dependent normal constraint has no finite feasible update",
+                ));
+            }
+            for (j, &i) in active.iter().enumerate() {
+                let value = (prepared[i].lambda[0] - step * direction[j] / scales[i]).max(0.);
+                prepared[i].change(0, value, u)?;
+            }
+            let value = prepared[next].lambda[0] + step / scales[next];
+            prepared[next].change(0, value, u)?;
+            if let Some((j, _)) = drop {
+                active.remove(j);
+            } else {
+                active.push(next);
+                break;
+            }
+        }
+    }
 }
 impl Prepared {
     fn change(&mut self, axis: usize, value: f64, u: &mut [f64; 6]) -> Result<()> {
@@ -182,6 +315,7 @@ impl ChassisSystem {
             return Ok(ChassisContactSample {
                 contacts: Vec::new(),
                 iterations: 0,
+                normal_projection_used: false,
                 max_projected_velocity_residual_m_s: 0.,
                 net_impulse_world_ns: [0.; 3],
                 net_moment_about_chassis_com_nms: [0.; 3],
@@ -275,8 +409,14 @@ impl ChassisSystem {
             });
         }
         let mut u = velocity(&before.chassis);
+        let mut block_prepared = prepared.clone();
+        let mut block_u = u;
+        let normal_block = NormalProjection::new(&prepared);
+        let mut block_error = None;
         let mut converged = None;
+        let mut normal_projection_used = false;
         for iteration in 1..=settings.max_iterations {
+            // Keep independent trajectories: Coulomb coupling is not a globally monotone QP.
             for p in &mut prepared {
                 let normal = (p.lambda[0] - dot(p.rows[0], u) / p.kn).max(0.);
                 p.change(0, normal, &mut u)?;
@@ -294,13 +434,45 @@ impl ChassisSystem {
                 converged = Some(iteration);
                 break;
             }
+            if block_error.is_none() {
+                let block_iteration = || -> Result<()> {
+                    project_normals(
+                        &normal_block,
+                        &mut block_prepared,
+                        &mut block_u,
+                        settings.velocity_tolerance_m_s,
+                    )?;
+                    for p in &mut block_prepared {
+                        let tangent = disk(
+                            p.kt,
+                            [p.lambda[1], p.lambda[2]],
+                            [dot(p.rows[1], block_u), dot(p.rows[2], block_u)],
+                            p.contact.friction * p.lambda[0],
+                        )?;
+                        p.change(1, tangent[0], &mut block_u)?;
+                        p.change(2, tangent[1], &mut block_u)?;
+                    }
+                    Ok(())
+                }();
+                if let Err(error) = block_iteration {
+                    block_error = Some(error);
+                } else if block_prepared
+                    .iter()
+                    .map(|p| p.residual(block_u))
+                    .fold(0., f64::max)
+                    <= settings.velocity_tolerance_m_s
+                {
+                    prepared = std::mem::take(&mut block_prepared);
+                    normal_projection_used = true;
+                    converged = Some(iteration);
+                    break;
+                }
+            }
         }
-        let iterations = converged.ok_or_else(|| {
-            fail(&format!(
-                "Contact iteration did not converge within the configured budget (residual {} m/s)",
-                prepared.iter().map(|p| p.residual(u)).fold(0., f64::max)
-            ))
-        })?;
+        let iterations=converged.ok_or_else(|| fail(&format!(
+            "Contact iteration did not converge within the configured budget (sequential residual {} m/s; projected residual {} m/s; projection error {:?})",
+            prepared.iter().map(|p|p.residual(u)).fold(0.,f64::max),
+            block_prepared.iter().map(|p|p.residual(block_u)).fold(0.,f64::max),block_error)))?;
         let mut rhs = [0.; 14];
         for p in &prepared {
             for axis in 0..3 {
@@ -351,6 +523,7 @@ impl ChassisSystem {
         Ok(ChassisContactSample {
             contacts: records,
             iterations,
+            normal_projection_used,
             max_projected_velocity_residual_m_s: residual,
             net_impulse_world_ns: linear.to_array(),
             net_moment_about_chassis_com_nms: moment.to_array(),

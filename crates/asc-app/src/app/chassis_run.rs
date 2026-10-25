@@ -1162,7 +1162,7 @@ mod live_tests {
         std::fs::write(dir.0.join("dynamics.json"), c.to_string()).unwrap();
         let mut moving = config.clone();
         moving["step_s"] = 0.01.into();
-        moving["friction"] = 0.0.into();
+        moving["friction"] = 0.3.into();
         moving["settings"] =
             serde_json::json!({"max_iterations":1024,"velocity_tolerance_m_s":1e-7});
         std::fs::write(&path, moving.to_string()).unwrap();
