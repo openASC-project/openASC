@@ -107,6 +107,7 @@ fn fixture() -> (Directory, ColliderBox, WallIndex) {
 }
 fn settings() -> WallStepSettings {
     WallStepSettings {
+        allow_certified_departures: false,
         sweep: WallSweepSettings::default(),
         contacts: asc_physics::ChassisContactSettings::default(),
         friction: 0.,
@@ -243,4 +244,67 @@ fn sweep_and_impulse_failures_rollback_the_entire_integrated_segment() {
             before
         );
     }
+}
+
+#[test]
+fn certified_departure_consumes_remaining_time_but_renewed_inward_force_stays_an_event() {
+    let (_dir, collider, walls) = fixture();
+    let mut system = system().unwrap();
+    let racks = system.rack_motions();
+    let forces = |_, _: &asc_physics::ChassisKinematics| {
+        Ok(ChassisLoads {
+            chassis: Wrench::default(),
+            uprights: vec![Wrench::default()],
+            wheels: vec![WheelLoad::default()],
+        })
+    };
+    let hit = step_to_wall(
+        &mut system,
+        0.01,
+        &collider,
+        &walls,
+        settings(),
+        |_| Ok(racks.clone()),
+        forces,
+    )
+    .unwrap();
+    let remaining = hit.remaining_s;
+    let position = system.kinematics().unwrap().chassis.position_m;
+    let mut departure = settings();
+    departure.allow_certified_departures = true;
+    let mut driven = system.clone();
+    let rest = step_to_wall(
+        &mut system,
+        remaining,
+        &collider,
+        &walls,
+        departure,
+        |_| Ok(racks.clone()),
+        forces,
+    )
+    .unwrap();
+    assert_eq!(rest.remaining_s, 0.);
+    assert!(rest.impact.is_none());
+    assert_eq!(rest.sweep.certified_departures.len(), 1);
+    assert!(rest.sweep.certified_departures[0].minimum_projected_gap_m > 0.);
+    assert!((system.kinematics().unwrap().chassis.position_m[0] - position[0]).abs() < 1e-10);
+    let renewed = step_to_wall(
+        &mut driven,
+        remaining,
+        &collider,
+        &walls,
+        departure,
+        |_| Ok(racks.clone()),
+        |_, _| {
+            Ok(ChassisLoads {
+                chassis: Wrench::new([-100., 0., 0.], [0.; 3]).unwrap(),
+                uprights: vec![Wrench::default()],
+                wheels: vec![WheelLoad::default()],
+            })
+        },
+    )
+    .unwrap();
+    assert_eq!(renewed.integration.elapsed_s, 0.);
+    assert_eq!(renewed.remaining_s, remaining);
+    assert!(renewed.sweep.certified_departures.is_empty());
 }

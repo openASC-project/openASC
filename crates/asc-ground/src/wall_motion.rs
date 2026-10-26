@@ -115,6 +115,80 @@ impl BoxMotion {
     pub(super) fn speed_bound(&self) -> f64 {
         (self.end - self.start).length() + self.relative_axis_angle.length() * self.radius
     }
+    /// Conservative minimum of the box/triangle projected gap on one fixed unit world axis.
+    /// All eight rotating vertices and all interior stationary points are included.
+    /// A nonnegative bound certifies separation over the whole prescribed path on this axis.
+    pub fn minimum_gap_on_axis(
+        &self,
+        triangle: [[f64; 3]; 3],
+        normal_world: [f64; 3],
+    ) -> Result<f64> {
+        self.at(0.)?.separation_triangle(triangle)?;
+        let normal = DVec3::from_array(normal_world);
+        if !normal.is_finite() || (normal.length_squared() - 1.).abs() > 1e-8 {
+            return Err(fail("Gap certificate requires a unit finite axis"));
+        }
+        let normal = normal.normalize();
+        // Subtract the reference first to reduce cancellation under a world translation.
+        let triangle_high = triangle
+            .into_iter()
+            .map(|p| normal.dot(DVec3::from_array(p) - self.start))
+            .fold(f64::NEG_INFINITY, f64::max);
+        let linear = normal.dot(self.end - self.start);
+        let angle = self.relative_axis_angle.length();
+        let axis = if angle > 0. {
+            self.relative_axis_angle / angle
+        } else {
+            DVec3::X
+        };
+        let mut minimum = f64::INFINITY;
+        for x in [-1., 1.] {
+            for y in [-1., 1.] {
+                for z in [-1., 1.] {
+                    let point = self.local_center + self.half * DVec3::new(x, y, z);
+                    let parallel = axis * axis.dot(point);
+                    let a = normal.dot(self.rotation * (point - parallel));
+                    let b = normal.dot(self.rotation * axis.cross(point));
+                    let c = normal.dot(self.rotation * parallel) - triangle_high;
+                    let evaluate =
+                        |t: f64| c + linear * t + a * (angle * t).cos() + b * (angle * t).sin();
+                    minimum = minimum.min(evaluate(0.)).min(evaluate(1.));
+                    let amplitude = a.hypot(b);
+                    if angle > 0. && amplitude > 0. {
+                        let target = -linear / (angle * amplitude);
+                        if target.abs() <= 1. {
+                            let alpha = target.acos();
+                            let phase = a.atan2(b);
+                            for sign in [-1., 1.] {
+                                for turn in -2..=2 {
+                                    let t = (sign * alpha - phase
+                                        + std::f64::consts::TAU * f64::from(turn))
+                                        / angle;
+                                    if (0. ..=1.).contains(&t) {
+                                        minimum = minimum.min(evaluate(t));
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // Account conservatively for f64 coordinate subtraction, rotation and extrema evaluation.
+        let coordinate_scale = self
+            .start
+            .abs()
+            .max_element()
+            .max(self.end.abs().max_element())
+            .max(
+                triangle
+                    .into_iter()
+                    .map(|p| DVec3::from_array(p).abs().max_element())
+                    .fold(0., f64::max),
+            );
+        let error = 128. * f64::EPSILON * (1. + coordinate_scale + self.radius + linear.abs());
+        Ok(minimum - error)
+    }
     pub(super) fn bounds(&self, tolerance: f64) -> Result<Bounds> {
         let radius = self.radius + tolerance + 1e-9;
         let lo = self.start.min(self.end) - DVec3::splat(radius);

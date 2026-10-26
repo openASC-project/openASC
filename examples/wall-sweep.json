@@ -91,6 +91,31 @@
         0,
         1
       ]
+    },
+    {
+      "reference_start_m": [
+        -5.462312928183368,
+        -0.04,
+        0
+      ],
+      "reference_end_m": [
+        -4.5,
+        -0.04,
+        0
+      ],
+      "orientation_start_xyzw": [
+        0,
+        0,
+        0,
+        1
+      ],
+      "orientation_end_xyzw": [
+        0,
+        0,
+        0,
+        1
+      ]
     }
-  ]
+  ],
+  "allow_certified_departures": true
 }

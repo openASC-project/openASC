@@ -260,6 +260,26 @@ fn cli_sweep_errors_never_emit_a_partial_successful_path_report() {
     assert!(!result.status.success());
     assert!(result.stdout.is_empty());
     assert!(String::from_utf8_lossy(&result.stderr).contains("4096 total"));
+    let collider = asc_session::ColliderBox::load(
+        &d.0.join("car"),
+        asc_vehicle::data::Mode::Unpacked,
+        None,
+        [0.; 3],
+        [0., 0., 0., 1.],
+    )
+    .unwrap();
+    let z = collider.half_extent_m[2] - collider.center_in_chassis_m[2] + 5e-7;
+    let mut departures = c.clone();
+    departures["allow_certified_departures"] = true.into();
+    departures["motions"][0]["reference_start_m"] = serde_json::json!([0, 0, z]);
+    departures["motions"][0]["reference_end_m"] = serde_json::json!([0, 0, z + 2.]);
+    assert!(sweep_invoke(&d, &departures).status.success());
+    let extra = departures["motions"][0].clone();
+    departures["motions"].as_array_mut().unwrap().push(extra);
+    let result = sweep_invoke(&d, &departures);
+    assert!(!result.status.success());
+    assert!(result.stdout.is_empty());
+    assert!(String::from_utf8_lossy(&result.stderr).contains("4096 total"));
     std::fs::write(d.0.join("sweep.json"), vec![b' '; 8193]).unwrap();
     let result = Command::new(env!("CARGO_BIN_EXE_openasc"))
         .arg("wall-sweep")
@@ -268,4 +288,48 @@ fn cli_sweep_errors_never_emit_a_partial_successful_path_report() {
         .unwrap();
     assert!(!result.status.success());
     assert!(result.stdout.is_empty());
+}
+
+#[test]
+fn cli_departure_is_explicit_and_requires_a_positive_whole_path_certificate() {
+    let (d, c) = fixture();
+    let query = invoke(&d, &c);
+    assert!(query.status.success());
+    let v: serde_json::Value = serde_json::from_slice(&query.stdout).unwrap();
+    let z = v["collider_proxy"]["half_extent_m"][2].as_f64().unwrap()
+        - v["collider_proxy"]["center_in_chassis_m"][2]
+            .as_f64()
+            .unwrap()
+        + 5e-7;
+    let mut c = sweep_configuration(&c);
+    c["motions"][0]["reference_start_m"] = serde_json::json!([0, 0, z]);
+    c["motions"][0]["reference_end_m"] = serde_json::json!([0, 0, z + 2.]);
+    let result = sweep_invoke(&d, &c);
+    assert!(result.status.success());
+    let base: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(base["records"][0]["sweep"]["fraction"], 0.);
+    c["allow_certified_departures"] = true.into();
+    let result = sweep_invoke(&d, &c);
+    assert!(result.status.success());
+    let leaving: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    let sweep = &leaving["records"][0]["sweep"];
+    assert!(sweep["fraction"].is_null());
+    assert_eq!(sweep["certified_departures"].as_array().unwrap().len(), 1);
+    assert!(
+        sweep["certified_departures"][0]["minimum_projected_gap_m"]
+            .as_f64()
+            .unwrap()
+            > 0.
+    );
+    c["motions"][0]["reference_end_m"] = serde_json::json!([0, 0, z - 2.]);
+    let result = sweep_invoke(&d, &c);
+    assert!(result.status.success());
+    let inward: serde_json::Value = serde_json::from_slice(&result.stdout).unwrap();
+    assert_eq!(inward["records"][0]["sweep"]["fraction"], 0.);
+    assert!(
+        inward["records"][0]["sweep"]["certified_departures"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
 }

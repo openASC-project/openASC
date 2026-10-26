@@ -33,6 +33,13 @@ pub struct WallSweep<'a> {
     pub candidate_count: usize,
     pub distance_tolerance_m: f64,
     pub contacts: Vec<WallContact<'a>>,
+    pub certified_departures: Vec<WallDeparture>,
+}
+#[derive(Debug, Serialize)]
+pub struct WallDeparture {
+    pub triangle: usize,
+    pub normal_world: [f64; 3],
+    pub minimum_projected_gap_m: f64,
 }
 impl WallIndex {
     pub fn load(config: &Path) -> Result<Self> {
@@ -223,8 +230,25 @@ impl WallIndex {
     /// Conservative advancement along a prescribed translation/shortest-arc rotation.
     /// A clear result certifies this path within numeric tolerances; iteration exhaustion is an error.
     pub fn sweep(&self, motion: &BoxMotion, settings: WallSweepSettings) -> Result<WallSweep<'_>> {
+        self.sweep_inner(motion, settings, false)
+    }
+    /// Permit initial proximity only when a fixed separating axis certifies the entire path.
+    /// This does not ignore arbitrary initial contacts or repair overlap.
+    pub fn sweep_allowing_certified_departures(
+        &self,
+        motion: &BoxMotion,
+        settings: WallSweepSettings,
+    ) -> Result<WallSweep<'_>> {
+        self.sweep_inner(motion, settings, true)
+    }
+    fn sweep_inner(
+        &self,
+        motion: &BoxMotion,
+        settings: WallSweepSettings,
+        allow_departures: bool,
+    ) -> Result<WallSweep<'_>> {
         settings.validate()?;
-        let indices = spatial::candidates(
+        let mut indices = spatial::candidates(
             &self.triangles,
             &self.order,
             &self.nodes,
@@ -244,7 +268,30 @@ impl WallIndex {
             candidate_count: indices.len(),
             distance_tolerance_m: settings.distance_tolerance_m,
             contacts: Vec::new(),
+            certified_departures: Vec::new(),
         };
+        if allow_departures {
+            let initial = motion.at(0.)?;
+            let mut retained = Vec::new();
+            for i in indices {
+                if let Some(contact) = initial
+                    .contact_triangle(self.triangles[i].points, settings.distance_tolerance_m)?
+                {
+                    let gap = motion
+                        .minimum_gap_on_axis(self.triangles[i].points, contact.normal_world)?;
+                    if gap >= 0. {
+                        result.certified_departures.push(WallDeparture {
+                            triangle: i,
+                            normal_world: contact.normal_world,
+                            minimum_projected_gap_m: gap,
+                        });
+                        continue;
+                    }
+                }
+                retained.push(i);
+            }
+            indices = retained;
+        }
         if indices.is_empty() {
             return Ok(result);
         }
@@ -260,6 +307,12 @@ impl WallIndex {
             if gap <= settings.distance_tolerance_m + 1e-9 {
                 result.fraction = Some(fraction);
                 result.contacts = self.contacts(&body, settings.distance_tolerance_m)?;
+                result.contacts.retain(|c| {
+                    !result
+                        .certified_departures
+                        .iter()
+                        .any(|d| d.triangle == c.triangle)
+                });
                 if result.contacts.is_empty() {
                     return Err(Error::new(
                         "wall_sweep_patch",

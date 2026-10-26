@@ -2,7 +2,7 @@
 mod faces;
 mod spatial;
 mod walls;
-pub use walls::{WallContact, WallIndex, WallSweep};
+pub use walls::{WallContact, WallDeparture, WallIndex, WallSweep};
 mod wall_motion;
 pub use wall_motion::{BoxMotion, WallSweepSettings};
 mod wall_geometry;

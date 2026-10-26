@@ -18,6 +18,8 @@ struct Configuration {
     step_s: Option<f64>,
     #[serde(default)]
     sweep_settings: asc_ground::WallSweepSettings,
+    #[serde(default)]
+    allow_certified_departures: bool,
 }
 pub fn run(path: &Path) -> Result<serde_json::Value> {
     run_inner(path, false)
@@ -58,6 +60,7 @@ fn run_inner(path: &Path, moving: bool) -> Result<serde_json::Value> {
             &collider,
             &walls,
             asc_session::WallStepSettings {
+                allow_certified_departures: c.allow_certified_departures,
                 sweep: c.sweep_settings,
                 contacts: c.settings,
                 friction: c.friction,

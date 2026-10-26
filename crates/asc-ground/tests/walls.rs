@@ -534,3 +534,184 @@ fn swept_bounds_caps_and_exhaustion_fail_instead_of_certifying_an_unresolved_pat
         }
     }
 }
+
+#[test]
+fn full_path_axis_gap_includes_interior_rotation_extrema_and_offset_centre() {
+    let triangle = wall();
+    let m = sweep_motion(
+        [0., 0., 1.5],
+        [0., 0., 1.5],
+        DQuat::IDENTITY,
+        DQuat::from_rotation_y(std::f64::consts::PI),
+        [0.; 3],
+        [2., 0.2, 0.2],
+    );
+    let gap = m.minimum_gap_on_axis(triangle, [0., 0., 1.]).unwrap();
+    assert!((gap - (1.5 - 2_f64.hypot(0.2))).abs() < 1e-10);
+    for index in 0..24 {
+        let t = index as f64;
+        let start = DVec3::new(0.1 * t, 0.3, 2.);
+        let end = start + DVec3::new(0.03 * t, -0.1, -0.4);
+        let q = DQuat::from_rotation_z(0.02 * t) * DQuat::from_rotation_x(0.3);
+        let endq = q * DQuat::from_axis_angle(DVec3::new(1., 2., -0.5).normalize(), 0.1 + 0.1 * t);
+        let offset = [0.4, -0.1, 0.3];
+        let half = [0.7, 0.2, 0.5];
+        let m = sweep_motion(start.to_array(), end.to_array(), q, endq, offset, half);
+        let axis = DVec3::new(0.2, -0.3, 1.).normalize();
+        let bound = m.minimum_gap_on_axis(triangle, axis.to_array()).unwrap();
+        let high = triangle
+            .into_iter()
+            .map(|p| axis.dot(DVec3::from_array(p)))
+            .fold(f64::NEG_INFINITY, f64::max);
+        let mut sampled = f64::INFINITY;
+        for k in 0..=1000 {
+            let f = k as f64 / 1000.;
+            let angle = (0.1 + 0.1 * t) * f;
+            let rotation = q * DQuat::from_axis_angle(DVec3::new(1., 2., -0.5).normalize(), angle);
+            for x in [-1., 1.] {
+                for y in [-1., 1.] {
+                    for z in [-1., 1.] {
+                        let point = start.lerp(end, f)
+                            + rotation
+                                * (DVec3::from_array(offset)
+                                    + DVec3::from_array(half) * DVec3::new(x, y, z));
+                        sampled = sampled.min(axis.dot(point) - high);
+                    }
+                }
+            }
+        }
+        assert!(bound <= sampled + 1e-12, "{bound} > {sampled}");
+        assert!(
+            sampled - bound < 1e-4,
+            "bound too loose: {bound} vs {sampled}"
+        );
+    }
+    assert!(m.minimum_gap_on_axis(triangle, [0.; 3]).is_err());
+}
+#[test]
+fn certified_departure_requires_the_whole_path_to_remain_separated() {
+    use asc_ground::WallSweepSettings;
+    let (_d, index) = sweep_fixture();
+    for end in [[0., 0., 4.], [2., 0., 1. + 5e-7], [0., 0., 1. + 5e-7]] {
+        let m = sweep_motion(
+            [0., 0., 1. + 5e-7],
+            end,
+            DQuat::IDENTITY,
+            DQuat::IDENTITY,
+            [0.; 3],
+            [1.; 3],
+        );
+        assert_eq!(
+            index
+                .sweep(&m, WallSweepSettings::default())
+                .unwrap()
+                .fraction,
+            Some(0.)
+        );
+        let result = index
+            .sweep_allowing_certified_departures(&m, WallSweepSettings::default())
+            .unwrap();
+        assert!(result.fraction.is_none());
+        assert_eq!(result.certified_departures.len(), 1);
+        assert!(result.certified_departures[0].minimum_projected_gap_m > 0.);
+        assert_eq!(result.candidate_count, 1);
+    }
+    for end in [[0., 0., 0.9], [0., 0., -4.]] {
+        let m = sweep_motion(
+            [0., 0., 1. + 5e-7],
+            end,
+            DQuat::IDENTITY,
+            DQuat::IDENTITY,
+            [0.; 3],
+            [1.; 3],
+        );
+        let result = index
+            .sweep_allowing_certified_departures(&m, WallSweepSettings::default())
+            .unwrap();
+        assert_eq!(result.fraction, Some(0.));
+        assert!(result.certified_departures.is_empty());
+    }
+    // Clear endpoint boxes do not justify departure if an intermediate orientation intersects.
+    let m = sweep_motion(
+        [0., 0., 1.5],
+        [0., 0., 1.5],
+        DQuat::IDENTITY,
+        DQuat::from_rotation_y(std::f64::consts::PI),
+        [0.; 3],
+        [2., 0.2, 1.5 - 5e-7],
+    );
+    assert!(index.contacts(&m.at(0.).unwrap(), 0.).unwrap().is_empty());
+    assert!(index.contacts(&m.at(1.).unwrap(), 0.).unwrap().is_empty());
+    let result = index
+        .sweep_allowing_certified_departures(&m, WallSweepSettings::default())
+        .unwrap();
+    assert_eq!(result.fraction, Some(0.));
+    assert!(result.certified_departures.is_empty());
+    let m = sweep_motion(
+        [0., 0., 0.9],
+        [0., 0., 5.],
+        DQuat::IDENTITY,
+        DQuat::IDENTITY,
+        [0.; 3],
+        [1.; 3],
+    );
+    assert_eq!(
+        index
+            .sweep_allowing_certified_departures(&m, WallSweepSettings::default())
+            .unwrap()
+            .fraction,
+        Some(0.)
+    );
+}
+#[test]
+fn departure_certificate_is_world_covariant_and_does_not_hide_a_later_wall() {
+    use asc_ground::WallSweepSettings;
+    let p = [[-20., -20., 0.], [20., -20., 0.], [0., 20., 0.]];
+    let q = DQuat::from_rotation_z(0.4) * DQuat::from_rotation_x(0.2);
+    let shift = DVec3::new(1e5, -2e5, 3e5);
+    // f32 source storage is tested separately: use exactly represented translation here.
+    let triangle = p.map(|p| (shift + q * DVec3::from_array(p)).to_array());
+    let motion = sweep_motion(
+        (shift + q * DVec3::new(0., 0., 1.00001)).to_array(),
+        (shift + q * DVec3::new(2., 0., 1.00001)).to_array(),
+        q,
+        q,
+        [0.; 3],
+        [1.; 3],
+    );
+    let gap = motion
+        .minimum_gap_on_axis(triangle, (q * DVec3::Z).to_array())
+        .unwrap();
+    assert!(gap > 9e-6 && gap <= 1.0001e-5);
+    let second = p.map(|mut p| {
+        p[2] = 3.;
+        p.map(|x| x as f32)
+    });
+    let d = fixture(
+        &[
+            mesh(
+                "1WALL_FIRST",
+                &p.map(|p| p.map(|x| x as f32)),
+                &[0, 1, 2],
+                0.,
+            ),
+            mesh("1WALL_SECOND", &second, &[0, 1, 2], 0.),
+        ],
+        false,
+    );
+    let index = WallIndex::load(&d.0.join("models.ini")).unwrap();
+    let m = sweep_motion(
+        [0., 0., 1. + 5e-7],
+        [0., 0., 4.],
+        DQuat::IDENTITY,
+        DQuat::IDENTITY,
+        [0.; 3],
+        [1.; 3],
+    );
+    let result = index
+        .sweep_allowing_certified_departures(&m, WallSweepSettings::default())
+        .unwrap();
+    assert_eq!(result.certified_departures.len(), 1);
+    assert!(result.fraction.unwrap() > 0.3 && result.fraction.unwrap() < 0.34);
+    assert!(result.contacts.iter().all(|c| c.mesh == "1WALL_SECOND"));
+}

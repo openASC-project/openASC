@@ -24,6 +24,8 @@ struct Configuration {
     model_orientation_in_chassis_xyzw: [f64; 4],
     #[serde(default)]
     settings: WallSweepSettings,
+    #[serde(default)]
+    allow_certified_departures: bool,
     motions: Vec<Motion>,
 }
 pub fn run(path: &Path) -> Result<serde_json::Value> {
@@ -76,10 +78,14 @@ pub fn run(path: &Path) -> Result<serde_json::Value> {
             collider.center_in_chassis_m,
             collider.half_extent_m,
         )?;
-        let sweep = walls.sweep(&motion, c.settings)?;
-        contacts += sweep.contacts.len();
+        let sweep = if c.allow_certified_departures {
+            walls.sweep_allowing_certified_departures(&motion, c.settings)?
+        } else {
+            walls.sweep(&motion, c.settings)?
+        };
+        contacts += sweep.contacts.len() + sweep.certified_departures.len();
         if contacts > 4096 {
-            return Err("wall-sweep exceeds 4096 total triangle contacts".into());
+            return Err("wall-sweep exceeds 4096 total triangle contacts/certificates".into());
         }
         records.push(serde_json::json!({"motion":m,"sweep":sweep}));
     }

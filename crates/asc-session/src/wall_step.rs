@@ -13,6 +13,7 @@ pub struct WallStepSettings {
     pub sweep: WallSweepSettings,
     pub contacts: ChassisContactSettings,
     pub friction: f64,
+    pub allow_certified_departures: bool,
 }
 #[derive(Debug, Serialize)]
 pub struct WallStep<'a> {
@@ -81,7 +82,13 @@ pub fn step_to_wall<'a>(
                 collider.center_in_chassis_m,
                 collider.half_extent_m,
             )?;
-            walls.sweep(&motion, settings.sweep).map_err(Into::into)
+            if settings.allow_certified_departures {
+                walls
+                    .sweep_allowing_certified_departures(&motion, settings.sweep)
+                    .map_err(Into::into)
+            } else {
+                walls.sweep(&motion, settings.sweep).map_err(Into::into)
+            }
         };
         let result =
             query().map_err(|e| asc_physics::Error::new("session_wall_sweep", &e.to_string()))?;
