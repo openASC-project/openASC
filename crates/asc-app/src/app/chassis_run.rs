@@ -575,6 +575,74 @@ impl Workbench {
         self.live_ticks += 1;
         Ok(sample)
     }
+    pub fn live_step_to_wall(
+        &mut self,
+        command: super::drive_input::Command,
+        actuator: super::drive_input::SteeringActuator,
+        collider: &asc_session::ColliderBox,
+        walls: &asc_ground::WallIndex,
+        settings: asc_session::WallStepSettings,
+    ) -> asc_physics::Result<ChassisSample> {
+        use glam::DVec3;
+        command.validate()?;
+        actuator.validate()?;
+        let dt = self.config.step_s;
+        let time = self.time_s();
+        let start = self.system.rack_motions();
+        let mut accelerations = Vec::new();
+        for (u, r) in self.config.uprights.iter().zip(&start) {
+            let a = if let Some(s) = &u.steering {
+                let axis = DVec3::from_array(s.axis_in_source).normalize();
+                let p = axis.dot(DVec3::from_array(r.position_m) - DVec3::from_array(u.rack_m));
+                let v = axis.dot(DVec3::from_array(r.velocity_m_s));
+                axis * actuator.acceleration(p, v, command.steering, dt)?
+            } else {
+                DVec3::ZERO
+            };
+            accelerations.push(a);
+        }
+        let control = Some(Control {
+            time_s: time,
+            drive_fraction: command.drive,
+            brake_fraction: command.brake,
+        });
+        let step = asc_session::step_to_wall(
+            &mut self.system,
+            dt,
+            collider,
+            walls,
+            settings,
+            |offset| {
+                start
+                    .iter()
+                    .zip(&accelerations)
+                    .map(|(r, a)| {
+                        RackMotion::new(
+                            (DVec3::from_array(r.position_m)
+                                + DVec3::from_array(r.velocity_m_s) * offset
+                                + 0.5 * (*a) * offset * offset)
+                                .to_array(),
+                            (DVec3::from_array(r.velocity_m_s) + (*a) * offset).to_array(),
+                            a.to_array(),
+                        )
+                    })
+                    .collect()
+            },
+            |offset, k| {
+                self.environment.loads_override(
+                    time + offset,
+                    k,
+                    control.map(|mut c| {
+                        c.time_s = time + offset;
+                        c
+                    }),
+                )
+            },
+        )
+        .map_err(|e| asc_physics::Error::new("live_wall_step", &e.to_string()))?;
+        self.live_ticks += 1;
+        Ok(step.integration.sample)
+    }
 }
 pub(super) fn load(configuration: &Path) -> Result<Workbench, Box<dyn Error>> {
     let mut bytes = Vec::new();
@@ -1487,5 +1555,97 @@ mod live_tests {
             serde_json::to_value(bench.system.kinematics().unwrap()).unwrap(),
             before
         );
+    }
+    #[test]
+    fn live_wall_step_applies_inelastic_contact_and_reduces_normal_velocity() {
+        use asc_test_support as f;
+        use glam::Mat4;
+        let (dir, _) = fixture();
+        for (name, text) in f::vehicle_files() {
+            if name != "suspensions.ini" {
+                std::fs::write(dir.0.join("data").join(name), text).unwrap();
+            }
+        }
+        std::fs::write(dir.0.join("collider.kn5"), f::collider_tetrahedron_file()).unwrap();
+        std::fs::write(dir.0.join("original.kn5"), f::collider_tetrahedron_file()).unwrap();
+        let wall = f::named(
+            f::mesh(
+                &[[-10., -10., 0.], [10., -10., 0.], [0., 10., 0.]],
+                &[0, 1, 2],
+                2,
+                0,
+                0,
+                0.,
+                0,
+            ),
+            "1WALL",
+        );
+        let road = f::named(
+            f::mesh(
+                &[[-100., 0., -100.], [0., 0., 100.], [100., 0., -100.]],
+                &[0, 1, 2],
+                2,
+                1,
+                1,
+                0.,
+                0,
+            ),
+            "1ROAD",
+        );
+        std::fs::write(
+            dir.0.join("track.kn5"),
+            f::file(f::base(&[wall, road], Mat4::IDENTITY.to_cols_array(), 1), 6),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.0.join("models.ini"),
+            "[MODEL_0]\nFILE=track.kn5\nPOSITION=0,0,0\nROTATION=0,0,0\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.0.join("surfaces.ini"),
+            "[SURFACE_0]\nKEY=ROAD\nIS_VALID_TRACK=1\nFRICTION=1\nDAMPING=0\nIS_PITLANE=0\n",
+        )
+        .unwrap();
+        let mut c: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(dir.0.join("dynamics.json")).unwrap()).unwrap();
+        c.as_object_mut().unwrap().remove("support_plane");
+        c["support_track"] = serde_json::json!({"models_ini":"models.ini","surface_files":["surfaces.ini"],"min_normal_y":0.1});
+        // Start close to the wall at Z=0 with velocity toward the wall.
+        let collider = asc_session::ColliderBox::load(
+            &dir.0,
+            asc_vehicle::data::Mode::Unpacked,
+            None,
+            [0., 0., 0.],
+            [0., 0., 0., 1.],
+        )
+        .unwrap();
+        let half = collider.half_extent_m[2];
+        let center = collider.center_in_chassis_m[2];
+        c["chassis"]["position_world_m"] = serde_json::json!([0, 0.29, half - center + 0.01]);
+        c["chassis"]["velocity_world_m_s"] = serde_json::json!([0, 0, -3]);
+        std::fs::write(dir.0.join("dynamics.json"), c.to_string()).unwrap();
+        let mut bench = load(&dir.0.join("dynamics.json")).unwrap();
+        let walls = asc_ground::WallIndex::load(&dir.0.join("models.ini")).unwrap();
+        let settings = asc_session::WallStepSettings {
+            sweep: asc_ground::WallSweepSettings::default(),
+            contacts: asc_physics::ChassisContactSettings::default(),
+            friction: 0.3,
+            allow_certified_departures: false,
+        };
+        let before = bench.system.kinematics().unwrap();
+        let vz_before = before.chassis.velocity_world_m_s[2];
+        assert!(vz_before < -2.9);
+        let command = Command::default();
+        bench
+            .live_step_to_wall(command, actuator(), &collider, &walls, settings)
+            .unwrap();
+        let after = bench.system.kinematics().unwrap();
+        let vz_after = after.chassis.velocity_world_m_s[2];
+        assert!(
+            vz_after > vz_before,
+            "Wall contact should reduce magnitude of toward-wall velocity: {vz_after} vs {vz_before}"
+        );
+        assert!(bench.time_s() > 0.);
     }
 }

@@ -41,6 +41,14 @@ struct Configuration {
     steering: SteeringActuator,
     #[serde(default)]
     articulation: Vec<Binding>,
+    #[serde(default)]
+    wall_friction: Option<f64>,
+    #[serde(default)]
+    wall_settings: asc_physics::ChassisContactSettings,
+    #[serde(default)]
+    wall_sweep_settings: asc_ground::WallSweepSettings,
+    #[serde(default)]
+    wall_allow_certified_departures: bool,
 }
 pub struct Options {
     pub fallback: bool,
@@ -78,6 +86,7 @@ struct App {
     correction: RigidPose,
     resources: Option<Resources>,
     settings: SteeringActuator,
+    wall: Option<WallState>,
     options: Options,
     hz: u32,
     state: Option<State>,
@@ -86,6 +95,11 @@ struct App {
     smoke_records: Vec<serde_json::Value>,
     metadata: serde_json::Value,
     origin: DVec3,
+}
+struct WallState {
+    collider: asc_session::ColliderBox,
+    walls: asc_ground::WallIndex,
+    settings: asc_session::WallStepSettings,
 }
 pub fn run(path: &Path, options: Options) -> Result<()> {
     if options.smoke {
@@ -147,7 +161,33 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
     if let Some(r) = &mut resources {
         r.allow_bc = !options.rgba;
     }
+    let wall = if let Some(friction) = config.wall_friction {
+        if !friction.is_finite() || !(0. ..=2.).contains(&friction) {
+            return Err("wall_friction must lie in 0..2".into());
+        }
+        let collider = asc_session::ColliderBox::load(
+            &car,
+            mode,
+            config.compound,
+            config.model_origin_in_chassis_m,
+            config.model_orientation_in_chassis_xyzw,
+        )?;
+        let walls = asc_ground::WallIndex::load(&track)?;
+        Some(WallState {
+            collider,
+            walls,
+            settings: asc_session::WallStepSettings {
+                sweep: config.wall_sweep_settings,
+                contacts: config.wall_settings,
+                friction,
+                allow_certified_departures: config.wall_allow_certified_departures,
+            },
+        })
+    } else {
+        None
+    };
     let event_loop = EventLoop::new()?;
+    let has_walls = wall.is_some();
     let mut app = App {
         bench,
         scene: preview.track.scene,
@@ -156,6 +196,7 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
         correction,
         resources,
         settings: config.steering,
+        wall,
         options,
         hz: hz as u32,
         state: None,
@@ -170,7 +211,7 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
     );
     println!(
         "{}",
-        serde_json::json!({"native_drive_source":app.metadata,"physics_diagnostics":app.bench.diagnostics(),"physics_hz":app.hz,"original_vehicle_dynamics_validated":false,"body_collision":false})
+        serde_json::json!({"native_drive_source":app.metadata,"physics_diagnostics":app.bench.diagnostics(),"physics_hz":app.hz,"original_vehicle_dynamics_validated":false,"body_collision":has_walls})
     );
     event_loop.run_app(&mut app)?;
     if let Some(e) = app.error {
@@ -304,9 +345,16 @@ impl App {
             let input = s.keys.command();
             let settings = self.settings;
             let bench = &mut self.bench;
-            match s
-                .clock
-                .advance(elapsed, |_| bench.live_step(input, settings).map(|_| ()))
+            let wall = &self.wall;
+            match s.clock.advance(elapsed, |_| {
+                if let Some(w) = wall {
+                    bench
+                        .live_step_to_wall(input, settings, &w.collider, &w.walls, w.settings)
+                        .map(|_| ())
+                } else {
+                    bench.live_step(input, settings).map(|_| ())
+                }
+            })
             {
                 Ok(batch) if batch.pending_steps > u64::from(self.hz) / 4 => {
                     if self.options.smoke {
