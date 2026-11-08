@@ -570,10 +570,17 @@ impl Environment {
             } else {
                 [0.; 3]
             };
-            let lift = q * (aero.cl_front + aero.cl_rear);
+            let lift_front = q * aero.cl_front;
+            let lift_rear = q * aero.cl_rear;
+            let total_lift = lift_front + lift_rear;
+            let rot = glam::DQuat::from_array(k.chassis.orientation_xyzw);
+            let front_offset_world = rot * glam::DVec3::new(0., 0., aero.front_axle_z_m);
+            let rear_offset_world = rot * glam::DVec3::new(0., 0., aero.rear_axle_z_m);
+            let pitch_torque = front_offset_world.cross(glam::DVec3::new(0., lift_front, 0.))
+                + rear_offset_world.cross(glam::DVec3::new(0., lift_rear, 0.));
             loads.chassis.add(asc_physics::Wrench::new(
-                [drag[0], drag[1] + lift, drag[2]],
-                [0.; 3],
+                [drag[0], drag[1] + total_lift, drag[2]],
+                pitch_torque.to_array(),
             )?)?;
         }
         Ok(loads)
