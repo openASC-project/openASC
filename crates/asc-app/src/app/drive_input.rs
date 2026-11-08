@@ -1,6 +1,7 @@
 use asc_physics::{Error, Result};
 use serde::{Deserialize, Serialize};
 use winit::keyboard::KeyCode;
+#[derive(Default)]
 pub(super) struct Keys {
     throttle: bool,
     brake: bool,
@@ -10,20 +11,6 @@ pub(super) struct Keys {
     pub reverse: bool,
     pub gear: i32,
     pub max_gear: i32,
-}
-impl Default for Keys {
-    fn default() -> Self {
-        Self {
-            throttle: false,
-            brake: false,
-            handbrake: false,
-            left: false,
-            right: false,
-            reverse: false,
-            gear: 0,
-            max_gear: 0,
-        }
-    }
 }
 impl Keys {
     pub fn event(&mut self, key: KeyCode, down: bool, repeat: bool, paused: bool) {

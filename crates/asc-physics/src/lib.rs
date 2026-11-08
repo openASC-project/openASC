@@ -31,7 +31,8 @@ pub use differential::{
     RelativeVelocity, TangentColumn,
 };
 pub use engine::{
-    CoastRef, DiffParams, DiffSplit, EngineDrivetrain, EngineSample, TorqueCurve, Traction,
+    CoastRef, DiffParams, DiffSplit, EngineDrivetrain, EngineDrivetrainConfig, EngineSample,
+    TorqueCurve, Traction,
 };
 pub use inertia::MassProperties;
 pub use link_spring::{LinkSpring, LinkSpringSample};

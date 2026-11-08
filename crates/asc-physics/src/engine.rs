@@ -144,18 +144,29 @@ pub struct EngineSample {
     pub wheel_torque_nm: f64,
 }
 
+pub struct EngineDrivetrainConfig {
+    pub torque_curve: TorqueCurve,
+    pub idle_rpm: f64,
+    pub limiter_rpm: f64,
+    pub inertia_kg_m2: f64,
+    pub forward_ratios: Vec<f64>,
+    pub reverse_ratio: f64,
+    pub final_ratio: f64,
+    pub traction: Traction,
+    pub coast: Option<CoastRef>,
+}
+
 impl EngineDrivetrain {
-    pub fn new(
-        torque_curve: TorqueCurve,
-        idle_rpm: f64,
-        limiter_rpm: f64,
-        inertia_kg_m2: f64,
-        forward_ratios: &[f64],
-        reverse_ratio: f64,
-        final_ratio: f64,
-        traction: Traction,
-        coast: Option<CoastRef>,
-    ) -> Result<Self> {
+    pub fn new(config: EngineDrivetrainConfig) -> Result<Self> {
+        let idle_rpm = config.idle_rpm;
+        let limiter_rpm = config.limiter_rpm;
+        let inertia_kg_m2 = config.inertia_kg_m2;
+        let reverse_ratio = config.reverse_ratio;
+        let final_ratio = config.final_ratio;
+        let coast = config.coast;
+        let traction = config.traction;
+        let torque_curve = config.torque_curve;
+        let forward_ratios = &config.forward_ratios;
         if !idle_rpm.is_finite() || idle_rpm < 0. {
             return Err(fail("Idle RPM must be finite and non-negative"));
         }
@@ -195,7 +206,7 @@ impl EngineDrivetrain {
             idle_rpm,
             limiter_rpm,
             inertia_kg_m2,
-            forward_ratios: forward_ratios.to_vec(),
+            forward_ratios: config.forward_ratios,
             reverse_ratio,
             final_ratio,
             traction,
@@ -324,23 +335,26 @@ mod tests {
         .unwrap()
     }
 
-    fn test_drivetrain() -> EngineDrivetrain {
-        EngineDrivetrain::new(
-            test_curve(),
-            900.,
-            8200.,
-            0.12,
-            &[3.5, 2.3, 1.7, 1.3, 1.0, 0.85],
-            -3.2,
-            3.7,
-            Traction::Rwd,
-            Some(CoastRef {
+    fn test_config() -> EngineDrivetrainConfig {
+        EngineDrivetrainConfig {
+            torque_curve: test_curve(),
+            idle_rpm: 900.,
+            limiter_rpm: 8200.,
+            inertia_kg_m2: 0.12,
+            forward_ratios: vec![3.5, 2.3, 1.7, 1.3, 1.0, 0.85],
+            reverse_ratio: -3.2,
+            final_ratio: 3.7,
+            traction: Traction::Rwd,
+            coast: Some(CoastRef {
                 rpm: 7000.,
                 torque_nm: 80.,
                 non_linearity: 0.,
             }),
-        )
-        .unwrap()
+        }
+    }
+
+    fn test_drivetrain() -> EngineDrivetrain {
+        EngineDrivetrain::new(test_config()).unwrap()
     }
 
     #[test]
@@ -421,111 +435,62 @@ mod tests {
 
     #[test]
     fn drivetrain_rejects_invalid_construction() {
-        let curve = test_curve();
+        let c = || test_config();
         assert!(
-            EngineDrivetrain::new(
-                curve.clone(),
-                -1.,
-                8000.,
-                0.1,
-                &[3.0],
-                -3.0,
-                3.7,
-                Traction::Rwd,
-                None
-            )
+            EngineDrivetrain::new(EngineDrivetrainConfig {
+                idle_rpm: -1.,
+                ..c()
+            })
             .is_err()
         );
         assert!(
-            EngineDrivetrain::new(
-                curve.clone(),
-                900.,
-                900.,
-                0.1,
-                &[3.0],
-                -3.0,
-                3.7,
-                Traction::Rwd,
-                None
-            )
+            EngineDrivetrain::new(EngineDrivetrainConfig {
+                limiter_rpm: 900.,
+                ..c()
+            })
             .is_err()
         );
         assert!(
-            EngineDrivetrain::new(
-                curve.clone(),
-                900.,
-                8000.,
-                0.1,
-                &[],
-                -3.0,
-                3.7,
-                Traction::Rwd,
-                None
-            )
+            EngineDrivetrain::new(EngineDrivetrainConfig {
+                forward_ratios: vec![],
+                ..c()
+            })
             .is_err()
         );
         assert!(
-            EngineDrivetrain::new(
-                curve.clone(),
-                900.,
-                8000.,
-                0.1,
-                &[3.0],
-                3.0,
-                3.7,
-                Traction::Rwd,
-                None
-            )
+            EngineDrivetrain::new(EngineDrivetrainConfig {
+                reverse_ratio: 3.0,
+                ..c()
+            })
             .is_err()
         );
         assert!(
-            EngineDrivetrain::new(
-                curve.clone(),
-                900.,
-                8000.,
-                0.1,
-                &[3.0],
-                -3.0,
-                -1.,
-                Traction::Rwd,
-                None
-            )
+            EngineDrivetrain::new(EngineDrivetrainConfig {
+                final_ratio: -1.,
+                ..c()
+            })
             .is_err()
         );
         assert!(
-            EngineDrivetrain::new(
-                curve.clone(),
-                900.,
-                8000.,
-                0.1,
-                &[3.0],
-                -3.0,
-                3.7,
-                Traction::Rwd,
-                Some(CoastRef {
+            EngineDrivetrain::new(EngineDrivetrainConfig {
+                coast: Some(CoastRef {
                     rpm: 0.,
                     torque_nm: 50.,
                     non_linearity: 0.
-                })
-            )
+                }),
+                ..c()
+            })
             .is_err()
         );
         assert!(
-            EngineDrivetrain::new(
-                curve,
-                900.,
-                8000.,
-                0.1,
-                &[3.0],
-                -3.0,
-                3.7,
-                Traction::Rwd,
-                Some(CoastRef {
+            EngineDrivetrain::new(EngineDrivetrainConfig {
+                coast: Some(CoastRef {
                     rpm: 7000.,
                     torque_nm: 50.,
                     non_linearity: 1.5
-                })
-            )
+                }),
+                ..c()
+            })
             .is_err()
         );
     }
@@ -564,17 +529,10 @@ mod tests {
 
     #[test]
     fn no_coast_without_coast_ref() {
-        let dt = EngineDrivetrain::new(
-            test_curve(),
-            900.,
-            8200.,
-            0.12,
-            &[3.5, 2.3],
-            -3.2,
-            3.7,
-            Traction::Rwd,
-            None,
-        )
+        let dt = EngineDrivetrain::new(EngineDrivetrainConfig {
+            coast: None,
+            ..test_config()
+        })
         .unwrap();
         let ratio = 3.5 * 3.7;
         let wheel_rate = 3000. * 2. * std::f64::consts::PI / (60. * ratio);
@@ -585,37 +543,25 @@ mod tests {
 
     #[test]
     fn coast_nonlinearity_increases_curvature() {
-        let linear = EngineDrivetrain::new(
-            test_curve(),
-            900.,
-            8200.,
-            0.12,
-            &[3.5],
-            -3.2,
-            3.7,
-            Traction::Rwd,
-            Some(CoastRef {
+        let linear = EngineDrivetrain::new(EngineDrivetrainConfig {
+            forward_ratios: vec![3.5],
+            coast: Some(CoastRef {
                 rpm: 7000.,
                 torque_nm: 80.,
                 non_linearity: 0.,
             }),
-        )
+            ..test_config()
+        })
         .unwrap();
-        let curved = EngineDrivetrain::new(
-            test_curve(),
-            900.,
-            8200.,
-            0.12,
-            &[3.5],
-            -3.2,
-            3.7,
-            Traction::Rwd,
-            Some(CoastRef {
+        let curved = EngineDrivetrain::new(EngineDrivetrainConfig {
+            forward_ratios: vec![3.5],
+            coast: Some(CoastRef {
                 rpm: 7000.,
                 torque_nm: 80.,
                 non_linearity: 1.,
             }),
-        )
+            ..test_config()
+        })
         .unwrap();
         let ratio = 3.5 * 3.7;
         let wheel_rate = 3500. * 2. * std::f64::consts::PI / (60. * ratio);

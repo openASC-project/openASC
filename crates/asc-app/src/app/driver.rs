@@ -249,17 +249,17 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
                 torque_nm: c.torque_nm,
                 non_linearity: c.non_linearity,
             });
-        let drivetrain = asc_physics::EngineDrivetrain::new(
-            curve,
-            vehicle.engine.idle_rpm,
-            vehicle.engine.limiter_rpm,
-            vehicle.engine.inertia_kg_m2,
-            &vehicle.drivetrain.forward_ratios,
-            vehicle.drivetrain.reverse_ratio,
-            vehicle.drivetrain.final_ratio,
+        let drivetrain = asc_physics::EngineDrivetrain::new(asc_physics::EngineDrivetrainConfig {
+            torque_curve: curve,
+            idle_rpm: vehicle.engine.idle_rpm,
+            limiter_rpm: vehicle.engine.limiter_rpm,
+            inertia_kg_m2: vehicle.engine.inertia_kg_m2,
+            forward_ratios: vehicle.drivetrain.forward_ratios.clone(),
+            reverse_ratio: vehicle.drivetrain.reverse_ratio,
+            final_ratio: vehicle.drivetrain.final_ratio,
             traction,
             coast,
-        )?;
+        })?;
         let driven_axle = match traction {
             asc_physics::Traction::Rwd => "rear",
             asc_physics::Traction::Fwd => "front",
