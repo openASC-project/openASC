@@ -122,136 +122,22 @@ struct Prepared {
     kt: [f64; 3],
     lambda: [f64; 3],
 }
-struct NormalProjection {
-    matrix: [[f64; 64]; 64],
-    scales: Vec<f64>,
-}
-impl NormalProjection {
-    fn new(prepared: &[Prepared]) -> Self {
-        let n = prepared.len();
-        let mut matrix = [[0.; 64]; 64];
-        let scales: Vec<_> = prepared.iter().map(|p| p.kn.sqrt()).collect();
-        for i in 0..n {
-            for j in 0..=i {
-                let value = 0.5
-                    * (dot(prepared[i].rows[0], prepared[j].response[0])
-                        + dot(prepared[j].rows[0], prepared[i].response[0]))
-                    / scales[i]
-                    / scales[j];
-                matrix[i][j] = value;
-                matrix[j][i] = value;
-            }
-        }
-        Self { matrix, scales }
-    }
-}
-fn active_solve(matrix: &[[f64; 64]; 64], active: &[usize], rhs: &[f64]) -> Result<Vec<f64>> {
-    let mut lower = [[0.; 6]; 6];
-    let n = active.len();
-    if n > 6 {
-        return Err(fail("Normal active set exceeds chassis rank"));
-    }
-    for i in 0..n {
-        for j in 0..=i {
-            let v = matrix[active[i]][active[j]]
-                - (0..j).map(|k| lower[i][k] * lower[j][k]).sum::<f64>();
-            if i == j {
-                if !v.is_finite() || v <= 1e-12 {
-                    return Err(fail("Normal active block is numerically dependent"));
-                }
-                lower[i][j] = v.sqrt();
-            } else {
-                lower[i][j] = v / lower[j][j];
-            }
-        }
-    }
-    let mut x = vec![0.; n];
-    for i in 0..n {
-        x[i] = (rhs[i] - (0..i).map(|j| lower[i][j] * x[j]).sum::<f64>()) / lower[i][i];
-    }
-    for i in (0..n).rev() {
-        x[i] = (x[i] - (i + 1..n).map(|j| lower[j][i] * x[j]).sum::<f64>()) / lower[i][i];
-    }
-    if x.iter().any(|v| !v.is_finite()) {
-        return Err(fail("Nonfinite active normal solve"));
-    }
-    Ok(x)
-}
-// Dual active-set projection at fixed tangential impulses. Dependent constraints may
-// replace an active constraint by a dual-bound step; contact points are not discarded.
+// Project all normals at fixed tangential impulses through the shared complementarity operator.
 fn project_normals(
-    block: &NormalProjection,
+    block: &super::normal_projection::NormalProjection,
     prepared: &mut [Prepared],
     u: &mut [f64; 6],
     tolerance: f64,
 ) -> Result<()> {
-    let n = prepared.len();
-    let matrix = &block.matrix;
-    let scales = &block.scales;
     for p in prepared.iter_mut() {
         p.change(0, 0., u)?;
     }
-    let mut active = Vec::new();
-    let mut operations = 0;
-    loop {
-        let next = (0..n)
-            .filter(|i| !active.contains(i) && dot(prepared[*i].rows[0], *u) < -tolerance * 0.1)
-            .min_by(|&a, &b| {
-                (dot(prepared[a].rows[0], *u) / scales[a])
-                    .total_cmp(&(dot(prepared[b].rows[0], *u) / scales[b]))
-            });
-        let Some(next) = next else {
-            return Ok(());
-        };
-        if dot(prepared[next].rows[0], *u) >= -tolerance * 0.1 {
-            return Ok(());
-        }
-        loop {
-            operations += 1;
-            if operations > 4096 {
-                return Err(fail(
-                    "Normal active-set projection exceeded its work budget",
-                ));
-            }
-            let rhs: Vec<_> = active.iter().map(|&i| matrix[i][next]).collect();
-            let direction = active_solve(matrix, &active, &rhs)?;
-            let curvature =
-                matrix[next][next] - rhs.iter().zip(&direction).map(|(a, b)| a * b).sum::<f64>();
-            if !curvature.is_finite() || curvature < -1e-10 {
-                return Err(fail("Normal projection has negative curvature"));
-            }
-            let primal = if curvature > 1e-12 {
-                (-dot(prepared[next].rows[0], *u) / scales[next] / curvature).max(0.)
-            } else {
-                f64::INFINITY
-            };
-            let bound = active
-                .iter()
-                .enumerate()
-                .filter(|(j, _)| direction[*j] > 1e-14)
-                .map(|(j, &i)| (j, prepared[i].lambda[0] * scales[i] / direction[j]))
-                .min_by(|a, b| a.1.total_cmp(&b.1));
-            let drop = bound.filter(|(_, limit)| *limit <= primal);
-            let step = drop.map_or(primal, |(_, limit)| limit);
-            if !step.is_finite() {
-                return Err(fail(
-                    "Dependent normal constraint has no finite feasible update",
-                ));
-            }
-            for (j, &i) in active.iter().enumerate() {
-                let value = (prepared[i].lambda[0] - step * direction[j] / scales[i]).max(0.);
-                prepared[i].change(0, value, u)?;
-            }
-            let value = prepared[next].lambda[0] + step / scales[next];
-            prepared[next].change(0, value, u)?;
-            if let Some((j, _)) = drop {
-                active.remove(j);
-            } else {
-                active.push(next);
-                break;
-            }
-        }
+    let speed: Vec<_> = prepared.iter().map(|p| dot(p.rows[0], *u)).collect();
+    let lambda = block.solve(&speed, tolerance)?;
+    for (p, lambda) in prepared.iter_mut().zip(lambda) {
+        p.change(0, lambda, u)?;
     }
+    Ok(())
 }
 impl Prepared {
     fn change(&mut self, axis: usize, value: f64, u: &mut [f64; 6]) -> Result<()> {
@@ -411,7 +297,10 @@ impl ChassisSystem {
         let mut u = velocity(&before.chassis);
         let mut block_prepared = prepared.clone();
         let mut block_u = u;
-        let normal_block = NormalProjection::new(&prepared);
+        let normal_block = super::normal_projection::NormalProjection::new(
+            &prepared.iter().map(|p| p.rows[0]).collect::<Vec<_>>(),
+            &prepared.iter().map(|p| p.response[0]).collect::<Vec<_>>(),
+        )?;
         let mut block_error = None;
         let mut converged = None;
         let mut normal_projection_used = false;

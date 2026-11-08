@@ -9,6 +9,7 @@ use serde::Serialize;
 mod contacts;
 mod impulse;
 mod kinematics;
+mod normal_projection;
 mod rack;
 pub use contacts::{
     ChassisContact, ChassisContactResult, ChassisContactSample, ChassisContactSettings,
