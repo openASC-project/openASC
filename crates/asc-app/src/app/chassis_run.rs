@@ -226,6 +226,7 @@ pub(super) struct EngineBinding {
     pub driven_indices: Vec<usize>,
     pub tyre_radius_m: f64,
     pub diff: Option<asc_physics::DiffParams>,
+    pub tyre_models: Vec<Option<asc_physics::TyreModel>>,
 }
 pub(super) struct BrakeBinding {
     pub handbrake_torques: Vec<f64>,
@@ -434,12 +435,49 @@ impl Environment {
                 }
             }
         }
-        for (load, contact) in loads.wheels.iter_mut().zip(self.contacts(k)?) {
-            if let Some(contact) = contact.normal {
-                load.add_external(contact.wrench()?)?;
+        let contacts = self.contacts(k)?;
+        for (i, (load, contact)) in loads.wheels.iter_mut().zip(&contacts).enumerate() {
+            if let Some(c) = &contact.normal {
+                load.add_external(c.wrench()?)?;
             }
-            if let Some(contact) = contact.tangential {
-                load.add_external(contact.wrench()?)?;
+            let has_tyre = self
+                .engine
+                .as_ref()
+                .and_then(|e| e.tyre_models.get(i))
+                .and_then(Option::as_ref);
+            if let (Some(tyre), Some(upright)) = (has_tyre, k.uprights.get(i)) {
+                if let (Some(wheel), Some(nc)) = (&upright.wheel, &contact.normal) {
+                    let normal_load = nc.normal_force_n;
+                    let normal = glam::DVec3::from_array(nc.normal_world);
+                    let axis = glam::DVec3::from_array(wheel.axis_world);
+                    let longitudinal = axis.cross(normal);
+                    if longitudinal.length_squared() > 1e-12 {
+                        let longitudinal = longitudinal.normalize();
+                        let lateral = normal.cross(longitudinal);
+                        let vel = glam::DVec3::from_array(wheel.body.velocity_world_m_s);
+                        let v_long = vel.dot(longitudinal);
+                        let v_lat = vel.dot(lateral);
+                        let tyre_radius =
+                            self.engine.as_ref().map(|e| e.tyre_radius_m).unwrap_or(0.3);
+                        let omega = wheel.state.rate_rad_s;
+                        let v_min = 1.5;
+                        let denom = v_long.abs().max(v_min);
+                        let slip_ratio = (omega * tyre_radius - v_long) / denom;
+                        let slip_angle = -(v_lat / denom).atan();
+                        let surface_mu = contact
+                            .face
+                            .as_ref()
+                            .map(|f| f.surface_friction)
+                            .unwrap_or(1.0);
+                        let sample =
+                            tyre.forces(normal_load, slip_angle, slip_ratio, surface_mu)?;
+                        let force = longitudinal * sample.longitudinal_force_n
+                            + lateral * sample.lateral_force_n;
+                        load.add_external(asc_physics::Wrench::new(force.to_array(), [0.; 3])?)?;
+                    }
+                }
+            } else if let Some(c) = &contact.tangential {
+                load.add_external(c.wrench()?)?;
             }
         }
         if let Some(aero) = &self.aero {

@@ -32,6 +32,14 @@ pub struct FieldSource {
     pub line: usize,
 }
 #[derive(Serialize)]
+pub struct TyreForce {
+    pub fz0: f64,
+    pub dx_ref: f64,
+    pub dy_ref: f64,
+    pub ls_expx: f64,
+    pub ls_expy: f64,
+}
+#[derive(Serialize)]
 pub struct Axle {
     #[serde(rename = "type")]
     pub kind: String,
@@ -40,6 +48,7 @@ pub struct Axle {
     pub tyre_name: String,
     pub tyre_radius_m: f64,
     pub tyre_width_m: f64,
+    pub tyre_force: Option<TyreForce>,
 }
 #[derive(Serialize)]
 pub struct TorqueLut {
@@ -196,6 +205,22 @@ pub fn load(directory: &Path, mode: data::Mode, compound: Option<u32>) -> Result
         } else {
             format!("{name}_{compound}")
         };
+        let tyre_force = if tyres
+            .document
+            .sections
+            .iter()
+            .any(|s| s.name == section && s.values.contains_key("FZ0"))
+        {
+            Some(TyreForce {
+                fz0: tyres.number(&section, "FZ0", 0., f64::MAX, true)?,
+                dx_ref: tyres.number(&section, "DX_REF", 0., f64::MAX, true)?,
+                dy_ref: tyres.number(&section, "DY_REF", 0., f64::MAX, true)?,
+                ls_expx: tyres.number(&section, "LS_EXPX", 0., 2., false)?,
+                ls_expy: tyres.number(&section, "LS_EXPY", 0., 2., false)?,
+            })
+        } else {
+            None
+        };
         let axle = Axle {
             kind: suspension.value(name, "TYPE")?,
             track_m: suspension.number(name, "TRACK", 0., f64::MAX, true)?,
@@ -203,6 +228,7 @@ pub fn load(directory: &Path, mode: data::Mode, compound: Option<u32>) -> Result
             tyre_name: tyres.value(&section, "NAME")?,
             tyre_radius_m: tyres.number(&section, "RADIUS", 0., f64::MAX, true)?,
             tyre_width_m: tyres.number(&section, "WIDTH", 0., f64::MAX, true)?,
+            tyre_force,
         };
         let z = if name == "FRONT" {
             wheelbase_m * (1. - front_weight_fraction)

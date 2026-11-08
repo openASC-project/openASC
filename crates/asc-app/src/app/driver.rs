@@ -284,11 +284,32 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
             preload_nm: vehicle.drivetrain.differential.preload_nm,
         };
         diff.validate()?;
+        let tyre_models: Vec<Option<asc_physics::TyreModel>> = bench
+            .config_uprights()
+            .iter()
+            .map(|u| {
+                vehicle
+                    .axles
+                    .get(u.axle())
+                    .and_then(|a| a.tyre_force.as_ref())
+                    .map(|tf| {
+                        asc_physics::TyreModel::new(asc_physics::TyreModelConfig {
+                            fz0: tf.fz0,
+                            dx_ref: tf.dx_ref,
+                            dy_ref: tf.dy_ref,
+                            ls_expx: tf.ls_expx,
+                            ls_expy: tf.ls_expy,
+                        })
+                    })
+                    .transpose()
+            })
+            .collect::<std::result::Result<_, _>>()?;
         bench.set_engine(chassis_run::EngineBinding {
             drivetrain,
             driven_indices,
             tyre_radius_m: tyre_radius,
             diff: Some(diff),
+            tyre_models,
         });
         bench.set_brakes_from_vehicle(
             vehicle.brakes.max_torque_nm,
