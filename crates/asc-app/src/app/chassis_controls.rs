@@ -1,11 +1,12 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 pub(super) struct Control {
     pub time_s: f64,
     pub drive_fraction: f64,
     pub brake_fraction: f64,
+    #[serde(default)]
+    pub gear: i32,
 }
 pub(super) struct Timeline(Vec<Control>);
 impl Timeline {
@@ -48,6 +49,7 @@ impl Timeline {
                 .clamp(-1., 1.),
             brake_fraction: (a.brake_fraction + (b.brake_fraction - a.brake_fraction) * t)
                 .clamp(0., 1.),
+            gear: a.gear,
         })
     }
 }
@@ -60,6 +62,7 @@ mod tests {
             time_s: t,
             drive_fraction: d,
             brake_fraction: b,
+            gear: 0,
         }
     }
     #[test]

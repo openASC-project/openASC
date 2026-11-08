@@ -32,7 +32,6 @@ use winit::{
 };
 
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
 struct Configuration {
     dynamics_config: String,
     model_origin_in_chassis_m: [f64; 3],
@@ -49,6 +48,8 @@ struct Configuration {
     wall_sweep_settings: asc_ground::WallSweepSettings,
     #[serde(default)]
     wall_allow_certified_departures: bool,
+    #[serde(default)]
+    engine_drivetrain: bool,
 }
 pub struct Options {
     pub fallback: bool,
@@ -89,6 +90,7 @@ struct App {
     wall: Option<WallState>,
     options: Options,
     hz: u32,
+    gear_count: i32,
     state: Option<State>,
     error: Option<String>,
     started: Instant,
@@ -119,7 +121,7 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
     let config: Configuration = serde_json::from_slice(&bytes)?;
     config.steering.validate()?;
     let parent = path.parent().unwrap_or(Path::new("."));
-    let bench = chassis_run::load(&parent.join(&config.dynamics_config))?;
+    let mut bench = chassis_run::load(&parent.join(&config.dynamics_config))?;
     let hz = (1. / bench.step_s()).round();
     if !(30. ..=10000.).contains(&hz) || (hz * bench.step_s() - 1.).abs() > 1e-10 {
         return Err(
@@ -186,6 +188,57 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
     } else {
         None
     };
+    let gear_count = if config.engine_drivetrain {
+        let vehicle = asc_vehicle::load(&car, mode, config.compound)?;
+        let curve = asc_physics::TorqueCurve::new(
+            &vehicle
+                .engine
+                .torque_lut
+                .points
+                .iter()
+                .map(|p| [p[0], p[1]])
+                .collect::<Vec<_>>(),
+        )?;
+        let traction = match vehicle.drivetrain.traction.as_str() {
+            "FWD" => asc_physics::Traction::Fwd,
+            _ => asc_physics::Traction::Rwd,
+        };
+        let drivetrain = asc_physics::EngineDrivetrain::new(
+            curve,
+            vehicle.engine.idle_rpm,
+            vehicle.engine.limiter_rpm,
+            vehicle.engine.inertia_kg_m2,
+            &vehicle.drivetrain.forward_ratios,
+            vehicle.drivetrain.reverse_ratio,
+            vehicle.drivetrain.final_ratio,
+            traction,
+        )?;
+        let driven_axle = match traction {
+            asc_physics::Traction::Rwd => "rear",
+            asc_physics::Traction::Fwd => "front",
+        };
+        let driven_indices: Vec<usize> = bench
+            .config_uprights()
+            .iter()
+            .enumerate()
+            .filter(|(_, u)| u.axle() == driven_axle)
+            .map(|(i, _)| i)
+            .collect();
+        let tyre_radius = vehicle
+            .axles
+            .get(driven_axle)
+            .map(|a| a.tyre_radius_m)
+            .unwrap_or(0.3);
+        let gc = drivetrain.gear_count() as i32;
+        bench.set_engine(chassis_run::EngineBinding {
+            drivetrain,
+            driven_indices,
+            tyre_radius_m: tyre_radius,
+        });
+        gc
+    } else {
+        0
+    };
     let event_loop = EventLoop::new()?;
     let has_walls = wall.is_some();
     let mut app = App {
@@ -199,6 +252,7 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
         wall,
         options,
         hz: hz as u32,
+        gear_count,
         state: None,
         error: None,
         started: Instant::now(),
@@ -269,7 +323,11 @@ impl App {
             presenter,
             camera: camera.clone(),
             home: camera,
-            keys: Keys::default(),
+            keys: {
+                let mut k = Keys::default();
+                k.max_gear = self.gear_count;
+                k
+            },
             paused: !self.options.smoke,
             reason: None,
             clock: FixedClock::new(self.hz, 128)?,

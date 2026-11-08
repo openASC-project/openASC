@@ -25,7 +25,7 @@ struct Chassis {
 }
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct Upright {
+pub(super) struct Upright {
     car_directory: String,
     axle: String,
     data: String,
@@ -50,6 +50,11 @@ struct Upright {
     external_torque_about_com_world_nm: [f64; 3],
     #[serde(skip_serializing_if = "Option::is_none")]
     wheel: Option<WheelConfiguration>,
+}
+impl Upright {
+    pub(super) fn axle(&self) -> &str {
+        &self.axle
+    }
 }
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -216,6 +221,11 @@ struct Contact {
     face: Option<asc_session::TrackFace>,
     tangential: Option<TangentialContactSample>,
 }
+pub(super) struct EngineBinding {
+    pub drivetrain: asc_physics::EngineDrivetrain,
+    pub driven_indices: Vec<usize>,
+    pub tyre_radius_m: f64,
+}
 struct Environment {
     base: ChassisLoads,
     plane: Option<SupportPlane>,
@@ -227,6 +237,7 @@ struct Environment {
     controls: Option<Timeline>,
     racks: Vec<RackPrescription>,
     steering_count: usize,
+    engine: Option<EngineBinding>,
 }
 impl Environment {
     fn racks(&self, time: f64) -> asc_physics::Result<Vec<RackMotion>> {
@@ -260,6 +271,7 @@ impl Environment {
                 time_s,
                 drive_fraction: 1.,
                 brake_fraction: 0.,
+                gear: 0,
             }
         };
         let mut motor_power = 0.;
@@ -338,8 +350,38 @@ impl Environment {
     ) -> asc_physics::Result<ChassisLoads> {
         let mut loads = self.base.clone();
         let (control, brakes, _) = self.actuation_override(time_s, k, command)?;
+        if let Some(engine) = &self.engine {
+            let avg_rate = if engine.driven_indices.is_empty() {
+                0.
+            } else {
+                engine
+                    .driven_indices
+                    .iter()
+                    .filter_map(|&i| k.uprights.get(i).and_then(|u| u.wheel.as_ref()))
+                    .map(|w| w.state.rate_rad_s)
+                    .sum::<f64>()
+                    / engine.driven_indices.len() as f64
+            };
+            let sample = engine.drivetrain.drive_torque(
+                avg_rate,
+                engine.tyre_radius_m,
+                control.gear,
+                control.drive_fraction.max(0.),
+                engine.driven_indices.len() as u32,
+            )?;
+            for (i, load) in loads.wheels.iter_mut().enumerate() {
+                if engine.driven_indices.contains(&i) {
+                    load.set_internal_torque(sample.wheel_torque_nm)?;
+                } else {
+                    load.set_internal_torque(0.)?;
+                }
+            }
+        } else {
+            for load in loads.wheels.iter_mut() {
+                load.set_internal_torque(control.drive_fraction * load.internal_torque_nm())?;
+            }
+        }
         for (load, brake) in loads.wheels.iter_mut().zip(brakes) {
-            load.set_internal_torque(control.drive_fraction * load.internal_torque_nm())?;
             if let Some(brake) = brake {
                 load.add_internal_torque(brake.torque_on_wheel_nm)?;
             }
@@ -461,6 +503,12 @@ impl Workbench {
         self.system = self.initial.clone();
         self.live_ticks = 0;
     }
+    pub fn config_uprights(&self) -> &[Upright] {
+        &self.config.uprights
+    }
+    pub fn set_engine(&mut self, binding: EngineBinding) {
+        self.environment.engine = Some(binding);
+    }
     pub fn diagnostics(&self) -> serde_json::Value {
         serde_json::json!({"source_geometry":self.sources,"spawn_diagnostics":self.spawn_diagnostics,
             "track_geometry":self.environment.track.as_ref().map(|(g,_)|g.summary()),
@@ -568,6 +616,7 @@ impl Workbench {
                         time_s: time + offset,
                         drive_fraction: command.drive,
                         brake_fraction: command.brake,
+                        gear: command.gear,
                     }),
                 )
             },
@@ -637,6 +686,7 @@ impl Workbench {
                             time_s: base_time + offset,
                             drive_fraction: command.drive,
                             brake_fraction: command.brake,
+                            gear: command.gear,
                         }),
                     )
                 },
@@ -962,6 +1012,7 @@ pub(super) fn load(configuration: &Path) -> Result<Workbench, Box<dyn Error>> {
             .as_ref()
             .map(|c| Timeline::new(c))
             .transpose()?,
+        engine: None,
     };
     if environment.controls.is_some() && wheel_count == 0 {
         return Err("Wheel controls require at least one wheel".into());
@@ -1360,6 +1411,7 @@ mod live_tests {
                     drive: 0.5,
                     brake: 0.1,
                     steering: 0.4,
+                    ..Command::default()
                 };
                 let ls = left.live_step(command, actuator()).unwrap();
                 let rs = right.live_step(command, actuator()).unwrap();
@@ -1504,13 +1556,12 @@ mod live_tests {
                 Command {
                     drive: 1.,
                     steering: 1.,
-                    brake: 0.,
+                    ..Command::default()
                 }
             } else {
                 Command {
-                    drive: 0.,
-                    steering: 0.,
                     brake: 1.,
+                    ..Command::default()
                 }
             };
             let sample = bench.live_step(input, actuator()).unwrap();
@@ -1739,7 +1790,6 @@ mod live_tests {
             friction: 0.3,
             allow_certified_departures: false,
         };
-        let dt = bench.step_s();
         let vz_before = bench.system.kinematics().unwrap().chassis.velocity_world_m_s[2];
         assert!(vz_before < -2.9, "Should start moving toward the wall");
         bench

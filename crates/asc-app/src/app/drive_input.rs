@@ -1,7 +1,6 @@
 use asc_physics::{Error, Result};
 use serde::{Deserialize, Serialize};
 use winit::keyboard::KeyCode;
-#[derive(Default)]
 pub(super) struct Keys {
     throttle: bool,
     brake_s: bool,
@@ -9,6 +8,22 @@ pub(super) struct Keys {
     left: bool,
     right: bool,
     pub reverse: bool,
+    pub gear: i32,
+    pub max_gear: i32,
+}
+impl Default for Keys {
+    fn default() -> Self {
+        Self {
+            throttle: false,
+            brake_s: false,
+            brake_space: false,
+            left: false,
+            right: false,
+            reverse: false,
+            gear: 0,
+            max_gear: 0,
+        }
+    }
 }
 impl Keys {
     pub fn event(&mut self, key: KeyCode, down: bool, repeat: bool, paused: bool) {
@@ -30,6 +45,8 @@ impl Keys {
             KeyCode::Space => self.brake_space = down,
             KeyCode::KeyA => self.left = down,
             KeyCode::KeyD => self.right = down,
+            KeyCode::KeyE if down => self.gear = (self.gear + 1).min(self.max_gear),
+            KeyCode::KeyQ if down => self.gear = (self.gear - 1).max(-1),
             _ => {}
         }
     }
@@ -42,6 +59,7 @@ impl Keys {
             },
             brake: f64::from(self.brake_s || self.brake_space),
             steering: f64::from(self.left) - f64::from(self.right),
+            gear: self.gear,
         }
     }
 }
@@ -51,6 +69,7 @@ pub(super) struct Command {
     pub drive: f64,
     pub brake: f64,
     pub steering: f64,
+    pub gear: i32,
 }
 impl Command {
     pub fn validate(self) -> Result<()> {
@@ -60,10 +79,11 @@ impl Command {
             || !(0. ..=1.).contains(&self.brake)
             || !self.steering.is_finite()
             || self.steering.abs() > 1.
+            || !(-1..=10).contains(&self.gear)
         {
             return Err(Error::new(
                 "native_drive_input",
-                "Drive/steering must lie in -1..1 and brake in 0..1",
+                "Drive/steering must lie in -1..1, brake in 0..1, gear in -1..10",
             ));
         }
         Ok(())
