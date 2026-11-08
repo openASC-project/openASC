@@ -149,10 +149,10 @@ def package_mods():
         if manifest['id'] != folder.name:
             raise ValueError(f'mods/{folder.name}/mod.json id must equal the folder name')
         buffer = io.BytesIO()
-        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as archive:
+        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_STORED) as archive:
             for path in sorted(q for q in folder.rglob('*') if q.is_file()):
                 info = zipfile.ZipInfo(path.relative_to(folder).as_posix(), (2026, 1, 1, 0, 0, 0))
-                info.compress_type = zipfile.ZIP_DEFLATED
+                info.compress_type = zipfile.ZIP_STORED
                 info.external_attr = 0o644 << 16
                 archive.writestr(info, path.read_bytes())
         data = buffer.getvalue()
