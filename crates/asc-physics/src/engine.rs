@@ -82,6 +82,59 @@ pub enum Traction {
     Fwd,
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct DiffParams {
+    pub power_lock: f64,
+    pub coast_lock: f64,
+    pub preload_nm: f64,
+}
+
+#[derive(Clone, Copy, Debug, Serialize)]
+pub struct DiffSplit {
+    pub left_torque_nm: f64,
+    pub right_torque_nm: f64,
+}
+
+impl DiffParams {
+    pub fn validate(&self) -> Result<()> {
+        if !self.power_lock.is_finite() || !(0. ..=1.).contains(&self.power_lock) {
+            return Err(fail("Differential power lock must be in [0, 1]"));
+        }
+        if !self.coast_lock.is_finite() || !(0. ..=1.).contains(&self.coast_lock) {
+            return Err(fail("Differential coast lock must be in [0, 1]"));
+        }
+        if !self.preload_nm.is_finite() || self.preload_nm < 0. {
+            return Err(fail("Differential preload must be non-negative"));
+        }
+        Ok(())
+    }
+
+    pub fn split(
+        &self,
+        total_torque_nm: f64,
+        left_rate_rad_s: f64,
+        right_rate_rad_s: f64,
+    ) -> DiffSplit {
+        let lock = if total_torque_nm >= 0. {
+            self.power_lock
+        } else {
+            self.coast_lock
+        };
+        let locking_torque = lock * total_torque_nm.abs() / 2. + self.preload_nm;
+        let speed_diff = left_rate_rad_s - right_rate_rad_s;
+        let transfer = if speed_diff.abs() < 1e-9 {
+            0.
+        } else {
+            locking_torque.copysign(speed_diff)
+        };
+        let half = total_torque_nm / 2.;
+        DiffSplit {
+            left_torque_nm: half + transfer,
+            right_torque_nm: half - transfer,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Serialize)]
 pub struct EngineSample {
     pub rpm: f64,
@@ -435,5 +488,59 @@ mod tests {
         let s_cur = curved.drive_torque(wheel_rate, 0.3, 1, 0., 2).unwrap();
         assert!(s_cur.torque_nm > s_lin.torque_nm,
             "nonlinear coast at low RPM should be less retarding (closer to zero)");
+    }
+
+    #[test]
+    fn diff_equal_speed_splits_evenly() {
+        let diff = DiffParams { power_lock: 0.5, coast_lock: 0.3, preload_nm: 0. };
+        diff.validate().unwrap();
+        let split = diff.split(200., 100., 100.);
+        assert!((split.left_torque_nm - 100.).abs() < 1e-9);
+        assert!((split.right_torque_nm - 100.).abs() < 1e-9);
+    }
+
+    #[test]
+    fn diff_transfers_torque_to_slower_wheel() {
+        let diff = DiffParams { power_lock: 0.6, coast_lock: 0.2, preload_nm: 0. };
+        let split = diff.split(200., 80., 120.);
+        assert!(split.left_torque_nm < split.right_torque_nm,
+            "faster left wheel should get less torque");
+        let transfer = 0.6 * 200. / 2.;
+        assert!((split.left_torque_nm - (100. - transfer)).abs() < 1e-9);
+        assert!((split.right_torque_nm - (100. + transfer)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn diff_uses_coast_lock_for_negative_torque() {
+        let diff = DiffParams { power_lock: 0.8, coast_lock: 0.2, preload_nm: 0. };
+        let split = diff.split(-100., 80., 120.);
+        let transfer = 0.2 * 100. / 2.;
+        assert!((split.left_torque_nm - (-50. - transfer)).abs() < 1e-9);
+        assert!((split.right_torque_nm - (-50. + transfer)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn diff_preload_adds_minimum_locking() {
+        let diff = DiffParams { power_lock: 0., coast_lock: 0., preload_nm: 30. };
+        let split = diff.split(200., 80., 120.);
+        assert!((split.left_torque_nm - (100. - 30.)).abs() < 1e-9);
+        assert!((split.right_torque_nm - (100. + 30.)).abs() < 1e-9);
+    }
+
+    #[test]
+    fn diff_open_splits_evenly_regardless_of_speed_diff() {
+        let diff = DiffParams { power_lock: 0., coast_lock: 0., preload_nm: 0. };
+        let split = diff.split(200., 50., 150.);
+        assert!((split.left_torque_nm - 100.).abs() < 1e-9);
+        assert!((split.right_torque_nm - 100.).abs() < 1e-9);
+    }
+
+    #[test]
+    fn diff_rejects_invalid_params() {
+        assert!(DiffParams { power_lock: -0.1, coast_lock: 0., preload_nm: 0. }.validate().is_err());
+        assert!(DiffParams { power_lock: 1.1, coast_lock: 0., preload_nm: 0. }.validate().is_err());
+        assert!(DiffParams { power_lock: 0., coast_lock: -0.1, preload_nm: 0. }.validate().is_err());
+        assert!(DiffParams { power_lock: 0., coast_lock: 0., preload_nm: -1. }.validate().is_err());
+        assert!(DiffParams { power_lock: 0.5, coast_lock: 0.5, preload_nm: 10. }.validate().is_ok());
     }
 }

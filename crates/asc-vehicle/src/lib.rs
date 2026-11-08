@@ -68,6 +68,13 @@ pub struct Drivetrain {
     pub forward_ratios: Vec<f64>,
     pub reverse_ratio: f64,
     pub final_ratio: f64,
+    pub differential: Differential,
+}
+#[derive(Serialize)]
+pub struct Differential {
+    pub power_lock: f64,
+    pub coast_lock: f64,
+    pub preload_nm: f64,
 }
 #[derive(Serialize)]
 pub struct Brakes {
@@ -277,6 +284,11 @@ pub fn load(directory: &Path, mode: data::Mode, compound: Option<u32>) -> Result
         ));
     }
     let final_ratio = drive.number("GEARS", "FINAL", 0., f64::MAX, true)?;
+    let differential = Differential {
+        power_lock: drive.number("DIFFERENTIAL", "POWER", 0., 1., false)?,
+        coast_lock: drive.number("DIFFERENTIAL", "COAST", 0., 1., false)?,
+        preload_nm: drive.number("DIFFERENTIAL", "PRELOAD", 0., f64::MAX, false)?,
+    };
     let brakes = Brakes {
         max_torque_nm: brake.number("DATA", "MAX_TORQUE", 0., f64::MAX, true)?,
         front_share: brake.number("DATA", "FRONT_SHARE", 0., 1., false)?,
@@ -428,6 +440,7 @@ pub fn load(directory: &Path, mode: data::Mode, compound: Option<u32>) -> Result
             forward_ratios,
             reverse_ratio,
             final_ratio,
+            differential,
         },
         brakes,
         aero,

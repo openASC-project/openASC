@@ -225,6 +225,7 @@ pub(super) struct EngineBinding {
     pub drivetrain: asc_physics::EngineDrivetrain,
     pub driven_indices: Vec<usize>,
     pub tyre_radius_m: f64,
+    pub diff: Option<asc_physics::DiffParams>,
 }
 pub(super) struct BrakeBinding {
     pub handbrake_torques: Vec<f64>,
@@ -366,16 +367,21 @@ impl Environment {
         let mut loads = self.base.clone();
         let (control, brakes, _) = self.actuation_override(time_s, k, command)?;
         if let Some(engine) = &self.engine {
-            let avg_rate = if engine.driven_indices.is_empty() {
+            let driven_rates: Vec<f64> = engine
+                .driven_indices
+                .iter()
+                .map(|&i| {
+                    k.uprights
+                        .get(i)
+                        .and_then(|u| u.wheel.as_ref())
+                        .map(|w| w.state.rate_rad_s)
+                        .unwrap_or(0.)
+                })
+                .collect();
+            let avg_rate = if driven_rates.is_empty() {
                 0.
             } else {
-                engine
-                    .driven_indices
-                    .iter()
-                    .filter_map(|&i| k.uprights.get(i).and_then(|u| u.wheel.as_ref()))
-                    .map(|w| w.state.rate_rad_s)
-                    .sum::<f64>()
-                    / engine.driven_indices.len() as f64
+                driven_rates.iter().sum::<f64>() / driven_rates.len() as f64
             };
             let sample = engine.drivetrain.drive_torque(
                 avg_rate,
@@ -384,9 +390,28 @@ impl Environment {
                 control.drive_fraction.max(0.),
                 engine.driven_indices.len() as u32,
             )?;
+            let total_axle_torque =
+                sample.wheel_torque_nm * engine.driven_indices.len() as f64;
+            let per_wheel_torques: Vec<f64> =
+                if let Some(diff) = &engine.diff {
+                    if driven_rates.len() == 2 {
+                        let split = diff.split(
+                            total_axle_torque,
+                            driven_rates[0],
+                            driven_rates[1],
+                        );
+                        vec![split.left_torque_nm, split.right_torque_nm]
+                    } else {
+                        vec![sample.wheel_torque_nm; driven_rates.len()]
+                    }
+                } else {
+                    vec![sample.wheel_torque_nm; driven_rates.len()]
+                };
+            let mut driven_idx = 0;
             for (i, load) in loads.wheels.iter_mut().enumerate() {
                 if engine.driven_indices.contains(&i) {
-                    load.set_internal_torque(sample.wheel_torque_nm)?;
+                    load.set_internal_torque(per_wheel_torques[driven_idx])?;
+                    driven_idx += 1;
                 } else {
                     load.set_internal_torque(0.)?;
                 }

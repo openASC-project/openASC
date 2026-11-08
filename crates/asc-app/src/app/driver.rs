@@ -236,10 +236,17 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
             .map(|a| a.tyre_radius_m)
             .unwrap_or(0.3);
         let gc = drivetrain.gear_count() as i32;
+        let diff = asc_physics::DiffParams {
+            power_lock: vehicle.drivetrain.differential.power_lock,
+            coast_lock: vehicle.drivetrain.differential.coast_lock,
+            preload_nm: vehicle.drivetrain.differential.preload_nm,
+        };
+        diff.validate()?;
         bench.set_engine(chassis_run::EngineBinding {
             drivetrain,
             driven_indices,
             tyre_radius_m: tyre_radius,
+            diff: Some(diff),
         });
         bench.set_brakes_from_vehicle(
             vehicle.brakes.max_torque_nm,
