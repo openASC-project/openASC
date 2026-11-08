@@ -74,6 +74,7 @@ pub struct EngineDrivetrain {
     final_ratio: f64,
     traction: Traction,
     coast: Option<CoastRef>,
+    clutch_max_torque_nm: f64,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -154,6 +155,7 @@ pub struct EngineDrivetrainConfig {
     pub final_ratio: f64,
     pub traction: Traction,
     pub coast: Option<CoastRef>,
+    pub clutch_max_torque_nm: f64,
 }
 
 impl EngineDrivetrain {
@@ -164,6 +166,7 @@ impl EngineDrivetrain {
         let reverse_ratio = config.reverse_ratio;
         let final_ratio = config.final_ratio;
         let coast = config.coast;
+        let clutch_max_torque_nm = config.clutch_max_torque_nm;
         let traction = config.traction;
         let torque_curve = config.torque_curve;
         let forward_ratios = &config.forward_ratios;
@@ -190,6 +193,9 @@ impl EngineDrivetrain {
         if !final_ratio.is_finite() || final_ratio <= 0. {
             return Err(fail("Final drive ratio must be positive"));
         }
+        if !clutch_max_torque_nm.is_finite() || clutch_max_torque_nm <= 0. {
+            return Err(fail("Clutch max torque must be positive"));
+        }
         if let Some(c) = &coast {
             if !c.rpm.is_finite() || c.rpm <= 0. {
                 return Err(fail("Coast reference RPM must be positive"));
@@ -211,6 +217,7 @@ impl EngineDrivetrain {
             final_ratio,
             traction,
             coast,
+            clutch_max_torque_nm,
         })
     }
 
@@ -303,7 +310,8 @@ impl EngineDrivetrain {
             self.torque_curve.sample(clamped_rpm)? * throttle_clamped
         };
         let coast = self.coast_torque_at_rpm(clamped_rpm) * (1. - throttle_clamped);
-        let engine_torque = power_torque - coast;
+        let engine_torque =
+            (power_torque - coast).clamp(-self.clutch_max_torque_nm, self.clutch_max_torque_nm);
         let wheel_torque = if ratio.abs() < 1e-12 {
             0.
         } else {
@@ -350,6 +358,7 @@ mod tests {
                 torque_nm: 80.,
                 non_linearity: 0.,
             }),
+            clutch_max_torque_nm: f64::MAX,
         }
     }
 
@@ -638,6 +647,80 @@ mod tests {
         let split = diff.split(200., 50., 150.);
         assert!((split.left_torque_nm - 100.).abs() < 1e-9);
         assert!((split.right_torque_nm - 100.).abs() < 1e-9);
+    }
+
+    #[test]
+    fn clutch_clamps_engine_torque() {
+        let dt = EngineDrivetrain::new(EngineDrivetrainConfig {
+            clutch_max_torque_nm: 100.,
+            ..test_config()
+        })
+        .unwrap();
+        let ratio = 3.5 * 3.7;
+        let wheel_rate = 3000. * 2. * std::f64::consts::PI / (60. * ratio);
+        let sample = dt.drive_torque(wheel_rate, 0.3, 1, 1., 2).unwrap();
+        assert!(
+            (sample.torque_nm - 100.).abs() < 0.01,
+            "engine torque should be clamped to clutch max: {}",
+            sample.torque_nm
+        );
+        let expected_wheel = 100. * ratio * 0.9 / 2.;
+        assert!((sample.wheel_torque_nm - expected_wheel).abs() < 0.1);
+    }
+
+    #[test]
+    fn clutch_clamps_coast_torque() {
+        let dt = EngineDrivetrain::new(EngineDrivetrainConfig {
+            clutch_max_torque_nm: 20.,
+            ..test_config()
+        })
+        .unwrap();
+        let ratio = 3.5 * 3.7;
+        let wheel_rate = 5000. * 2. * std::f64::consts::PI / (60. * ratio);
+        let sample = dt.drive_torque(wheel_rate, 0.3, 1, 0., 2).unwrap();
+        assert!(
+            (sample.torque_nm + 20.).abs() < 0.01,
+            "coast torque should be clamped to -clutch_max: {}",
+            sample.torque_nm
+        );
+    }
+
+    #[test]
+    fn clutch_no_effect_when_unlimited() {
+        let unlimited = test_drivetrain();
+        let ratio = 3.5 * 3.7;
+        let wheel_rate = 3000. * 2. * std::f64::consts::PI / (60. * ratio);
+        let sample = unlimited.drive_torque(wheel_rate, 0.3, 1, 1., 2).unwrap();
+        assert!(
+            (sample.torque_nm - 150.).abs() < 0.01,
+            "unlimited clutch should not clamp: {}",
+            sample.torque_nm
+        );
+    }
+
+    #[test]
+    fn clutch_rejects_invalid_values() {
+        assert!(
+            EngineDrivetrain::new(EngineDrivetrainConfig {
+                clutch_max_torque_nm: 0.,
+                ..test_config()
+            })
+            .is_err()
+        );
+        assert!(
+            EngineDrivetrain::new(EngineDrivetrainConfig {
+                clutch_max_torque_nm: -100.,
+                ..test_config()
+            })
+            .is_err()
+        );
+        assert!(
+            EngineDrivetrain::new(EngineDrivetrainConfig {
+                clutch_max_torque_nm: f64::NAN,
+                ..test_config()
+            })
+            .is_err()
+        );
     }
 
     #[test]

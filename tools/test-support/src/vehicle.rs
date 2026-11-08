@@ -34,7 +34,7 @@ pub fn vehicle_files() -> BTreeMap<&'static str, String> {
     ("suspensions.ini","[HEADER]\nVERSION=1\n[BASIC]\nWHEELBASE=3\nCG_LOCATION=.4\n[FRONT]\nTYPE=STRUT\nTRACK=1.4\nBASEY=-.2\n[REAR]\nTYPE=DWB\nTRACK=1.5\nBASEY=-.25\n"),
     ("tyres.ini","[HEADER]\nVERSION=10\n[COMPOUND_DEFAULT]\nINDEX=0\n[FRONT]\nNAME=Original front\nRADIUS=.3\nWIDTH=.2\n[REAR]\nNAME=Original rear\nRADIUS=.31\nWIDTH=.21\n[FRONT_1]\nNAME=Alternative front\nRADIUS=.32\nWIDTH=.22\n[REAR_1]\nNAME=Alternative rear\nRADIUS=.33\nWIDTH=.23\n"),
     ("engine.ini","[HEADER]\nVERSION=1\nPOWER_CURVE=power.lut\nCOAST_CURVE=FROM_COAST_REF\n[ENGINE_DATA]\nMINIMUM=800\nLIMITER=6000\nINERTIA=.15\n[COAST_REF]\nRPM=5000\nTORQUE=60\nNON_LINEARITY=0\n"),
-    ("drivetrain.ini","[HEADER]\nVERSION=3\n[TRACTION]\nTYPE=RWD\n[GEARS]\nCOUNT=3\nGEAR_R=-3\nGEAR_1=3\nGEAR_2=2\nGEAR_3=1.2\nFINAL=4\n[DIFFERENTIAL]\nPOWER=0.3\nCOAST=0.1\nPRELOAD=20\n"),
+    ("drivetrain.ini","[HEADER]\nVERSION=3\n[TRACTION]\nTYPE=RWD\n[GEARS]\nCOUNT=3\nGEAR_R=-3\nGEAR_1=3\nGEAR_2=2\nGEAR_3=1.2\nFINAL=4\n[DIFFERENTIAL]\nPOWER=0.3\nCOAST=0.1\nPRELOAD=20\n[GEARBOX]\nCHANGE_UP_TIME=150\nCHANGE_DN_TIME=200\n[CLUTCH]\nMAX_TORQUE=400\n"),
     ("brakes.ini","[HEADER]\nVERSION=1\n[DATA]\nMAX_TORQUE=1200\nFRONT_SHARE=.6\nHANDBRAKE_TORQUE=700\n"),
     ("lods.ini","[LOD_0]\nFILE=original.kn5\n"),("power.lut","0|0\n1000|90\n4000|140\n6500|100\n"),
 ].into_iter().map(|(name,text)|(name,text.into())).collect()

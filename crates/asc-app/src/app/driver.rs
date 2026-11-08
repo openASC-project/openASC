@@ -259,6 +259,7 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
             final_ratio: vehicle.drivetrain.final_ratio,
             traction,
             coast,
+            clutch_max_torque_nm: vehicle.drivetrain.clutch.max_torque_nm,
         })?;
         let driven_axle = match traction {
             asc_physics::Traction::Rwd => "rear",
