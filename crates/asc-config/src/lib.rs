@@ -231,6 +231,40 @@ pub struct Lut {
     points: Vec<[f64; 2]>,
 }
 impl Lut {
+    pub fn from_points(points: &[[f64; 2]]) -> Result<Self> {
+        if points.is_empty() {
+            return Err(Error::new(
+                "empty_lut",
+                "",
+                0,
+                "A LUT must contain at least one point.",
+            ));
+        }
+        for pair in points.windows(2) {
+            if pair[1][0] <= pair[0][0] {
+                return Err(Error::new(
+                    "unordered_lut",
+                    "",
+                    0,
+                    "LUT x coordinates must strictly increase.",
+                ));
+            }
+        }
+        for p in points {
+            if !p[0].is_finite() || !p[1].is_finite() {
+                return Err(Error::new(
+                    "nonfinite_number",
+                    "",
+                    0,
+                    "LUT values must be finite.",
+                ));
+            }
+        }
+        Ok(Self {
+            source: String::new(),
+            points: points.to_vec(),
+        })
+    }
     pub fn points(&self) -> &[[f64; 2]] {
         &self.points
     }

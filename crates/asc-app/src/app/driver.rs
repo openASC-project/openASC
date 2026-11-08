@@ -394,6 +394,25 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
             )?;
             let front_z = vehicle.wheelbase_m * (1.0 - vehicle.front_weight_fraction);
             let rear_z = -vehicle.wheelbase_m * vehicle.front_weight_fraction;
+            let wing_bindings: Vec<chassis_run::WingBinding> = vehicle
+                .aero
+                .wings
+                .iter()
+                .filter_map(|w| {
+                    let lut_cl = asc_config::Lut::from_points(&w.lut_aoa_cl).ok()?;
+                    let lut_cd = asc_config::Lut::from_points(&w.lut_aoa_cd).ok()?;
+                    Some(chassis_run::WingBinding {
+                        position_m: w.position_m,
+                        angle_deg: w.angle_deg,
+                        chord_m: w.chord_m,
+                        span_m: w.span_m,
+                        cl_gain: w.cl_gain,
+                        cd_gain: w.cd_gain,
+                        lut_cl,
+                        lut_cd,
+                    })
+                })
+                .collect();
             bench.set_aero(chassis_run::AeroBinding {
                 reference_area_m2: vehicle.aero.reference_area_m2,
                 cd: vehicle.aero.cd,
@@ -401,6 +420,7 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
                 cl_rear: vehicle.aero.cl_rear,
                 front_axle_z_m: front_z,
                 rear_axle_z_m: rear_z,
+                wings: wing_bindings,
             });
             (
                 gc,

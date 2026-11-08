@@ -112,11 +112,24 @@ pub struct Brakes {
     pub handbrake_torque_nm: f64,
 }
 #[derive(Serialize)]
+pub struct Wing {
+    pub name: String,
+    pub chord_m: f64,
+    pub span_m: f64,
+    pub position_m: [f64; 3],
+    pub angle_deg: f64,
+    pub cl_gain: f64,
+    pub cd_gain: f64,
+    pub lut_aoa_cl: Vec<[f64; 2]>,
+    pub lut_aoa_cd: Vec<[f64; 2]>,
+}
+#[derive(Serialize)]
 pub struct Aero {
     pub reference_area_m2: f64,
     pub cd: f64,
     pub cl_front: f64,
     pub cl_rear: f64,
+    pub wings: Vec<Wing>,
 }
 #[derive(Serialize)]
 pub struct Header {
@@ -404,11 +417,46 @@ pub fn load(directory: &Path, mode: data::Mode, compound: Option<u32>) -> Result
     let (aero, aero_fields) = if let Some(ini) = aero_ini {
         let mut af = Fields::new(ini);
         af.version(&[1])?;
+        let mut wings = Vec::new();
+        let wing_sections: Vec<String> = af
+            .document
+            .sections
+            .iter()
+            .filter(|s| s.name.starts_with("WING_"))
+            .map(|s| s.name.clone())
+            .collect();
+        for sect in &wing_sections {
+            let name = af.value(sect, "NAME").unwrap_or_else(|_| sect.clone());
+            let chord = af.number(sect, "CHORD", 0., f64::MAX, true)?;
+            let span = af.number(sect, "SPAN", 0., f64::MAX, true)?;
+            let position = af.vector(sect, "POSITION", false)?;
+            let angle = af.number(sect, "ANGLE", -90., 90., false)?;
+            let cl_gain = af.number(sect, "CL_GAIN", -f64::MAX, f64::MAX, false)?;
+            let cd_gain = af.number(sect, "CD_GAIN", 0., f64::MAX, false)?;
+            let cl_lut_name = af.value(sect, "LUT_AOA_CL")?;
+            let cd_lut_name = af.value(sect, "LUT_AOA_CD")?;
+            let source = data.source(&cl_lut_name);
+            let cl_lut = asc_config::parse_lut(data.text(&cl_lut_name)?, &source)?;
+            let source = data.source(&cd_lut_name);
+            let cd_lut = asc_config::parse_lut(data.text(&cd_lut_name)?, &source)?;
+            wings.push(Wing {
+                name,
+                chord_m: chord,
+                span_m: span,
+                position_m: position,
+                angle_deg: angle,
+                cl_gain,
+                cd_gain,
+                lut_aoa_cl: cl_lut.points().to_vec(),
+                lut_aoa_cd: cd_lut.points().to_vec(),
+            });
+        }
         let a = Aero {
             reference_area_m2: af.number("DATA", "REFERENCE_AREA", 0., f64::MAX, true)?,
             cd: af.number("DATA", "CD", 0., f64::MAX, false)?,
             cl_front: af.number("DATA", "CL_FRONT", -f64::MAX, f64::MAX, false)?,
             cl_rear: af.number("DATA", "CL_REAR", -f64::MAX, f64::MAX, false)?,
+            wings,
         };
         (a, Some(af))
     } else {
@@ -423,6 +471,7 @@ pub fn load(directory: &Path, mode: data::Mode, compound: Option<u32>) -> Result
                 cd: 0.,
                 cl_front: 0.,
                 cl_rear: 0.,
+                wings: Vec::new(),
             },
             None,
         )

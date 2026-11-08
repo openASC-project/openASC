@@ -242,6 +242,16 @@ pub(super) struct AwdBinding {
 pub(super) struct BrakeBinding {
     pub handbrake_torques: Vec<f64>,
 }
+pub(super) struct WingBinding {
+    pub position_m: [f64; 3],
+    pub angle_deg: f64,
+    pub chord_m: f64,
+    pub span_m: f64,
+    pub cl_gain: f64,
+    pub cd_gain: f64,
+    pub lut_cl: asc_config::Lut,
+    pub lut_cd: asc_config::Lut,
+}
 #[allow(dead_code)]
 pub(super) struct AeroBinding {
     pub reference_area_m2: f64,
@@ -250,6 +260,7 @@ pub(super) struct AeroBinding {
     pub cl_rear: f64,
     pub front_axle_z_m: f64,
     pub rear_axle_z_m: f64,
+    pub wings: Vec<WingBinding>,
 }
 struct Environment {
     base: ChassisLoads,
@@ -582,6 +593,27 @@ impl Environment {
                 [drag[0], drag[1] + total_lift, drag[2]],
                 pitch_torque.to_array(),
             )?)?;
+            if speed > 1e-9 {
+                let v_body = rot.inverse() * glam::DVec3::from_array(v);
+                for wing in &aero.wings {
+                    let aoa_flow_rad = (-v_body.y).atan2(v_body.z);
+                    let aoa_deg = wing.angle_deg + aoa_flow_rad.to_degrees();
+                    let cl = wing.lut_cl.sample(aoa_deg).unwrap_or(0.) * wing.cl_gain;
+                    let cd = wing.lut_cd.sample(aoa_deg).unwrap_or(0.) * wing.cd_gain;
+                    let wing_area = wing.chord_m * wing.span_m;
+                    let q_wing = 0.5 * AIR_DENSITY * speed_sq * wing_area;
+                    let lift_force = q_wing * cl;
+                    let drag_force = q_wing * cd;
+                    let drag_dir = glam::DVec3::from_array(v) / speed;
+                    let wing_force = glam::DVec3::new(0., -lift_force, 0.) - drag_dir * drag_force;
+                    let offset_world = rot * glam::DVec3::from_array(wing.position_m);
+                    let wing_torque = offset_world.cross(wing_force);
+                    loads.chassis.add(asc_physics::Wrench::new(
+                        wing_force.to_array(),
+                        wing_torque.to_array(),
+                    )?)?;
+                }
+            }
         }
         Ok(loads)
     }
