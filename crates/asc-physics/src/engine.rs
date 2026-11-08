@@ -244,8 +244,8 @@ impl EngineDrivetrain {
             let t = throttle.clamp(0., 1.);
             return Ok(self.idle_rpm + t * (self.limiter_rpm - self.idle_rpm));
         }
-        let rpm = (wheel_rate_rad_s * ratio.abs() * 60. / (2. * std::f64::consts::PI))
-            .max(self.idle_rpm);
+        let rpm =
+            (wheel_rate_rad_s * ratio.abs() * 60. / (2. * std::f64::consts::PI)).max(self.idle_rpm);
         Ok(rpm)
     }
 
@@ -422,13 +422,112 @@ mod tests {
     #[test]
     fn drivetrain_rejects_invalid_construction() {
         let curve = test_curve();
-        assert!(EngineDrivetrain::new(curve.clone(), -1., 8000., 0.1, &[3.0], -3.0, 3.7, Traction::Rwd, None).is_err());
-        assert!(EngineDrivetrain::new(curve.clone(), 900., 900., 0.1, &[3.0], -3.0, 3.7, Traction::Rwd, None).is_err());
-        assert!(EngineDrivetrain::new(curve.clone(), 900., 8000., 0.1, &[], -3.0, 3.7, Traction::Rwd, None).is_err());
-        assert!(EngineDrivetrain::new(curve.clone(), 900., 8000., 0.1, &[3.0], 3.0, 3.7, Traction::Rwd, None).is_err());
-        assert!(EngineDrivetrain::new(curve.clone(), 900., 8000., 0.1, &[3.0], -3.0, -1., Traction::Rwd, None).is_err());
-        assert!(EngineDrivetrain::new(curve.clone(), 900., 8000., 0.1, &[3.0], -3.0, 3.7, Traction::Rwd, Some(CoastRef { rpm: 0., torque_nm: 50., non_linearity: 0. })).is_err());
-        assert!(EngineDrivetrain::new(curve, 900., 8000., 0.1, &[3.0], -3.0, 3.7, Traction::Rwd, Some(CoastRef { rpm: 7000., torque_nm: 50., non_linearity: 1.5 })).is_err());
+        assert!(
+            EngineDrivetrain::new(
+                curve.clone(),
+                -1.,
+                8000.,
+                0.1,
+                &[3.0],
+                -3.0,
+                3.7,
+                Traction::Rwd,
+                None
+            )
+            .is_err()
+        );
+        assert!(
+            EngineDrivetrain::new(
+                curve.clone(),
+                900.,
+                900.,
+                0.1,
+                &[3.0],
+                -3.0,
+                3.7,
+                Traction::Rwd,
+                None
+            )
+            .is_err()
+        );
+        assert!(
+            EngineDrivetrain::new(
+                curve.clone(),
+                900.,
+                8000.,
+                0.1,
+                &[],
+                -3.0,
+                3.7,
+                Traction::Rwd,
+                None
+            )
+            .is_err()
+        );
+        assert!(
+            EngineDrivetrain::new(
+                curve.clone(),
+                900.,
+                8000.,
+                0.1,
+                &[3.0],
+                3.0,
+                3.7,
+                Traction::Rwd,
+                None
+            )
+            .is_err()
+        );
+        assert!(
+            EngineDrivetrain::new(
+                curve.clone(),
+                900.,
+                8000.,
+                0.1,
+                &[3.0],
+                -3.0,
+                -1.,
+                Traction::Rwd,
+                None
+            )
+            .is_err()
+        );
+        assert!(
+            EngineDrivetrain::new(
+                curve.clone(),
+                900.,
+                8000.,
+                0.1,
+                &[3.0],
+                -3.0,
+                3.7,
+                Traction::Rwd,
+                Some(CoastRef {
+                    rpm: 0.,
+                    torque_nm: 50.,
+                    non_linearity: 0.
+                })
+            )
+            .is_err()
+        );
+        assert!(
+            EngineDrivetrain::new(
+                curve,
+                900.,
+                8000.,
+                0.1,
+                &[3.0],
+                -3.0,
+                3.7,
+                Traction::Rwd,
+                Some(CoastRef {
+                    rpm: 7000.,
+                    torque_nm: 50.,
+                    non_linearity: 1.5
+                })
+            )
+            .is_err()
+        );
     }
 
     #[test]
@@ -437,8 +536,14 @@ mod tests {
         let ratio = 3.5 * 3.7;
         let wheel_rate = 3000. * 2. * std::f64::consts::PI / (60. * ratio);
         let sample = dt.drive_torque(wheel_rate, 0.3, 1, 0., 2).unwrap();
-        assert!(sample.torque_nm < 0., "engine torque should be negative (retarding)");
-        assert!(sample.wheel_torque_nm < 0., "wheel torque should retard forward motion");
+        assert!(
+            sample.torque_nm < 0.,
+            "engine torque should be negative (retarding)"
+        );
+        assert!(
+            sample.wheel_torque_nm < 0.,
+            "wheel torque should retard forward motion"
+        );
         let expected_coast = 80. * (3000. / 7000.);
         assert!((sample.torque_nm + expected_coast).abs() < 0.1);
     }
@@ -460,9 +565,17 @@ mod tests {
     #[test]
     fn no_coast_without_coast_ref() {
         let dt = EngineDrivetrain::new(
-            test_curve(), 900., 8200., 0.12,
-            &[3.5, 2.3], -3.2, 3.7, Traction::Rwd, None,
-        ).unwrap();
+            test_curve(),
+            900.,
+            8200.,
+            0.12,
+            &[3.5, 2.3],
+            -3.2,
+            3.7,
+            Traction::Rwd,
+            None,
+        )
+        .unwrap();
         let ratio = 3.5 * 3.7;
         let wheel_rate = 3000. * 2. * std::f64::consts::PI / (60. * ratio);
         let sample = dt.drive_torque(wheel_rate, 0.3, 1, 0., 2).unwrap();
@@ -473,26 +586,54 @@ mod tests {
     #[test]
     fn coast_nonlinearity_increases_curvature() {
         let linear = EngineDrivetrain::new(
-            test_curve(), 900., 8200., 0.12,
-            &[3.5], -3.2, 3.7, Traction::Rwd,
-            Some(CoastRef { rpm: 7000., torque_nm: 80., non_linearity: 0. }),
-        ).unwrap();
+            test_curve(),
+            900.,
+            8200.,
+            0.12,
+            &[3.5],
+            -3.2,
+            3.7,
+            Traction::Rwd,
+            Some(CoastRef {
+                rpm: 7000.,
+                torque_nm: 80.,
+                non_linearity: 0.,
+            }),
+        )
+        .unwrap();
         let curved = EngineDrivetrain::new(
-            test_curve(), 900., 8200., 0.12,
-            &[3.5], -3.2, 3.7, Traction::Rwd,
-            Some(CoastRef { rpm: 7000., torque_nm: 80., non_linearity: 1. }),
-        ).unwrap();
+            test_curve(),
+            900.,
+            8200.,
+            0.12,
+            &[3.5],
+            -3.2,
+            3.7,
+            Traction::Rwd,
+            Some(CoastRef {
+                rpm: 7000.,
+                torque_nm: 80.,
+                non_linearity: 1.,
+            }),
+        )
+        .unwrap();
         let ratio = 3.5 * 3.7;
         let wheel_rate = 3500. * 2. * std::f64::consts::PI / (60. * ratio);
         let s_lin = linear.drive_torque(wheel_rate, 0.3, 1, 0., 2).unwrap();
         let s_cur = curved.drive_torque(wheel_rate, 0.3, 1, 0., 2).unwrap();
-        assert!(s_cur.torque_nm > s_lin.torque_nm,
-            "nonlinear coast at low RPM should be less retarding (closer to zero)");
+        assert!(
+            s_cur.torque_nm > s_lin.torque_nm,
+            "nonlinear coast at low RPM should be less retarding (closer to zero)"
+        );
     }
 
     #[test]
     fn diff_equal_speed_splits_evenly() {
-        let diff = DiffParams { power_lock: 0.5, coast_lock: 0.3, preload_nm: 0. };
+        let diff = DiffParams {
+            power_lock: 0.5,
+            coast_lock: 0.3,
+            preload_nm: 0.,
+        };
         diff.validate().unwrap();
         let split = diff.split(200., 100., 100.);
         assert!((split.left_torque_nm - 100.).abs() < 1e-9);
@@ -501,10 +642,16 @@ mod tests {
 
     #[test]
     fn diff_transfers_torque_to_slower_wheel() {
-        let diff = DiffParams { power_lock: 0.6, coast_lock: 0.2, preload_nm: 0. };
+        let diff = DiffParams {
+            power_lock: 0.6,
+            coast_lock: 0.2,
+            preload_nm: 0.,
+        };
         let split = diff.split(200., 80., 120.);
-        assert!(split.left_torque_nm < split.right_torque_nm,
-            "faster left wheel should get less torque");
+        assert!(
+            split.left_torque_nm < split.right_torque_nm,
+            "faster left wheel should get less torque"
+        );
         let transfer = 0.6 * 200. / 2.;
         assert!((split.left_torque_nm - (100. - transfer)).abs() < 1e-9);
         assert!((split.right_torque_nm - (100. + transfer)).abs() < 1e-9);
@@ -512,7 +659,11 @@ mod tests {
 
     #[test]
     fn diff_uses_coast_lock_for_negative_torque() {
-        let diff = DiffParams { power_lock: 0.8, coast_lock: 0.2, preload_nm: 0. };
+        let diff = DiffParams {
+            power_lock: 0.8,
+            coast_lock: 0.2,
+            preload_nm: 0.,
+        };
         let split = diff.split(-100., 80., 120.);
         let transfer = 0.2 * 100. / 2.;
         assert!((split.left_torque_nm - (-50. - transfer)).abs() < 1e-9);
@@ -521,7 +672,11 @@ mod tests {
 
     #[test]
     fn diff_preload_adds_minimum_locking() {
-        let diff = DiffParams { power_lock: 0., coast_lock: 0., preload_nm: 30. };
+        let diff = DiffParams {
+            power_lock: 0.,
+            coast_lock: 0.,
+            preload_nm: 30.,
+        };
         let split = diff.split(200., 80., 120.);
         assert!((split.left_torque_nm - (100. - 30.)).abs() < 1e-9);
         assert!((split.right_torque_nm - (100. + 30.)).abs() < 1e-9);
@@ -529,7 +684,11 @@ mod tests {
 
     #[test]
     fn diff_open_splits_evenly_regardless_of_speed_diff() {
-        let diff = DiffParams { power_lock: 0., coast_lock: 0., preload_nm: 0. };
+        let diff = DiffParams {
+            power_lock: 0.,
+            coast_lock: 0.,
+            preload_nm: 0.,
+        };
         let split = diff.split(200., 50., 150.);
         assert!((split.left_torque_nm - 100.).abs() < 1e-9);
         assert!((split.right_torque_nm - 100.).abs() < 1e-9);
@@ -537,10 +696,50 @@ mod tests {
 
     #[test]
     fn diff_rejects_invalid_params() {
-        assert!(DiffParams { power_lock: -0.1, coast_lock: 0., preload_nm: 0. }.validate().is_err());
-        assert!(DiffParams { power_lock: 1.1, coast_lock: 0., preload_nm: 0. }.validate().is_err());
-        assert!(DiffParams { power_lock: 0., coast_lock: -0.1, preload_nm: 0. }.validate().is_err());
-        assert!(DiffParams { power_lock: 0., coast_lock: 0., preload_nm: -1. }.validate().is_err());
-        assert!(DiffParams { power_lock: 0.5, coast_lock: 0.5, preload_nm: 10. }.validate().is_ok());
+        assert!(
+            DiffParams {
+                power_lock: -0.1,
+                coast_lock: 0.,
+                preload_nm: 0.
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            DiffParams {
+                power_lock: 1.1,
+                coast_lock: 0.,
+                preload_nm: 0.
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            DiffParams {
+                power_lock: 0.,
+                coast_lock: -0.1,
+                preload_nm: 0.
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            DiffParams {
+                power_lock: 0.,
+                coast_lock: 0.,
+                preload_nm: -1.
+            }
+            .validate()
+            .is_err()
+        );
+        assert!(
+            DiffParams {
+                power_lock: 0.5,
+                coast_lock: 0.5,
+                preload_nm: 10.
+            }
+            .validate()
+            .is_ok()
+        );
     }
 }

@@ -390,23 +390,17 @@ impl Environment {
                 control.drive_fraction.max(0.),
                 engine.driven_indices.len() as u32,
             )?;
-            let total_axle_torque =
-                sample.wheel_torque_nm * engine.driven_indices.len() as f64;
-            let per_wheel_torques: Vec<f64> =
-                if let Some(diff) = &engine.diff {
-                    if driven_rates.len() == 2 {
-                        let split = diff.split(
-                            total_axle_torque,
-                            driven_rates[0],
-                            driven_rates[1],
-                        );
-                        vec![split.left_torque_nm, split.right_torque_nm]
-                    } else {
-                        vec![sample.wheel_torque_nm; driven_rates.len()]
-                    }
+            let total_axle_torque = sample.wheel_torque_nm * engine.driven_indices.len() as f64;
+            let per_wheel_torques: Vec<f64> = if let Some(diff) = &engine.diff {
+                if driven_rates.len() == 2 {
+                    let split = diff.split(total_axle_torque, driven_rates[0], driven_rates[1]);
+                    vec![split.left_torque_nm, split.right_torque_nm]
                 } else {
                     vec![sample.wheel_torque_nm; driven_rates.len()]
-                };
+                }
+            } else {
+                vec![sample.wheel_torque_nm; driven_rates.len()]
+            };
             let mut driven_idx = 0;
             for (i, load) in loads.wheels.iter_mut().enumerate() {
                 if engine.driven_indices.contains(&i) {
@@ -598,9 +592,7 @@ impl Workbench {
         for (i, u) in uprights.iter().enumerate() {
             let per_wheel = match u.axle() {
                 "front" if front_count > 0 => max_torque_nm * front_share / front_count as f64,
-                "rear" if rear_count > 0 => {
-                    max_torque_nm * (1.0 - front_share) / rear_count as f64
-                }
+                "rear" if rear_count > 0 => max_torque_nm * (1.0 - front_share) / rear_count as f64,
                 _ => 0.0,
             };
             if per_wheel > 0.0 {
@@ -752,8 +744,7 @@ impl Workbench {
             for (u, r) in self.config.uprights.iter().zip(&start) {
                 let a = if let Some(s) = &u.steering {
                     let axis = DVec3::from_array(s.axis_in_source).normalize();
-                    let p =
-                        axis.dot(DVec3::from_array(r.position_m) - DVec3::from_array(u.rack_m));
+                    let p = axis.dot(DVec3::from_array(r.position_m) - DVec3::from_array(u.rack_m));
                     let v = axis.dot(DVec3::from_array(r.velocity_m_s));
                     axis * actuator.acceleration(p, v, command.steering, remaining)?
                 } else {
@@ -1887,8 +1878,7 @@ mod live_tests {
         let half = collider.half_extent_m[2];
         let center = collider.center_in_chassis_m[2];
         let gap = 0.0001;
-        c["chassis"]["position_world_m"] =
-            serde_json::json!([0, 0.29, half - center + gap]);
+        c["chassis"]["position_world_m"] = serde_json::json!([0, 0.29, half - center + gap]);
         c["chassis"]["velocity_world_m_s"] = serde_json::json!([0, 0, -3]);
         std::fs::write(dir.0.join("dynamics.json"), c.to_string()).unwrap();
         let mut bench = load(&dir.0.join("dynamics.json")).unwrap();
@@ -1899,7 +1889,12 @@ mod live_tests {
             friction: 0.3,
             allow_certified_departures: false,
         };
-        let vz_before = bench.system.kinematics().unwrap().chassis.velocity_world_m_s[2];
+        let vz_before = bench
+            .system
+            .kinematics()
+            .unwrap()
+            .chassis
+            .velocity_world_m_s[2];
         assert!(vz_before < -2.9, "Should start moving toward the wall");
         bench
             .live_step_to_wall(Command::default(), actuator(), &collider, &walls, settings)

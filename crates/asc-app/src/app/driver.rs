@@ -79,6 +79,42 @@ struct State {
     retries: u32,
     physics_wall: Duration,
 }
+struct GearboxState {
+    change_remaining_s: f64,
+    target_gear: i32,
+    current_gear: i32,
+    change_up_time_s: f64,
+    change_dn_time_s: f64,
+}
+impl GearboxState {
+    fn request_gear(&mut self, gear: i32) {
+        if gear != self.current_gear && self.change_remaining_s <= 0. {
+            let dt = if gear > self.current_gear {
+                self.change_up_time_s
+            } else {
+                self.change_dn_time_s
+            };
+            self.target_gear = gear;
+            self.change_remaining_s = dt;
+        }
+    }
+    fn tick(&mut self, dt_s: f64) {
+        if self.change_remaining_s > 0. {
+            self.change_remaining_s -= dt_s;
+            if self.change_remaining_s <= 0. {
+                self.current_gear = self.target_gear;
+                self.change_remaining_s = 0.;
+            }
+        }
+    }
+    fn effective_gear(&self) -> i32 {
+        if self.change_remaining_s > 0. {
+            0
+        } else {
+            self.current_gear
+        }
+    }
+}
 struct App {
     bench: Workbench,
     scene: asc_kn5::Scene,
@@ -91,6 +127,7 @@ struct App {
     options: Options,
     hz: u32,
     gear_count: i32,
+    gearbox: GearboxState,
     state: Option<State>,
     error: Option<String>,
     started: Instant,
@@ -188,7 +225,7 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
     } else {
         None
     };
-    let gear_count = if config.engine_drivetrain {
+    let (gear_count, change_up_s, change_dn_s) = if config.engine_drivetrain {
         let vehicle = asc_vehicle::load(&car, mode, config.compound)?;
         let curve = asc_physics::TorqueCurve::new(
             &vehicle
@@ -203,11 +240,15 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
             "FWD" => asc_physics::Traction::Fwd,
             _ => asc_physics::Traction::Rwd,
         };
-        let coast = vehicle.engine.coast.as_ref().map(|c| asc_physics::CoastRef {
-            rpm: c.rpm,
-            torque_nm: c.torque_nm,
-            non_linearity: c.non_linearity,
-        });
+        let coast = vehicle
+            .engine
+            .coast
+            .as_ref()
+            .map(|c| asc_physics::CoastRef {
+                rpm: c.rpm,
+                torque_nm: c.torque_nm,
+                non_linearity: c.non_linearity,
+            });
         let drivetrain = asc_physics::EngineDrivetrain::new(
             curve,
             vehicle.engine.idle_rpm,
@@ -264,9 +305,13 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
             front_axle_z_m: front_z,
             rear_axle_z_m: rear_z,
         });
-        gc
+        (
+            gc,
+            vehicle.drivetrain.gearbox.change_up_time_ms / 1000.,
+            vehicle.drivetrain.gearbox.change_dn_time_ms / 1000.,
+        )
     } else {
-        0
+        (0, 0., 0.)
     };
     let event_loop = EventLoop::new()?;
     let has_walls = wall.is_some();
@@ -282,6 +327,13 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
         options,
         hz: hz as u32,
         gear_count,
+        gearbox: GearboxState {
+            change_remaining_s: 0.,
+            target_gear: 0,
+            current_gear: 0,
+            change_up_time_s: change_up_s,
+            change_dn_time_s: change_dn_s,
+        },
         state: None,
         error: None,
         started: Instant::now(),
@@ -429,11 +481,16 @@ impl App {
         s.last = Instant::now();
         if !s.paused {
             let physics_started = Instant::now();
-            let input = s.keys.command();
+            let mut input = s.keys.command();
             let settings = self.settings;
             let bench = &mut self.bench;
             let wall = &self.wall;
+            let gearbox = &mut self.gearbox;
+            let dt_s = 1.0 / self.hz as f64;
             match s.clock.advance(elapsed, |_| {
+                gearbox.request_gear(input.gear);
+                gearbox.tick(dt_s);
+                input.gear = gearbox.effective_gear();
                 if let Some(w) = wall {
                     bench
                         .live_step_to_wall(input, settings, &w.collider, &w.walls, w.settings)
@@ -441,8 +498,7 @@ impl App {
                 } else {
                     bench.live_step(input, settings).map(|_| ())
                 }
-            })
-            {
+            }) {
                 Ok(batch) if batch.pending_steps > u64::from(self.hz) / 4 => {
                     if self.options.smoke {
                         return Err("Native drive smoke exceeded the fixed-step work budget".into());

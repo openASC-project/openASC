@@ -25,11 +25,13 @@ pub use chassis::{
     RackMotion, UprightKinematics, UprightSample, WheelKinematics,
 };
 pub use clock::{Batch, FixedClock, Tick};
-pub use engine::{CoastRef, DiffParams, DiffSplit, EngineDrivetrain, EngineSample, Traction, TorqueCurve};
 pub use contact::{CircleSupport, NormalContact, NormalContactSample, SupportPlane};
 pub use differential::{
     ConstraintBalance, GeneralizedLoads, LinkDifferential, LinkLoad, RelativeAcceleration,
     RelativeVelocity, TangentColumn,
+};
+pub use engine::{
+    CoastRef, DiffParams, DiffSplit, EngineDrivetrain, EngineSample, TorqueCurve, Traction,
 };
 pub use inertia::MassProperties;
 pub use link_spring::{LinkSpring, LinkSpringSample};

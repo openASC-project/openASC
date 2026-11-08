@@ -69,12 +69,23 @@ pub struct Drivetrain {
     pub reverse_ratio: f64,
     pub final_ratio: f64,
     pub differential: Differential,
+    pub gearbox: Gearbox,
+    pub clutch: Clutch,
 }
 #[derive(Serialize)]
 pub struct Differential {
     pub power_lock: f64,
     pub coast_lock: f64,
     pub preload_nm: f64,
+}
+#[derive(Serialize)]
+pub struct Gearbox {
+    pub change_up_time_ms: f64,
+    pub change_dn_time_ms: f64,
+}
+#[derive(Serialize)]
+pub struct Clutch {
+    pub max_torque_nm: f64,
 }
 #[derive(Serialize)]
 pub struct Brakes {
@@ -236,7 +247,12 @@ pub fn load(directory: &Path, mode: data::Mode, compound: Option<u32>) -> Result
         )
         .into());
     }
-    let coast = if engine.document.sections.iter().any(|s| s.name == "COAST_REF") {
+    let coast = if engine
+        .document
+        .sections
+        .iter()
+        .any(|s| s.name == "COAST_REF")
+    {
         let rpm = engine.number("COAST_REF", "RPM", 0., f64::MAX, true)?;
         let torque_nm = engine.number("COAST_REF", "TORQUE", 0., f64::MAX, false)?;
         let non_linearity = engine.number("COAST_REF", "NON_LINEARITY", 0., 1., false)?;
@@ -288,6 +304,26 @@ pub fn load(directory: &Path, mode: data::Mode, compound: Option<u32>) -> Result
         power_lock: drive.number("DIFFERENTIAL", "POWER", 0., 1., false)?,
         coast_lock: drive.number("DIFFERENTIAL", "COAST", 0., 1., false)?,
         preload_nm: drive.number("DIFFERENTIAL", "PRELOAD", 0., f64::MAX, false)?,
+    };
+    let gearbox = if drive.document.sections.iter().any(|s| s.name == "GEARBOX") {
+        Gearbox {
+            change_up_time_ms: drive.number("GEARBOX", "CHANGE_UP_TIME", 0., f64::MAX, false)?,
+            change_dn_time_ms: drive.number("GEARBOX", "CHANGE_DN_TIME", 0., f64::MAX, false)?,
+        }
+    } else {
+        Gearbox {
+            change_up_time_ms: 150.,
+            change_dn_time_ms: 200.,
+        }
+    };
+    let clutch = if drive.document.sections.iter().any(|s| s.name == "CLUTCH") {
+        Clutch {
+            max_torque_nm: drive.number("CLUTCH", "MAX_TORQUE", 0., f64::MAX, true)?,
+        }
+    } else {
+        Clutch {
+            max_torque_nm: f64::MAX,
+        }
     };
     let brakes = Brakes {
         max_torque_nm: brake.number("DATA", "MAX_TORQUE", 0., f64::MAX, true)?,
@@ -441,6 +477,8 @@ pub fn load(directory: &Path, mode: data::Mode, compound: Option<u32>) -> Result
             reverse_ratio,
             final_ratio,
             differential,
+            gearbox,
+            clutch,
         },
         brakes,
         aero,
