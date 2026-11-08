@@ -389,7 +389,7 @@ pub fn load(directory: &Path, mode: data::Mode, compound: Option<u32>) -> Result
         }
         field_sources.insert("aero.ini".into(), af.used);
     }
-    data.diagnostics.push(Diagnostic::warning("vehicle_configuration_scope",&format!("content/cars/{}",data.car),"Configuration only. Inertia dimensions are not a tensor. Original tyre/suspension/drivetrain/fuel/coast/aero/electronics behavior, audio and FFB are not simulated; model validation is header-only."));
+    data.diagnostics.push(Diagnostic::warning("vehicle_configuration_scope",&format!("content/cars/{}",data.car),"Configuration only. Inertia dimensions are not a tensor. Original tyre/suspension, fuel, coast torque, electronics behavior, dynamic wings, audio and FFB are not simulated; model validation is header-only."));
     Ok(Vehicle {
         car: data.car,
         data_source: data.mode,
