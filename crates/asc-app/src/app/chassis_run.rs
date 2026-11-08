@@ -226,6 +226,9 @@ pub(super) struct EngineBinding {
     pub driven_indices: Vec<usize>,
     pub tyre_radius_m: f64,
 }
+pub(super) struct BrakeBinding {
+    pub handbrake_torques: Vec<f64>,
+}
 struct Environment {
     base: ChassisLoads,
     plane: Option<SupportPlane>,
@@ -238,6 +241,7 @@ struct Environment {
     racks: Vec<RackPrescription>,
     steering_count: usize,
     engine: Option<EngineBinding>,
+    brake_binding: Option<BrakeBinding>,
 }
 impl Environment {
     fn racks(&self, time: f64) -> asc_physics::Result<Vec<RackMotion>> {
@@ -271,6 +275,7 @@ impl Environment {
                 time_s,
                 drive_fraction: 1.,
                 brake_fraction: 0.,
+                handbrake_fraction: 0.,
                 gear: 0,
             }
         };
@@ -384,6 +389,20 @@ impl Environment {
         for (load, brake) in loads.wheels.iter_mut().zip(brakes) {
             if let Some(brake) = brake {
                 load.add_internal_torque(brake.torque_on_wheel_nm)?;
+            }
+        }
+        if let Some(bb) = &self.brake_binding {
+            for (i, load) in loads.wheels.iter_mut().enumerate() {
+                let hb_torque = bb.handbrake_torques.get(i).copied().unwrap_or(0.);
+                if hb_torque > 0. && control.handbrake_fraction > 0. {
+                    if let Some(wheel) = k.uprights.get(i).and_then(|u| u.wheel.as_ref()) {
+                        let rate = wheel.state.rate_rad_s;
+                        let limit = hb_torque * control.handbrake_fraction;
+                        let transition = 1.0;
+                        let torque = -limit * (rate / transition).clamp(-1., 1.);
+                        load.add_internal_torque(torque)?;
+                    }
+                }
             }
         }
         for (load, contact) in loads.wheels.iter_mut().zip(self.contacts(k)?) {
@@ -509,6 +528,36 @@ impl Workbench {
     pub fn set_engine(&mut self, binding: EngineBinding) {
         self.environment.engine = Some(binding);
     }
+    pub fn set_brakes_from_vehicle(
+        &mut self,
+        max_torque_nm: f64,
+        front_share: f64,
+        handbrake_torque_nm: f64,
+        transition_rate_rad_s: f64,
+    ) -> asc_physics::Result<()> {
+        let uprights = &self.config.uprights;
+        let front_count = uprights.iter().filter(|u| u.axle() == "front").count();
+        let rear_count = uprights.iter().filter(|u| u.axle() == "rear").count();
+        let mut handbrake_torques = vec![0.0; uprights.len()];
+        for (i, u) in uprights.iter().enumerate() {
+            let per_wheel = match u.axle() {
+                "front" if front_count > 0 => max_torque_nm * front_share / front_count as f64,
+                "rear" if rear_count > 0 => {
+                    max_torque_nm * (1.0 - front_share) / rear_count as f64
+                }
+                _ => 0.0,
+            };
+            if per_wheel > 0.0 {
+                self.environment.brakes[i] =
+                    Some(WheelBrake::new(per_wheel, transition_rate_rad_s)?);
+            }
+            if u.axle() == "rear" && rear_count > 0 {
+                handbrake_torques[i] = handbrake_torque_nm / rear_count as f64;
+            }
+        }
+        self.environment.brake_binding = Some(BrakeBinding { handbrake_torques });
+        Ok(())
+    }
     pub fn diagnostics(&self) -> serde_json::Value {
         serde_json::json!({"source_geometry":self.sources,"spawn_diagnostics":self.spawn_diagnostics,
             "track_geometry":self.environment.track.as_ref().map(|(g,_)|g.summary()),
@@ -616,6 +665,7 @@ impl Workbench {
                         time_s: time + offset,
                         drive_fraction: command.drive,
                         brake_fraction: command.brake,
+                        handbrake_fraction: command.handbrake,
                         gear: command.gear,
                     }),
                 )
@@ -686,6 +736,7 @@ impl Workbench {
                             time_s: base_time + offset,
                             drive_fraction: command.drive,
                             brake_fraction: command.brake,
+                            handbrake_fraction: command.handbrake,
                             gear: command.gear,
                         }),
                     )
@@ -1013,6 +1064,7 @@ pub(super) fn load(configuration: &Path) -> Result<Workbench, Box<dyn Error>> {
             .map(|c| Timeline::new(c))
             .transpose()?,
         engine: None,
+        brake_binding: None,
     };
     if environment.controls.is_some() && wheel_count == 0 {
         return Err("Wheel controls require at least one wheel".into());

@@ -6,6 +6,8 @@ pub(super) struct Control {
     pub drive_fraction: f64,
     pub brake_fraction: f64,
     #[serde(default)]
+    pub handbrake_fraction: f64,
+    #[serde(default)]
     pub gear: i32,
 }
 pub(super) struct Timeline(Vec<Control>);
@@ -49,6 +51,9 @@ impl Timeline {
                 .clamp(-1., 1.),
             brake_fraction: (a.brake_fraction + (b.brake_fraction - a.brake_fraction) * t)
                 .clamp(0., 1.),
+            handbrake_fraction: (a.handbrake_fraction
+                + (b.handbrake_fraction - a.handbrake_fraction) * t)
+                .clamp(0., 1.),
             gear: a.gear,
         })
     }
@@ -62,6 +67,7 @@ mod tests {
             time_s: t,
             drive_fraction: d,
             brake_fraction: b,
+            handbrake_fraction: 0.,
             gear: 0,
         }
     }

@@ -3,8 +3,8 @@ use serde::{Deserialize, Serialize};
 use winit::keyboard::KeyCode;
 pub(super) struct Keys {
     throttle: bool,
-    brake_s: bool,
-    brake_space: bool,
+    brake: bool,
+    handbrake: bool,
     left: bool,
     right: bool,
     pub reverse: bool,
@@ -15,8 +15,8 @@ impl Default for Keys {
     fn default() -> Self {
         Self {
             throttle: false,
-            brake_s: false,
-            brake_space: false,
+            brake: false,
+            handbrake: false,
             left: false,
             right: false,
             reverse: false,
@@ -33,16 +33,16 @@ impl Keys {
     }
     pub fn clear(&mut self) {
         self.throttle = false;
-        self.brake_s = false;
-        self.brake_space = false;
+        self.brake = false;
+        self.handbrake = false;
         self.left = false;
         self.right = false;
     }
     pub fn key(&mut self, key: KeyCode, down: bool) {
         match key {
             KeyCode::KeyW => self.throttle = down,
-            KeyCode::KeyS => self.brake_s = down,
-            KeyCode::Space => self.brake_space = down,
+            KeyCode::KeyS => self.brake = down,
+            KeyCode::Space => self.handbrake = down,
             KeyCode::KeyA => self.left = down,
             KeyCode::KeyD => self.right = down,
             KeyCode::KeyE if down => self.gear = (self.gear + 1).min(self.max_gear),
@@ -57,7 +57,8 @@ impl Keys {
             } else {
                 0.
             },
-            brake: f64::from(self.brake_s || self.brake_space),
+            brake: f64::from(self.brake),
+            handbrake: f64::from(self.handbrake),
             steering: f64::from(self.left) - f64::from(self.right),
             gear: self.gear,
         }
@@ -68,6 +69,7 @@ impl Keys {
 pub(super) struct Command {
     pub drive: f64,
     pub brake: f64,
+    pub handbrake: f64,
     pub steering: f64,
     pub gear: i32,
 }
@@ -77,13 +79,15 @@ impl Command {
             || self.drive.abs() > 1.
             || !self.brake.is_finite()
             || !(0. ..=1.).contains(&self.brake)
+            || !self.handbrake.is_finite()
+            || !(0. ..=1.).contains(&self.handbrake)
             || !self.steering.is_finite()
             || self.steering.abs() > 1.
             || !(-1..=10).contains(&self.gear)
         {
             return Err(Error::new(
                 "native_drive_input",
-                "Drive/steering must lie in -1..1, brake in 0..1, gear in -1..10",
+                "Drive/steering must lie in -1..1, brake/handbrake in 0..1, gear in -1..10",
             ));
         }
         Ok(())
@@ -141,7 +145,7 @@ impl SteeringActuator {
 mod tests {
     use super::*;
     #[test]
-    fn key_release_focus_clear_and_brake_aliases_do_not_leave_stuck_commands() {
+    fn key_release_focus_clear_and_separate_brake_handbrake_do_not_leave_stuck_commands() {
         let mut k = Keys::default();
         k.key(KeyCode::KeyW, true);
         k.key(KeyCode::KeyA, true);
@@ -150,16 +154,19 @@ mod tests {
         k.key(KeyCode::KeyD, true);
         assert_eq!(k.command().steering, 0.);
         k.key(KeyCode::KeyS, true);
-        k.key(KeyCode::Space, true);
-        k.key(KeyCode::KeyS, false);
         assert_eq!(k.command().brake, 1.);
+        k.key(KeyCode::Space, true);
+        assert_eq!(k.command().handbrake, 1.);
+        k.key(KeyCode::KeyS, false);
+        assert_eq!(k.command().brake, 0.);
+        assert_eq!(k.command().handbrake, 1.);
         k.clear();
         k.event(KeyCode::KeyW, true, true, false);
         assert_eq!(k.command().drive, 0.);
         k.event(KeyCode::KeyW, true, false, true);
         assert_eq!(k.command().drive, 0.);
-        assert_eq!(k.command().drive, 0.);
         assert_eq!(k.command().brake, 0.);
+        assert_eq!(k.command().handbrake, 0.);
         assert_eq!(k.command().steering, 0.);
         k.reverse = true;
         k.key(KeyCode::KeyW, true);

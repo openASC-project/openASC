@@ -235,6 +235,12 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
             driven_indices,
             tyre_radius_m: tyre_radius,
         });
+        bench.set_brakes_from_vehicle(
+            vehicle.brakes.max_torque_nm,
+            vehicle.brakes.front_share,
+            vehicle.brakes.handbrake_torque_nm,
+            1.0,
+        )?;
         gc
     } else {
         0
@@ -261,7 +267,7 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
         origin: DVec3::from_array(state.position_m),
     };
     println!(
-        "Native drive: Enter pause/resume; W throttle; S/Space brake; A/D steer; R direction while paused; F5 reset; C follow; mouse orbit/pan/zoom; Home car fit; F12 capture; Escape close."
+        "Native drive: Enter pause/resume; W throttle; S brake; Space handbrake; A/D steer; E/Q gear up/down; R direction while paused; F5 reset; C follow; mouse orbit/pan/zoom; Home car fit; F12 capture; Escape close."
     );
     println!(
         "{}",
