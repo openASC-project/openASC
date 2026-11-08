@@ -129,6 +129,50 @@ impl TyreModel {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct TyreRelaxation {
+    relaxation_length_m: f64,
+    fx: f64,
+    fy: f64,
+}
+
+impl TyreRelaxation {
+    pub fn new(relaxation_length_m: f64) -> Result<Self> {
+        if !relaxation_length_m.is_finite() || relaxation_length_m <= 0. {
+            return Err(fail("Relaxation length must be positive"));
+        }
+        Ok(Self {
+            relaxation_length_m,
+            fx: 0.,
+            fy: 0.,
+        })
+    }
+
+    pub fn step(
+        &mut self,
+        steady_fx: f64,
+        steady_fy: f64,
+        ground_speed_m_s: f64,
+        dt_s: f64,
+    ) -> Result<(f64, f64)> {
+        if !steady_fx.is_finite() || !steady_fy.is_finite() {
+            return Err(fail("Steady-state forces must be finite"));
+        }
+        if !ground_speed_m_s.is_finite() || !dt_s.is_finite() || dt_s < 0. {
+            return Err(fail("Speed and timestep must be finite and non-negative"));
+        }
+        let speed = ground_speed_m_s.abs().max(0.5);
+        let alpha = (speed * dt_s / self.relaxation_length_m).min(1.);
+        self.fx += alpha * (steady_fx - self.fx);
+        self.fy += alpha * (steady_fy - self.fy);
+        Ok((self.fx, self.fy))
+    }
+
+    pub fn forces(&self) -> (f64, f64) {
+        (self.fx, self.fy)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -244,6 +288,32 @@ mod tests {
             })
             .is_err()
         );
+    }
+
+    #[test]
+    fn relaxation_converges_to_steady_state() {
+        let mut r = TyreRelaxation::new(0.2).unwrap();
+        for _ in 0..200 {
+            r.step(1000., 500., 10., 1. / 120.).unwrap();
+        }
+        let (fx, fy) = r.forces();
+        assert!((fx - 1000.).abs() < 1.0, "fx should converge: {fx}");
+        assert!((fy - 500.).abs() < 0.5, "fy should converge: {fy}");
+    }
+
+    #[test]
+    fn relaxation_delays_force_buildup() {
+        let mut r = TyreRelaxation::new(0.3).unwrap();
+        let (fx, _fy) = r.step(1000., 0., 10., 1. / 120.).unwrap();
+        assert!(fx < 1000., "first step should be less than steady: {fx}");
+        assert!(fx > 0., "first step should be positive: {fx}");
+    }
+
+    #[test]
+    fn relaxation_rejects_invalid() {
+        assert!(TyreRelaxation::new(0.).is_err());
+        assert!(TyreRelaxation::new(-1.).is_err());
+        assert!(TyreRelaxation::new(f64::NAN).is_err());
     }
 
     #[test]

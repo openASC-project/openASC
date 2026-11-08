@@ -228,6 +228,7 @@ pub(super) struct EngineBinding {
     pub diff: Option<asc_physics::DiffParams>,
     pub tyre_models: Vec<Option<asc_physics::TyreModel>>,
     pub awd: Option<AwdBinding>,
+    pub relaxation_lengths_m: Vec<Option<f64>>,
 }
 #[allow(dead_code)]
 pub(super) struct AwdBinding {
@@ -276,6 +277,8 @@ struct Environment {
     engine: Option<EngineBinding>,
     brake_binding: Option<BrakeBinding>,
     aero: Option<AeroBinding>,
+    tyre_relaxation: std::cell::RefCell<Vec<Option<asc_physics::TyreRelaxation>>>,
+    step_s: f64,
 }
 impl Environment {
     fn racks(&self, time: f64) -> asc_physics::Result<Vec<RackMotion>> {
@@ -560,8 +563,21 @@ impl Environment {
                             .unwrap_or(1.0);
                         let sample =
                             tyre.forces(normal_load, slip_angle, slip_ratio, surface_mu)?;
-                        let force = longitudinal * sample.longitudinal_force_n
-                            + lateral * sample.lateral_force_n;
+                        let (fx, fy) = {
+                            let mut relax = self.tyre_relaxation.borrow_mut();
+                            if let Some(Some(r)) = relax.get_mut(i) {
+                                let ground_speed = v_long.abs().max(v_min);
+                                r.step(
+                                    sample.longitudinal_force_n,
+                                    sample.lateral_force_n,
+                                    ground_speed,
+                                    self.step_s,
+                                )?
+                            } else {
+                                (sample.longitudinal_force_n, sample.lateral_force_n)
+                            }
+                        };
+                        let force = longitudinal * fx + lateral * fy;
                         load.add_external(asc_physics::Wrench::new(force.to_array(), [0.; 3])?)?;
                     }
                 }
@@ -728,6 +744,12 @@ impl Workbench {
         &self.config.uprights
     }
     pub fn set_engine(&mut self, binding: EngineBinding) {
+        let relaxation: Vec<Option<asc_physics::TyreRelaxation>> = binding
+            .relaxation_lengths_m
+            .iter()
+            .map(|opt| opt.and_then(|len| asc_physics::TyreRelaxation::new(len).ok()))
+            .collect();
+        *self.environment.tyre_relaxation.borrow_mut() = relaxation;
         self.environment.engine = Some(binding);
     }
     pub fn set_aero(&mut self, binding: AeroBinding) {
@@ -1268,6 +1290,8 @@ pub(super) fn load(configuration: &Path) -> Result<Workbench, Box<dyn Error>> {
         engine: None,
         brake_binding: None,
         aero: None,
+        tyre_relaxation: std::cell::RefCell::new(vec![None; wheel_count]),
+        step_s: config.step_s,
     };
     if environment.controls.is_some() && wheel_count == 0 {
         return Err("Wheel controls require at least one wheel".into());

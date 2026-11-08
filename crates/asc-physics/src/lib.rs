@@ -43,7 +43,7 @@ use std::fmt;
 pub use strut::{StrutLink, StrutSolution};
 pub use tangential::{ContactSample, TangentialContact, TangentialContactSample};
 pub use travel::{TravelMechanism, TravelSample, TravelState, TravelSystem};
-pub use tyre::{TyreModel, TyreModelConfig, TyreSample};
+pub use tyre::{TyreModel, TyreModelConfig, TyreRelaxation, TyreSample};
 pub use wheel::{Wheel, WheelLoad, WheelSample, WheelState};
 
 #[derive(Debug, Clone, PartialEq)]

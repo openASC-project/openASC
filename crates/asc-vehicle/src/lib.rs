@@ -38,6 +38,7 @@ pub struct TyreForce {
     pub dy_ref: f64,
     pub ls_expx: f64,
     pub ls_expy: f64,
+    pub relaxation_length_m: f64,
 }
 #[derive(Serialize)]
 pub struct Axle {
@@ -233,12 +234,16 @@ pub fn load(directory: &Path, mode: data::Mode, compound: Option<u32>) -> Result
             .iter()
             .any(|s| s.name == section && s.values.contains_key("FZ0"))
         {
+            let relax = tyres
+                .number(&section, "RELAXATION_LENGTH", 0., f64::MAX, true)
+                .unwrap_or(0.15);
             Some(TyreForce {
                 fz0: tyres.number(&section, "FZ0", 0., f64::MAX, true)?,
                 dx_ref: tyres.number(&section, "DX_REF", 0., f64::MAX, true)?,
                 dy_ref: tyres.number(&section, "DY_REF", 0., f64::MAX, true)?,
                 ls_expx: tyres.number(&section, "LS_EXPX", 0., 2., false)?,
                 ls_expy: tyres.number(&section, "LS_EXPY", 0., 2., false)?,
+                relaxation_length_m: relax,
             })
         } else {
             None

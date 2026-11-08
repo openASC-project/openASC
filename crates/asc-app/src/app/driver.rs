@@ -378,6 +378,17 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
                         .transpose()
                 })
                 .collect::<std::result::Result<_, _>>()?;
+            let relaxation_lengths_m: Vec<Option<f64>> = bench
+                .config_uprights()
+                .iter()
+                .map(|u| {
+                    vehicle
+                        .axles
+                        .get(u.axle())
+                        .and_then(|a| a.tyre_force.as_ref())
+                        .map(|tf| tf.relaxation_length_m)
+                })
+                .collect();
             bench.set_engine(chassis_run::EngineBinding {
                 drivetrain,
                 driven_indices,
@@ -385,6 +396,7 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
                 diff,
                 tyre_models,
                 awd: awd_binding,
+                relaxation_lengths_m,
             });
             bench.set_brakes_from_vehicle(
                 vehicle.brakes.max_torque_nm,
