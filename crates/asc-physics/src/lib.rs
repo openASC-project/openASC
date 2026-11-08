@@ -25,7 +25,7 @@ pub use chassis::{
     RackMotion, UprightKinematics, UprightSample, WheelKinematics,
 };
 pub use clock::{Batch, FixedClock, Tick};
-pub use engine::{EngineDrivetrain, EngineSample, Traction, TorqueCurve};
+pub use engine::{CoastRef, EngineDrivetrain, EngineSample, Traction, TorqueCurve};
 pub use contact::{CircleSupport, NormalContact, NormalContactSample, SupportPlane};
 pub use differential::{
     ConstraintBalance, GeneralizedLoads, LinkDifferential, LinkLoad, RelativeAcceleration,

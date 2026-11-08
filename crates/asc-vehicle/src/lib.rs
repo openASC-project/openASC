@@ -49,11 +49,18 @@ pub struct TorqueLut {
     pub y_unit: &'static str,
 }
 #[derive(Serialize)]
+pub struct CoastRef {
+    pub rpm: f64,
+    pub torque_nm: f64,
+    pub non_linearity: f64,
+}
+#[derive(Serialize)]
 pub struct Engine {
     pub idle_rpm: f64,
     pub limiter_rpm: f64,
     pub inertia_kg_m2: f64,
     pub torque_lut: TorqueLut,
+    pub coast: Option<CoastRef>,
 }
 #[derive(Serialize)]
 pub struct Drivetrain {
@@ -222,6 +229,18 @@ pub fn load(directory: &Path, mode: data::Mode, compound: Option<u32>) -> Result
         )
         .into());
     }
+    let coast = if engine.document.sections.iter().any(|s| s.name == "COAST_REF") {
+        let rpm = engine.number("COAST_REF", "RPM", 0., f64::MAX, true)?;
+        let torque_nm = engine.number("COAST_REF", "TORQUE", 0., f64::MAX, false)?;
+        let non_linearity = engine.number("COAST_REF", "NON_LINEARITY", 0., 1., false)?;
+        Some(CoastRef {
+            rpm,
+            torque_nm,
+            non_linearity,
+        })
+    } else {
+        None
+    };
     let engine_config = Engine {
         idle_rpm,
         limiter_rpm,
@@ -232,6 +251,7 @@ pub fn load(directory: &Path, mode: data::Mode, compound: Option<u32>) -> Result
             x_unit: "rpm",
             y_unit: "Nm",
         },
+        coast,
     };
     let traction = drive.value("TRACTION", "TYPE")?.to_uppercase();
     if !["RWD", "FWD", "AWD"].contains(&traction.as_str()) {
@@ -389,7 +409,7 @@ pub fn load(directory: &Path, mode: data::Mode, compound: Option<u32>) -> Result
         }
         field_sources.insert("aero.ini".into(), af.used);
     }
-    data.diagnostics.push(Diagnostic::warning("vehicle_configuration_scope",&format!("content/cars/{}",data.car),"Configuration only. Inertia dimensions are not a tensor. Original tyre/suspension, fuel, coast torque, electronics behavior, dynamic wings, audio and FFB are not simulated; model validation is header-only."));
+    data.diagnostics.push(Diagnostic::warning("vehicle_configuration_scope",&format!("content/cars/{}",data.car),"Configuration only. Inertia dimensions are not a tensor. Original tyre/suspension, fuel, electronics behavior, dynamic wings, audio and FFB are not simulated; model validation is header-only."));
     Ok(Vehicle {
         car: data.car,
         data_source: data.mode,

@@ -172,7 +172,7 @@ cargo run --locked -p asc-app -- acd ./assettocorsa/content/cars/bmw_m3_e30/data
 
 The packed reader supports the ordinary folder-keyed record format. The folder identifier is part of that format; renaming a packed car folder can produce invalid decoded data. Native identifiers are 1..128 ASCII letters, digits, underscores or hyphens. The archive is not authenticated, and a wrong key is not guaranteed to produce a dedicated error. `acd` prints only the validated record index and optional header word, without exporting decoded content. No extraction/writing API is provided.
 
-Native text remains strict UTF-8 with an optional BOM. Turbo, unused configuration fields and incomplete simulation scope are reported as warnings. Tyre/suspension/drivetrain behavior, fuel, coast torque, aero, electronics, FFB and audio remain unimplemented in the native path. See the [compatibility record](FORMATS.md#native-vehicle-and-acd-path) for limits and verified scope.
+Native text remains strict UTF-8 with an optional BOM. Turbo, unused configuration fields and incomplete simulation scope are reported as warnings. Tyre/suspension/drivetrain behavior, fuel, electronics, FFB and audio remain unimplemented in the native path. See the [compatibility record](FORMATS.md#native-vehicle-and-acd-path) for limits and verified scope.
 
 ## Native desktop window
 

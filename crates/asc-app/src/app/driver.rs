@@ -203,6 +203,11 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
             "FWD" => asc_physics::Traction::Fwd,
             _ => asc_physics::Traction::Rwd,
         };
+        let coast = vehicle.engine.coast.as_ref().map(|c| asc_physics::CoastRef {
+            rpm: c.rpm,
+            torque_nm: c.torque_nm,
+            non_linearity: c.non_linearity,
+        });
         let drivetrain = asc_physics::EngineDrivetrain::new(
             curve,
             vehicle.engine.idle_rpm,
@@ -212,6 +217,7 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
             vehicle.drivetrain.reverse_ratio,
             vehicle.drivetrain.final_ratio,
             traction,
+            coast,
         )?;
         let driven_axle = match traction {
             asc_physics::Traction::Rwd => "rear",

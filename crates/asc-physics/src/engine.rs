@@ -56,6 +56,13 @@ impl TorqueCurve {
     }
 }
 
+#[derive(Clone, Copy, Debug)]
+pub struct CoastRef {
+    pub rpm: f64,
+    pub torque_nm: f64,
+    pub non_linearity: f64,
+}
+
 #[derive(Clone, Debug)]
 pub struct EngineDrivetrain {
     torque_curve: TorqueCurve,
@@ -66,6 +73,7 @@ pub struct EngineDrivetrain {
     reverse_ratio: f64,
     final_ratio: f64,
     traction: Traction,
+    coast: Option<CoastRef>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -93,6 +101,7 @@ impl EngineDrivetrain {
         reverse_ratio: f64,
         final_ratio: f64,
         traction: Traction,
+        coast: Option<CoastRef>,
     ) -> Result<Self> {
         if !idle_rpm.is_finite() || idle_rpm < 0. {
             return Err(fail("Idle RPM must be finite and non-negative"));
@@ -117,6 +126,17 @@ impl EngineDrivetrain {
         if !final_ratio.is_finite() || final_ratio <= 0. {
             return Err(fail("Final drive ratio must be positive"));
         }
+        if let Some(c) = &coast {
+            if !c.rpm.is_finite() || c.rpm <= 0. {
+                return Err(fail("Coast reference RPM must be positive"));
+            }
+            if !c.torque_nm.is_finite() || c.torque_nm < 0. {
+                return Err(fail("Coast reference torque must be non-negative"));
+            }
+            if !c.non_linearity.is_finite() || !(0. ..=1.).contains(&c.non_linearity) {
+                return Err(fail("Coast non-linearity must be in [0, 1]"));
+            }
+        }
         Ok(Self {
             torque_curve,
             idle_rpm,
@@ -126,6 +146,7 @@ impl EngineDrivetrain {
             reverse_ratio,
             final_ratio,
             traction,
+            coast,
         })
     }
 
@@ -175,10 +196,25 @@ impl EngineDrivetrain {
         Ok(rpm)
     }
 
+    /// Coast (engine braking) torque at a given RPM, from COAST_REF parameters.
+    /// Returns a non-negative value representing the retarding torque magnitude.
+    fn coast_torque_at_rpm(&self, rpm: f64) -> f64 {
+        match self.coast {
+            Some(c) if c.torque_nm > 0. && c.rpm > 0. => {
+                let t = (rpm / c.rpm).clamp(0., 1.);
+                let exponent = 1. + c.non_linearity;
+                c.torque_nm * t.powf(exponent)
+            }
+            _ => 0.,
+        }
+    }
+
     /// Compute drive torque delivered to each driven wheel.
     /// Returns the per-wheel torque and an engine sample for diagnostics.
     /// The transmission efficiency factor (0.9 in the prototype) accounts for
     /// frictional losses; this is a simplified model, not an AC clutch simulation.
+    /// When throttle < 1 and a gear is engaged, coast (engine braking) torque
+    /// opposes the driven wheels proportional to (1 - throttle).
     pub fn drive_torque(
         &self,
         wheel_rate_rad_s: f64,
@@ -196,11 +232,14 @@ impl EngineDrivetrain {
         let ratio = self.gear_ratio(gear);
         let rpm = self.rpm(wheel_rate_rad_s, gear, throttle)?;
         let clamped_rpm = rpm.min(self.limiter_rpm);
-        let engine_torque = if rpm >= self.limiter_rpm {
+        let throttle_clamped = throttle.clamp(0., 1.);
+        let power_torque = if rpm >= self.limiter_rpm {
             0.
         } else {
-            self.torque_curve.sample(clamped_rpm)? * throttle.clamp(0., 1.)
+            self.torque_curve.sample(clamped_rpm)? * throttle_clamped
         };
+        let coast = self.coast_torque_at_rpm(clamped_rpm) * (1. - throttle_clamped);
+        let engine_torque = power_torque - coast;
         let wheel_torque = if ratio.abs() < 1e-12 {
             0.
         } else {
@@ -242,6 +281,11 @@ mod tests {
             -3.2,
             3.7,
             Traction::Rwd,
+            Some(CoastRef {
+                rpm: 7000.,
+                torque_nm: 80.,
+                non_linearity: 0.,
+            }),
         )
         .unwrap()
     }
@@ -325,10 +369,71 @@ mod tests {
     #[test]
     fn drivetrain_rejects_invalid_construction() {
         let curve = test_curve();
-        assert!(EngineDrivetrain::new(curve.clone(), -1., 8000., 0.1, &[3.0], -3.0, 3.7, Traction::Rwd).is_err());
-        assert!(EngineDrivetrain::new(curve.clone(), 900., 900., 0.1, &[3.0], -3.0, 3.7, Traction::Rwd).is_err());
-        assert!(EngineDrivetrain::new(curve.clone(), 900., 8000., 0.1, &[], -3.0, 3.7, Traction::Rwd).is_err());
-        assert!(EngineDrivetrain::new(curve.clone(), 900., 8000., 0.1, &[3.0], 3.0, 3.7, Traction::Rwd).is_err());
-        assert!(EngineDrivetrain::new(curve, 900., 8000., 0.1, &[3.0], -3.0, -1., Traction::Rwd).is_err());
+        assert!(EngineDrivetrain::new(curve.clone(), -1., 8000., 0.1, &[3.0], -3.0, 3.7, Traction::Rwd, None).is_err());
+        assert!(EngineDrivetrain::new(curve.clone(), 900., 900., 0.1, &[3.0], -3.0, 3.7, Traction::Rwd, None).is_err());
+        assert!(EngineDrivetrain::new(curve.clone(), 900., 8000., 0.1, &[], -3.0, 3.7, Traction::Rwd, None).is_err());
+        assert!(EngineDrivetrain::new(curve.clone(), 900., 8000., 0.1, &[3.0], 3.0, 3.7, Traction::Rwd, None).is_err());
+        assert!(EngineDrivetrain::new(curve.clone(), 900., 8000., 0.1, &[3.0], -3.0, -1., Traction::Rwd, None).is_err());
+        assert!(EngineDrivetrain::new(curve.clone(), 900., 8000., 0.1, &[3.0], -3.0, 3.7, Traction::Rwd, Some(CoastRef { rpm: 0., torque_nm: 50., non_linearity: 0. })).is_err());
+        assert!(EngineDrivetrain::new(curve, 900., 8000., 0.1, &[3.0], -3.0, 3.7, Traction::Rwd, Some(CoastRef { rpm: 7000., torque_nm: 50., non_linearity: 1.5 })).is_err());
+    }
+
+    #[test]
+    fn coast_torque_retards_at_zero_throttle() {
+        let dt = test_drivetrain();
+        let ratio = 3.5 * 3.7;
+        let wheel_rate = 3000. * 2. * std::f64::consts::PI / (60. * ratio);
+        let sample = dt.drive_torque(wheel_rate, 0.3, 1, 0., 2).unwrap();
+        assert!(sample.torque_nm < 0., "engine torque should be negative (retarding)");
+        assert!(sample.wheel_torque_nm < 0., "wheel torque should retard forward motion");
+        let expected_coast = 80. * (3000. / 7000.);
+        assert!((sample.torque_nm + expected_coast).abs() < 0.1);
+    }
+
+    #[test]
+    fn coast_torque_scales_with_throttle_complement() {
+        let dt = test_drivetrain();
+        let ratio = 3.5 * 3.7;
+        let wheel_rate = 3000. * 2. * std::f64::consts::PI / (60. * ratio);
+        let full = dt.drive_torque(wheel_rate, 0.3, 1, 1., 2).unwrap();
+        let half = dt.drive_torque(wheel_rate, 0.3, 1, 0.5, 2).unwrap();
+        let zero = dt.drive_torque(wheel_rate, 0.3, 1, 0., 2).unwrap();
+        assert!(full.torque_nm > half.torque_nm);
+        assert!(half.torque_nm > zero.torque_nm);
+        assert!(full.torque_nm > 0.);
+        assert!(zero.torque_nm < 0.);
+    }
+
+    #[test]
+    fn no_coast_without_coast_ref() {
+        let dt = EngineDrivetrain::new(
+            test_curve(), 900., 8200., 0.12,
+            &[3.5, 2.3], -3.2, 3.7, Traction::Rwd, None,
+        ).unwrap();
+        let ratio = 3.5 * 3.7;
+        let wheel_rate = 3000. * 2. * std::f64::consts::PI / (60. * ratio);
+        let sample = dt.drive_torque(wheel_rate, 0.3, 1, 0., 2).unwrap();
+        assert_eq!(sample.torque_nm, 0.);
+        assert_eq!(sample.wheel_torque_nm, 0.);
+    }
+
+    #[test]
+    fn coast_nonlinearity_increases_curvature() {
+        let linear = EngineDrivetrain::new(
+            test_curve(), 900., 8200., 0.12,
+            &[3.5], -3.2, 3.7, Traction::Rwd,
+            Some(CoastRef { rpm: 7000., torque_nm: 80., non_linearity: 0. }),
+        ).unwrap();
+        let curved = EngineDrivetrain::new(
+            test_curve(), 900., 8200., 0.12,
+            &[3.5], -3.2, 3.7, Traction::Rwd,
+            Some(CoastRef { rpm: 7000., torque_nm: 80., non_linearity: 1. }),
+        ).unwrap();
+        let ratio = 3.5 * 3.7;
+        let wheel_rate = 3500. * 2. * std::f64::consts::PI / (60. * ratio);
+        let s_lin = linear.drive_torque(wheel_rate, 0.3, 1, 0., 2).unwrap();
+        let s_cur = curved.drive_torque(wheel_rate, 0.3, 1, 0., 2).unwrap();
+        assert!(s_cur.torque_nm > s_lin.torque_nm,
+            "nonlinear coast at low RPM should be less retarding (closer to zero)");
     }
 }

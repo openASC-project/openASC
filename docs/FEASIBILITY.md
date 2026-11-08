@@ -82,3 +82,7 @@ A validated engine/drivetrain runtime model (`asc-physics::EngineDrivetrain`) no
 ## Aerodynamic drag and downforce
 
 The native vehicle reader now loads AC aero.ini data (reference area, CD, CL_front, CL_rear) when present, with graceful fallback to zero aero when absent. The driving loop applies velocity-squared drag and vertical downforce at the chassis COM using standard 1.225 kg/m^3 air density. Wing-specific angle-of-attack curves, aero pitch moment from front/rear CL distribution, dynamic wing elements and altitude-dependent density remain unimplemented.
+
+## Coast (engine braking) torque
+
+The native vehicle reader and physics engine now support AC COAST_REF parameters (reference RPM, torque magnitude, non-linearity exponent 0..1). When COAST_REF is present in engine.ini, the engine model applies a retarding coast torque proportional to (1 - throttle). At zero throttle, the full coast torque acts; at full throttle, none. The coast curve scales from zero torque at 0 RPM to the reference value at the reference RPM, with shape controlled by the non-linearity exponent: 0 gives linear, 1 gives quadratic. This coast torque is subtracted from the power torque before gear ratio transmission and efficiency. When COAST_REF is absent, no coast torque is applied. The obsolete COAST_DATA and COAST_CURVE (LUT file) modes are not implemented.
