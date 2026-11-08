@@ -241,6 +241,16 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
             vehicle.brakes.handbrake_torque_nm,
             1.0,
         )?;
+        let front_z = vehicle.wheelbase_m * (1.0 - vehicle.front_weight_fraction);
+        let rear_z = -vehicle.wheelbase_m * vehicle.front_weight_fraction;
+        bench.set_aero(chassis_run::AeroBinding {
+            reference_area_m2: vehicle.aero.reference_area_m2,
+            cd: vehicle.aero.cd,
+            cl_front: vehicle.aero.cl_front,
+            cl_rear: vehicle.aero.cl_rear,
+            front_axle_z_m: front_z,
+            rear_axle_z_m: rear_z,
+        });
         gc
     } else {
         0

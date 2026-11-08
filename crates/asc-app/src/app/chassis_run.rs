@@ -229,6 +229,15 @@ pub(super) struct EngineBinding {
 pub(super) struct BrakeBinding {
     pub handbrake_torques: Vec<f64>,
 }
+#[allow(dead_code)]
+pub(super) struct AeroBinding {
+    pub reference_area_m2: f64,
+    pub cd: f64,
+    pub cl_front: f64,
+    pub cl_rear: f64,
+    pub front_axle_z_m: f64,
+    pub rear_axle_z_m: f64,
+}
 struct Environment {
     base: ChassisLoads,
     plane: Option<SupportPlane>,
@@ -242,6 +251,7 @@ struct Environment {
     steering_count: usize,
     engine: Option<EngineBinding>,
     brake_binding: Option<BrakeBinding>,
+    aero: Option<AeroBinding>,
 }
 impl Environment {
     fn racks(&self, time: f64) -> asc_physics::Result<Vec<RackMotion>> {
@@ -413,6 +423,24 @@ impl Environment {
                 load.add_external(contact.wrench()?)?;
             }
         }
+        if let Some(aero) = &self.aero {
+            const AIR_DENSITY: f64 = 1.225;
+            let v = k.chassis.velocity_world_m_s;
+            let speed_sq = v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+            let q = 0.5 * AIR_DENSITY * speed_sq * aero.reference_area_m2;
+            let speed = speed_sq.sqrt();
+            let drag = if speed > 1e-9 {
+                let factor = -q * aero.cd / speed;
+                [v[0] * factor, v[1] * factor, v[2] * factor]
+            } else {
+                [0.; 3]
+            };
+            let lift = q * (aero.cl_front + aero.cl_rear);
+            loads.chassis.add(asc_physics::Wrench::new(
+                [drag[0], drag[1] + lift, drag[2]],
+                [0.; 3],
+            )?)?;
+        }
         Ok(loads)
     }
     fn record(
@@ -527,6 +555,9 @@ impl Workbench {
     }
     pub fn set_engine(&mut self, binding: EngineBinding) {
         self.environment.engine = Some(binding);
+    }
+    pub fn set_aero(&mut self, binding: AeroBinding) {
+        self.environment.aero = Some(binding);
     }
     pub fn set_brakes_from_vehicle(
         &mut self,
@@ -1065,6 +1096,7 @@ pub(super) fn load(configuration: &Path) -> Result<Workbench, Box<dyn Error>> {
             .transpose()?,
         engine: None,
         brake_binding: None,
+        aero: None,
     };
     if environment.controls.is_some() && wheel_count == 0 {
         return Err("Wheel controls require at least one wheel".into());

@@ -69,6 +69,13 @@ pub struct Brakes {
     pub handbrake_torque_nm: f64,
 }
 #[derive(Serialize)]
+pub struct Aero {
+    pub reference_area_m2: f64,
+    pub cd: f64,
+    pub cl_front: f64,
+    pub cl_rear: f64,
+}
+#[derive(Serialize)]
 pub struct Header {
     pub version: u32,
     pub scope: &'static str,
@@ -95,6 +102,7 @@ pub struct Vehicle {
     pub engine: Engine,
     pub drivetrain: Drivetrain,
     pub brakes: Brakes,
+    pub aero: Aero,
     pub compound: u32,
     pub model: Model,
     pub field_sources: BTreeMap<String, BTreeMap<String, FieldSource>>,
@@ -112,6 +120,7 @@ pub fn load(directory: &Path, mode: data::Mode, compound: Option<u32>) -> Result
     let mut engine = Fields::new(data.ini("engine.ini")?);
     let mut drive = Fields::new(data.ini("drivetrain.ini")?);
     let mut brake = Fields::new(data.ini("brakes.ini")?);
+    let aero_ini = data.ini("aero.ini").ok();
     let mut lod = Fields::new(data.ini("lods.ini")?);
     car.version(&[1])?;
     suspension.version(&[1, 2])?;
@@ -253,6 +262,32 @@ pub fn load(directory: &Path, mode: data::Mode, compound: Option<u32>) -> Result
         front_share: brake.number("DATA", "FRONT_SHARE", 0., 1., false)?,
         handbrake_torque_nm: brake.number("DATA", "HANDBRAKE_TORQUE", 0., f64::MAX, false)?,
     };
+    let (aero, aero_fields) = if let Some(ini) = aero_ini {
+        let mut af = Fields::new(ini);
+        af.version(&[1])?;
+        let a = Aero {
+            reference_area_m2: af.number("DATA", "REFERENCE_AREA", 0., f64::MAX, true)?,
+            cd: af.number("DATA", "CD", 0., f64::MAX, false)?,
+            cl_front: af.number("DATA", "CL_FRONT", -f64::MAX, f64::MAX, false)?,
+            cl_rear: af.number("DATA", "CL_REAR", -f64::MAX, f64::MAX, false)?,
+        };
+        (a, Some(af))
+    } else {
+        data.diagnostics.push(Diagnostic::warning(
+            "vehicle_aero_missing",
+            &format!("content/cars/{}", data.car),
+            "aero.ini is absent; zero aerodynamic forces will be applied.",
+        ));
+        (
+            Aero {
+                reference_area_m2: 0.,
+                cd: 0.,
+                cl_front: 0.,
+                cl_rear: 0.,
+            },
+            None,
+        )
+    };
     let model_name = lod.value("LOD_0", "FILE")?;
     let path = data::confined(
         &data.root,
@@ -340,6 +375,20 @@ pub fn load(directory: &Path, mode: data::Mode, compound: Option<u32>) -> Result
         }
         field_sources.insert(name.into(), f.used);
     }
+    if let Some(af) = aero_fields {
+        let total: usize = af.document.sections.iter().map(|s| s.values.len()).sum();
+        if total > af.used.len() {
+            data.diagnostics.push(Diagnostic::warning(
+                "vehicle_fields_uninterpreted",
+                &af.document.source,
+                &format!(
+                    "aero.ini: {} other fields are not interpreted.",
+                    total - af.used.len()
+                ),
+            ));
+        }
+        field_sources.insert("aero.ini".into(), af.used);
+    }
     data.diagnostics.push(Diagnostic::warning("vehicle_configuration_scope",&format!("content/cars/{}",data.car),"Configuration only. Inertia dimensions are not a tensor. Original tyre/suspension/drivetrain/fuel/coast/aero/electronics behavior, audio and FFB are not simulated; model validation is header-only."));
     Ok(Vehicle {
         car: data.car,
@@ -361,6 +410,7 @@ pub fn load(directory: &Path, mode: data::Mode, compound: Option<u32>) -> Result
             final_ratio,
         },
         brakes,
+        aero,
         compound,
         model,
         field_sources,

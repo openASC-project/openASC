@@ -78,3 +78,7 @@ The native spatial path now loads WALL geometry separately from road support and
 ## Engine torque curve and drivetrain transmission
 
 A validated engine/drivetrain runtime model (`asc-physics::EngineDrivetrain`) now reads AC vehicle data (torque LUT, idle/limiter RPM, inertia, gear ratios, final ratio, traction type) and computes per-wheel drive torque from wheel angular velocity and throttle input. RPM tracks driven wheel speed through the selected gear ratio with idle clamp; the rev limiter cuts torque above limiter RPM; a 0.9 transmission efficiency factor approximates frictional losses. The native driving window supports keyboard gear shifting (E up, Q down) and applies engine torque to driven wheels identified by axle name from the vehicle configuration. When no engine binding is configured, the previous direct drive-fraction path is retained. Clutch dynamics, differential torque split, AWD, engine inertia coupling, original AC powertrain fidelity and game-comparison validation remain unimplemented.
+
+## Aerodynamic drag and downforce
+
+The native vehicle reader now loads AC aero.ini data (reference area, CD, CL_front, CL_rear) when present, with graceful fallback to zero aero when absent. The driving loop applies velocity-squared drag and vertical downforce at the chassis COM using standard 1.225 kg/m^3 air density. Wing-specific angle-of-attack curves, aero pitch moment from front/rear CL distribution, dynamic wing elements and altitude-dependent density remain unimplemented.
