@@ -1,0 +1,21 @@
+{
+  "updated": "2026-11-08",
+  "note": "Percentages are the maintainers' estimate of completed and verified behavior per subsystem, weighted by importance to a playable 1:1 port. They are not measured against the original game unless a row says so.",
+  "subsystems": [
+    {"id": "formats", "name": "Content formats", "weight": 8, "percent": 70, "state": "partial", "detail": "KN5 models, INI/LUT, ACD archives and car data readers. Skins, CSP extensions and some KN5 variants are missing."},
+    {"id": "render", "name": "Rendering", "weight": 10, "percent": 35, "state": "partial", "detail": "wgpu renderer with diffuse, multilayer and BC textures. Original shaders, normal maps, shadows, reflections, weather and post-processing are missing."},
+    {"id": "chassis", "name": "Chassis and rigid body", "weight": 9, "percent": 60, "state": "partial", "detail": "6-DOF body with explicit inertia, fixed 120 Hz steps and coupled suspension solving."},
+    {"id": "suspension", "name": "Suspension kinematics", "weight": 8, "percent": 45, "state": "partial", "detail": "DWB and STRUT raw-design geometry with constraint residuals. Setup mapping and bump stops are not calibrated."},
+    {"id": "tyres", "name": "Tyre forces", "weight": 10, "percent": 40, "state": "partial", "detail": "Pacejka-style forces with load sensitivity, friction ellipse and relaxation length. Camber thrust, thermal and wear models are missing."},
+    {"id": "drivetrain", "name": "Engine and drivetrain", "weight": 8, "percent": 65, "state": "partial", "detail": "Torque curve, gearbox timing, clutch, RWD/FWD/AWD, centre and axle differentials, flywheel coupling."},
+    {"id": "aero", "name": "Aerodynamics", "weight": 4, "percent": 55, "state": "partial", "detail": "Drag, front/rear lift with pitch moment and wing AoA curves. DRS and active elements are missing."},
+    {"id": "collision", "name": "Collision", "weight": 6, "percent": 35, "state": "partial", "detail": "Static WALL impacts with friction and certified departure. Edge/vertex contact, continuous detection and car-to-car contact are missing."},
+    {"id": "input", "name": "Input and controls", "weight": 4, "percent": 40, "state": "partial", "detail": "Keyboard driving works. Gamepad and steering-wheel input are not wired in yet."},
+    {"id": "ffb", "name": "Force feedback", "weight": 4, "percent": 0, "state": "missing", "detail": "Not started."},
+    {"id": "audio", "name": "Sound", "weight": 4, "percent": 0, "state": "missing", "detail": "Not started."},
+    {"id": "ai", "name": "AI drivers", "weight": 5, "percent": 0, "state": "missing", "detail": "Not started."},
+    {"id": "session", "name": "Sessions and game modes", "weight": 5, "percent": 15, "state": "partial", "detail": "Car and track loading with spawn checks. Race rules, timing, flags and pit logic are missing."},
+    {"id": "net", "name": "Networking", "weight": 5, "percent": 0, "state": "missing", "detail": "Not started."},
+    {"id": "validation", "name": "Original-game validation", "weight": 10, "percent": 5, "state": "missing", "detail": "Telemetry research tooling exists. No subsystem is yet verified against recordings of the original game."}
+  ]
+}

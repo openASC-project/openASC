@@ -2,8 +2,16 @@
 import argparse
 import html
 from pathlib import Path
+import hashlib
+import io
+import json
 import re
+import sys
+import zipfile
 from string import Template
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import site_pages  # noqa: E402
 
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = 'https://github.com/openASC-project/openASC'
@@ -15,6 +23,12 @@ PAGES = [
     ('roadmap', 'Roadmap & feasibility', 'FEASIBILITY.md', '↗'),
     ('development', 'Development', 'DEVELOPMENT.md', '⚒'),
     ('publishing', 'GitHub Pages', 'GITHUB_PAGES.md', '▧'),
+]
+EXPLORE = [
+    ('progress', 'Progress', '◔'),
+    ('gallery', 'Gallery', '▦'),
+    ('launcher', 'Launcher', '⏵'),
+    ('mods', 'Mods', '⬡'),
 ]
 ROUTES = {filename: f'./{slug}.html' for slug, _, filename, _ in PAGES}
 
@@ -114,7 +128,10 @@ def navigation(active):
         return f'<a href="{url or "./" + slug + ".html"}"{current}><span class="nav-icon" aria-hidden="true">{symbol}</span>{title}</a>'
 
     result = ['<nav aria-label="Primary">', item('index', 'Overview', '⌂'), '</nav>',
-              '<nav aria-labelledby="docs-label"><h2 id="docs-label">Documentation</h2>']
+              '<nav aria-labelledby="explore-label"><h2 id="explore-label">Explore</h2>']
+    result.extend(item(slug, title, symbol) for slug, title, symbol in EXPLORE)
+    result.extend(['</nav>',
+                   '<nav aria-labelledby="docs-label"><h2 id="docs-label">Documentation</h2>'])
     result.extend(item(slug, title, symbol) for slug, title, _, symbol in PAGES)
     result.extend(['</nav><nav aria-labelledby="project-label"><h2 id="project-label">Project</h2>',
                    item('source', 'Source code', '&lt;/&gt;', REPOSITORY),
@@ -124,28 +141,67 @@ def navigation(active):
     return '\n'.join(result)
 
 
+def package_mods():
+    """Zip each mods/<id> folder deterministically and return (index, {filename: bytes})."""
+    files, entries = {}, []
+    for folder in sorted(p for p in (ROOT / 'mods').iterdir() if p.is_dir()):
+        manifest = json.loads((folder / 'mod.json').read_text(encoding='utf-8'))
+        if manifest['id'] != folder.name:
+            raise ValueError(f'mods/{folder.name}/mod.json id must equal the folder name')
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, 'w', zipfile.ZIP_DEFLATED) as archive:
+            for path in sorted(q for q in folder.rglob('*') if q.is_file()):
+                info = zipfile.ZipInfo(path.relative_to(folder).as_posix(), (2026, 1, 1, 0, 0, 0))
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.external_attr = 0o644 << 16
+                archive.writestr(info, path.read_bytes())
+        data = buffer.getvalue()
+        name = f'{manifest["id"]}-{manifest["version"]}.zip'
+        files[name] = data
+        entries.append({**{k: manifest[k] for k in ('id', 'name', 'version', 'author', 'description')},
+                        'file': name, 'size_bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()})
+    return {'schema_version': 1, 'mods': entries}, files
+
+
 def build(check=False):
     template = Template((ROOT / 'web/layout.html').read_text(encoding='utf-8'))
-    documents = [('index', 'Overview', 'web/overview.html',
-                  (ROOT / 'web/overview.html').read_text(encoding='utf-8'), 'overview')]
+    progress = site_pages.load('progress.json')
+    gallery = site_pages.load('gallery.json')
+    mod_index, mod_files = package_mods()
+    overview = (ROOT / 'web/overview.html').read_text(encoding='utf-8').replace(
+        '<!--PROGRESS-->', site_pages.progress_summary(progress))
+    documents = [('index', 'Overview', 'web/overview.html', overview, 'overview'),
+                 ('progress', 'Progress', 'web/data/progress.json', site_pages.progress_page(progress), 'documentation'),
+                 ('gallery', 'Gallery', 'web/data/gallery.json', site_pages.gallery_page(gallery), 'documentation'),
+                 ('launcher', 'Launcher', 'tools/site_pages.py', site_pages.launcher_page(), 'documentation'),
+                 ('mods', 'Mods', 'mods/', site_pages.mods_page(mod_index), 'documentation')]
     for slug, title, filename, _ in PAGES:
         content = markdown((ROOT / 'docs' / filename).read_text(encoding='utf-8'))
         source_link = f'<a class="edit-link" href="{REPOSITORY}/blob/main/docs/{filename}">View this document on GitHub ↗</a>'
         documents.append((slug, title, f'docs/{filename}', f'<article class="document">{content}{source_link}</article>', 'documentation'))
-    stale = []
+    outputs = {}
     for slug, title, source, content, page_class in documents:
         result = template.substitute(title=title, source=source, content=content,
                                      description=f'openASC {title.lower()}: independent Assetto Corsa engine research and content tools.',
                                      navigation=navigation(slug), page_class=page_class)
-        target = ROOT / 'site' / f'{slug}.html'
+        outputs[ROOT / 'site' / f'{slug}.html'] = result.encode('utf-8')
+    index_bytes = (json.dumps(mod_index, indent=2) + '\n').encode('utf-8')
+    outputs[ROOT / 'site' / 'mods' / 'index.json'] = index_bytes
+    outputs[ROOT / 'site' / 'progress.json'] = (json.dumps(
+        {'percent': round(site_pages.overall(progress), 1), 'updated': progress['updated']}) + '\n').encode('utf-8')
+    for name, data in mod_files.items():
+        outputs[ROOT / 'site' / 'mods' / name] = data
+    stale = []
+    for target, data in outputs.items():
         if check:
-            if not target.exists() or target.read_text(encoding='utf-8') != result:
+            if not target.exists() or target.read_bytes() != data:
                 stale.append(target.name)
         else:
-            target.write_text(result, encoding='utf-8', newline='\n')
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(data)
     if stale:
-        raise ValueError('Stale generated pages: ' + ', '.join(stale) + '. Run python tools/build_site.py.')
-    print(f'{"Checked" if check else "Built"} {len(documents)} pages.')
+        raise ValueError('Stale generated files: ' + ', '.join(stale) + '. Run python tools/build_site.py.')
+    print(f'{"Checked" if check else "Built"} {len(outputs)} files.')
 
 
 if __name__ == '__main__':

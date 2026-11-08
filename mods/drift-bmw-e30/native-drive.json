@@ -1,0 +1,63 @@
+{
+  "dynamics_config": "chassis-source-geometry.json",
+  "model_origin_in_chassis_m": [
+    0,
+    0,
+    0
+  ],
+  "model_orientation_in_chassis_xyzw": [
+    0,
+    0,
+    0,
+    1
+  ],
+  "compound": null,
+  "steering": {
+    "displacement_limit_m": 0.01,
+    "frequency_rad_s": 8,
+    "acceleration_limit_m_s2": 0.2,
+    "rate_limit_m_s": 0.08
+  },
+  "articulation": [
+    {
+      "node": "WHEEL_LF",
+      "upright": 0,
+      "kind": "wheel"
+    },
+    {
+      "node": "SUSP_LF",
+      "upright": 0,
+      "kind": "upright"
+    },
+    {
+      "node": "WHEEL_RF",
+      "upright": 1,
+      "kind": "wheel"
+    },
+    {
+      "node": "SUSP_RF",
+      "upright": 1,
+      "kind": "upright"
+    },
+    {
+      "node": "WHEEL_LR",
+      "upright": 2,
+      "kind": "wheel"
+    },
+    {
+      "node": "SUSP_LR",
+      "upright": 2,
+      "kind": "upright"
+    },
+    {
+      "node": "WHEEL_RR",
+      "upright": 3,
+      "kind": "wheel"
+    },
+    {
+      "node": "SUSP_RR",
+      "upright": 3,
+      "kind": "upright"
+    }
+  ]
+}

@@ -1,0 +1,51 @@
+{
+  "comparisons": [
+    {
+      "id": "drift-materials",
+      "title": "Drift track: diagnostic colours to source textures",
+      "before": {"image": "native-drift.png", "label": "First native frame", "width": 1240, "height": 900},
+      "after": {"image": "native-drift-multilayer.png", "label": "Multilayer base colour", "width": 1240, "height": 900},
+      "kind": "milestone",
+      "caption": "The first Rust and wgpu frame used flat diagnostic colours. The current frame combines masks and four source detail textures per material. Lighting, shadows and normal maps are still missing."
+    },
+    {
+      "id": "magione-materials",
+      "title": "Magione: composed models to multilayer materials",
+      "before": {"image": "native-magione-composed.png", "label": "Two KN5 files, diagnostic fallbacks", "width": 1240, "height": 900},
+      "after": {"image": "native-magione-multilayer.png", "label": "85 multilayer draws, 63 resources", "width": 1240, "height": 900},
+      "kind": "milestone",
+      "caption": "Eight textures exceeded the decoded-texture budget in the first composition. Direct BC uploads and the multilayer formula restored road and grass colour."
+    },
+    {
+      "id": "drive-motion",
+      "title": "BMW M3 E30 on Drift: standing, then driving",
+      "before": {"image": "native-drive-start.png", "label": "Time zero", "width": 800, "height": 600},
+      "after": {"image": "native-drive-turn.png", "label": "1.6 s after throttle and steering", "width": 800, "height": 600},
+      "kind": "milestone",
+      "caption": "The same fixed camera before and after the scripted drive. The coupled Rust chassis, suspension, wheel spin and rack steering move the car."
+    }
+  ],
+  "original_pending": [
+    {
+      "id": "e30-drift-original",
+      "title": "BMW M3 E30 at Drift pit, openASC against Assetto Corsa",
+      "ours": {"image": "native-source-wheel-geometry.png", "label": "openASC", "width": 800, "height": 600},
+      "original": null,
+      "caption": "Needs a matching capture of the original game with the same car, track, spawn and camera."
+    }
+  ],
+  "shots": [
+    {"image": "native-source-wheel-geometry.png", "width": 800, "height": 600, "title": "Source wheel dimensions", "caption": "Wheel centres and tyre radii come from explicit source references. Native GPU capture at 1.6 s."},
+    {"image": "native-wheel-articulation.png", "width": 800, "height": 600, "title": "Articulated wheels and suspension", "caption": "Four wheel and four upright groups follow the coupled solver through source-node bindings."},
+    {"image": "native-drive-turn.png", "width": 800, "height": 600, "title": "Wheel forces move the car", "caption": "Chassis, suspension, wheel spin and rack steering update the GPU car root."},
+    {"image": "native-drive-start.png", "width": 800, "height": 600, "title": "Initial state", "caption": "The same camera before throttle, steering and braking."},
+    {"image": "native-bmw-drift-session.png", "width": 1240, "height": 900, "title": "BMW and Drift in one scene", "caption": "166 car draws share a renderer with the track and 72 embedded textures."},
+    {"image": "native-drift-multilayer.png", "width": 1240, "height": 900, "title": "Multilayer colour, Drift", "caption": "46 draws across six materials combine a mask and four detail textures."},
+    {"image": "native-magione-multilayer.png", "width": 1240, "height": 900, "title": "Multilayer colour, Magione", "caption": "85 draws across seven materials, 63 resources."},
+    {"image": "native-magione-bc.png", "width": 1240, "height": 900, "title": "BC texture uploads", "caption": "All 44 Magione diffuse resources upload as compressed data in 95.2 MiB."},
+    {"image": "native-window-drift.png", "width": 1240, "height": 900, "title": "Native desktop window", "caption": "Orbit, pan and zoom share persistent scene resources."},
+    {"image": "native-drift-textured.png", "width": 1240, "height": 900, "title": "Diffuse textures", "caption": "25 embedded textures with approximate alpha and depth states."},
+    {"image": "first-drive-wall.jpg", "width": 1240, "height": 900, "title": "Browser wall contact", "caption": "The earlier browser prototype stops against an upright wall box."},
+    {"image": "first-drive-moving.jpg", "width": 1240, "height": 900, "title": "Browser driving prototype", "caption": "Torque through the selected gear at a 120 Hz step."}
+  ]
+}

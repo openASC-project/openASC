@@ -1,0 +1,8 @@
+{
+  "id": "drift-bmw-e30",
+  "name": "BMW M3 E30 on Drift",
+  "version": "1.0.0",
+  "author": "openASC contributors",
+  "description": "The reference driving scenario: BMW M3 E30 at the Drift pit with the coupled Rust physics. Needs the stock bmw_m3_e30 car and drift track from your Assetto Corsa install.",
+  "entry": "native-drive.json"
+}
