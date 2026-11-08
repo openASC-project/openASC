@@ -72,6 +72,7 @@ impl Wheel {
 pub struct WheelLoad {
     pub(super) external: Wrench,
     pub(super) drive: f64,
+    pub(super) extra_spin_inertia: f64,
 }
 impl WheelLoad {
     /// External world COM wrench, plus internal motor torque relative to the upright.
@@ -82,6 +83,7 @@ impl WheelLoad {
         Ok(Self {
             external: external_world_com_wrench,
             drive: drive_torque_nm,
+            extra_spin_inertia: 0.,
         })
     }
     pub(super) fn is_zero(self) -> bool {
@@ -95,6 +97,16 @@ impl WheelLoad {
     /// Combined internal actuator torque about the signed wheel axle.
     pub fn internal_torque_nm(&self) -> f64 {
         self.drive
+    }
+    pub fn set_extra_spin_inertia(&mut self, inertia_kg_m2: f64) -> Result<()> {
+        if !inertia_kg_m2.is_finite() || inertia_kg_m2 < 0. || inertia_kg_m2 > 1e6 {
+            return Err(fail());
+        }
+        self.extra_spin_inertia = inertia_kg_m2;
+        Ok(())
+    }
+    pub fn extra_spin_inertia_kg_m2(&self) -> f64 {
+        self.extra_spin_inertia
     }
     pub fn set_internal_torque(&mut self, torque_nm: f64) -> Result<()> {
         if !torque_nm.is_finite() || torque_nm.abs() > 1e18 {

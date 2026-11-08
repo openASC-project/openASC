@@ -238,6 +238,14 @@ impl EngineDrivetrain {
         self.inertia_kg_m2
     }
 
+    pub fn reflected_inertia_per_wheel(&self, gear: i32, driven_wheel_count: u32) -> f64 {
+        if driven_wheel_count == 0 {
+            return 0.;
+        }
+        let ratio = self.gear_ratio(gear);
+        self.inertia_kg_m2 * ratio * ratio / driven_wheel_count as f64
+    }
+
     pub fn gear_count(&self) -> usize {
         self.forward_ratios.len()
     }
@@ -722,6 +730,20 @@ mod tests {
             })
             .is_err()
         );
+    }
+
+    #[test]
+    fn reflected_inertia_scales_with_ratio_squared() {
+        let dt = test_drivetrain();
+        let r1 = dt.reflected_inertia_per_wheel(1, 2);
+        let ratio1 = 3.5 * 3.7;
+        assert!((r1 - 0.12 * ratio1 * ratio1 / 2.).abs() < 1e-6);
+        let r_neutral = dt.reflected_inertia_per_wheel(0, 2);
+        assert_eq!(r_neutral, 0.);
+        let r6 = dt.reflected_inertia_per_wheel(6, 2);
+        let ratio6 = 0.85 * 3.7;
+        assert!((r6 - 0.12 * ratio6 * ratio6 / 2.).abs() < 1e-6);
+        assert!(r1 > r6);
     }
 
     #[test]

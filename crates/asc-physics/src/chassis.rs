@@ -420,6 +420,9 @@ impl ChassisSystem {
                     wheel_inertia,
                 );
                 rhs[spin_index] += load.drive;
+                if load.extra_spin_inertia > 0. {
+                    matrix[spin_index][spin_index] += load.extra_spin_inertia;
+                }
                 potential -= wheel.properties.mass * self.gravity.dot(center);
                 let spin = DQuat::from_axis_angle(
                     wheel.axis,

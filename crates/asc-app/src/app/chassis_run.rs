@@ -481,6 +481,14 @@ impl Environment {
                     }
                 }
             }
+            let reflected = engine
+                .drivetrain
+                .reflected_inertia_per_wheel(control.gear, engine.driven_indices.len() as u32);
+            if reflected > 0. {
+                for &i in &engine.driven_indices {
+                    loads.wheels[i].set_extra_spin_inertia(reflected)?;
+                }
+            }
         } else {
             for load in loads.wheels.iter_mut() {
                 load.set_internal_torque(control.drive_fraction * load.internal_torque_nm())?;
