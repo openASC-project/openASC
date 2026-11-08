@@ -86,6 +86,15 @@ pub struct Differential {
     pub power_lock: f64,
     pub coast_lock: f64,
     pub preload_nm: f64,
+    pub front_share: Option<f64>,
+    pub front: Option<AxleDifferential>,
+    pub rear: Option<AxleDifferential>,
+}
+#[derive(Serialize)]
+pub struct AxleDifferential {
+    pub power_lock: f64,
+    pub coast_lock: f64,
+    pub preload_nm: f64,
 }
 #[derive(Serialize)]
 pub struct Gearbox {
@@ -326,10 +335,46 @@ pub fn load(directory: &Path, mode: data::Mode, compound: Option<u32>) -> Result
         ));
     }
     let final_ratio = drive.number("GEARS", "FINAL", 0., f64::MAX, true)?;
+    let front_share = if traction == "AWD" {
+        Some(drive.number("DIFFERENTIAL", "FRONT_SHARE", 0., 1., false)?)
+    } else {
+        None
+    };
+    let front_diff = if drive
+        .document
+        .sections
+        .iter()
+        .any(|s| s.name == "DIFFERENTIAL_FRONT")
+    {
+        Some(AxleDifferential {
+            power_lock: drive.number("DIFFERENTIAL_FRONT", "POWER", 0., 1., false)?,
+            coast_lock: drive.number("DIFFERENTIAL_FRONT", "COAST", 0., 1., false)?,
+            preload_nm: drive.number("DIFFERENTIAL_FRONT", "PRELOAD", 0., f64::MAX, false)?,
+        })
+    } else {
+        None
+    };
+    let rear_diff = if drive
+        .document
+        .sections
+        .iter()
+        .any(|s| s.name == "DIFFERENTIAL_REAR")
+    {
+        Some(AxleDifferential {
+            power_lock: drive.number("DIFFERENTIAL_REAR", "POWER", 0., 1., false)?,
+            coast_lock: drive.number("DIFFERENTIAL_REAR", "COAST", 0., 1., false)?,
+            preload_nm: drive.number("DIFFERENTIAL_REAR", "PRELOAD", 0., f64::MAX, false)?,
+        })
+    } else {
+        None
+    };
     let differential = Differential {
         power_lock: drive.number("DIFFERENTIAL", "POWER", 0., 1., false)?,
         coast_lock: drive.number("DIFFERENTIAL", "COAST", 0., 1., false)?,
         preload_nm: drive.number("DIFFERENTIAL", "PRELOAD", 0., f64::MAX, false)?,
+        front_share,
+        front: front_diff,
+        rear: rear_diff,
     };
     let gearbox = if drive.document.sections.iter().any(|s| s.name == "GEARBOX") {
         Gearbox {

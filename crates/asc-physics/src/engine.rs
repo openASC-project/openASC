@@ -81,6 +81,7 @@ pub struct EngineDrivetrain {
 pub enum Traction {
     Rwd,
     Fwd,
+    Awd,
 }
 
 #[derive(Clone, Copy, Debug)]

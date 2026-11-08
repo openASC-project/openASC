@@ -225,116 +225,191 @@ pub fn run(path: &Path, options: Options) -> Result<()> {
     } else {
         None
     };
-    let (gear_count, change_up_s, change_dn_s) = if config.engine_drivetrain {
-        let vehicle = asc_vehicle::load(&car, mode, config.compound)?;
-        let curve = asc_physics::TorqueCurve::new(
-            &vehicle
+    let (gear_count, change_up_s, change_dn_s) =
+        if config.engine_drivetrain {
+            let vehicle = asc_vehicle::load(&car, mode, config.compound)?;
+            let curve = asc_physics::TorqueCurve::new(
+                &vehicle
+                    .engine
+                    .torque_lut
+                    .points
+                    .iter()
+                    .map(|p| [p[0], p[1]])
+                    .collect::<Vec<_>>(),
+            )?;
+            let traction = match vehicle.drivetrain.traction.as_str() {
+                "FWD" => asc_physics::Traction::Fwd,
+                "AWD" => asc_physics::Traction::Awd,
+                _ => asc_physics::Traction::Rwd,
+            };
+            let coast = vehicle
                 .engine
-                .torque_lut
-                .points
-                .iter()
-                .map(|p| [p[0], p[1]])
-                .collect::<Vec<_>>(),
-        )?;
-        let traction = match vehicle.drivetrain.traction.as_str() {
-            "FWD" => asc_physics::Traction::Fwd,
-            _ => asc_physics::Traction::Rwd,
-        };
-        let coast = vehicle
-            .engine
-            .coast
-            .as_ref()
-            .map(|c| asc_physics::CoastRef {
-                rpm: c.rpm,
-                torque_nm: c.torque_nm,
-                non_linearity: c.non_linearity,
-            });
-        let drivetrain = asc_physics::EngineDrivetrain::new(asc_physics::EngineDrivetrainConfig {
-            torque_curve: curve,
-            idle_rpm: vehicle.engine.idle_rpm,
-            limiter_rpm: vehicle.engine.limiter_rpm,
-            inertia_kg_m2: vehicle.engine.inertia_kg_m2,
-            forward_ratios: vehicle.drivetrain.forward_ratios.clone(),
-            reverse_ratio: vehicle.drivetrain.reverse_ratio,
-            final_ratio: vehicle.drivetrain.final_ratio,
-            traction,
-            coast,
-            clutch_max_torque_nm: vehicle.drivetrain.clutch.max_torque_nm,
-        })?;
-        let driven_axle = match traction {
-            asc_physics::Traction::Rwd => "rear",
-            asc_physics::Traction::Fwd => "front",
-        };
-        let driven_indices: Vec<usize> = bench
-            .config_uprights()
-            .iter()
-            .enumerate()
-            .filter(|(_, u)| u.axle() == driven_axle)
-            .map(|(i, _)| i)
-            .collect();
-        let tyre_radius = vehicle
-            .axles
-            .get(driven_axle)
-            .map(|a| a.tyre_radius_m)
-            .unwrap_or(0.3);
-        let gc = drivetrain.gear_count() as i32;
-        let diff = asc_physics::DiffParams {
-            power_lock: vehicle.drivetrain.differential.power_lock,
-            coast_lock: vehicle.drivetrain.differential.coast_lock,
-            preload_nm: vehicle.drivetrain.differential.preload_nm,
-        };
-        diff.validate()?;
-        let tyre_models: Vec<Option<asc_physics::TyreModel>> = bench
-            .config_uprights()
-            .iter()
-            .map(|u| {
-                vehicle
+                .coast
+                .as_ref()
+                .map(|c| asc_physics::CoastRef {
+                    rpm: c.rpm,
+                    torque_nm: c.torque_nm,
+                    non_linearity: c.non_linearity,
+                });
+            let drivetrain =
+                asc_physics::EngineDrivetrain::new(asc_physics::EngineDrivetrainConfig {
+                    torque_curve: curve,
+                    idle_rpm: vehicle.engine.idle_rpm,
+                    limiter_rpm: vehicle.engine.limiter_rpm,
+                    inertia_kg_m2: vehicle.engine.inertia_kg_m2,
+                    forward_ratios: vehicle.drivetrain.forward_ratios.clone(),
+                    reverse_ratio: vehicle.drivetrain.reverse_ratio,
+                    final_ratio: vehicle.drivetrain.final_ratio,
+                    traction,
+                    coast,
+                    clutch_max_torque_nm: vehicle.drivetrain.clutch.max_torque_nm,
+                })?;
+            let driven_indices: Vec<usize>;
+            let tyre_radius: f64;
+            let awd_binding: Option<chassis_run::AwdBinding>;
+            let diff: Option<asc_physics::DiffParams>;
+            if traction == asc_physics::Traction::Awd {
+                driven_indices = bench
+                    .config_uprights()
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, u)| u.axle() == "front" || u.axle() == "rear")
+                    .map(|(i, _)| i)
+                    .collect();
+                let front_r = vehicle
                     .axles
-                    .get(u.axle())
-                    .and_then(|a| a.tyre_force.as_ref())
-                    .map(|tf| {
-                        asc_physics::TyreModel::new(asc_physics::TyreModelConfig {
-                            fz0: tf.fz0,
-                            dx_ref: tf.dx_ref,
-                            dy_ref: tf.dy_ref,
-                            ls_expx: tf.ls_expx,
-                            ls_expy: tf.ls_expy,
+                    .get("front")
+                    .map(|a| a.tyre_radius_m)
+                    .unwrap_or(0.3);
+                let rear_r = vehicle
+                    .axles
+                    .get("rear")
+                    .map(|a| a.tyre_radius_m)
+                    .unwrap_or(0.3);
+                tyre_radius = (front_r + rear_r) / 2.;
+                let front_indices: Vec<usize> = bench
+                    .config_uprights()
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, u)| u.axle() == "front")
+                    .map(|(i, _)| i)
+                    .collect();
+                let rear_indices: Vec<usize> = bench
+                    .config_uprights()
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, u)| u.axle() == "rear")
+                    .map(|(i, _)| i)
+                    .collect();
+                let front_diff = vehicle.drivetrain.differential.front.as_ref().map(|d| {
+                    asc_physics::DiffParams {
+                        power_lock: d.power_lock,
+                        coast_lock: d.coast_lock,
+                        preload_nm: d.preload_nm,
+                    }
+                });
+                let rear_diff = vehicle.drivetrain.differential.rear.as_ref().map(|d| {
+                    asc_physics::DiffParams {
+                        power_lock: d.power_lock,
+                        coast_lock: d.coast_lock,
+                        preload_nm: d.preload_nm,
+                    }
+                });
+                if let Some(ref d) = front_diff {
+                    d.validate()?;
+                }
+                if let Some(ref d) = rear_diff {
+                    d.validate()?;
+                }
+                awd_binding = Some(chassis_run::AwdBinding {
+                    front_share: vehicle.drivetrain.differential.front_share.unwrap_or(0.5),
+                    front_indices,
+                    rear_indices,
+                    front_diff,
+                    rear_diff,
+                    front_tyre_radius_m: front_r,
+                    rear_tyre_radius_m: rear_r,
+                });
+                diff = None;
+            } else {
+                let driven_axle = match traction {
+                    asc_physics::Traction::Fwd => "front",
+                    _ => "rear",
+                };
+                driven_indices = bench
+                    .config_uprights()
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, u)| u.axle() == driven_axle)
+                    .map(|(i, _)| i)
+                    .collect();
+                tyre_radius = vehicle
+                    .axles
+                    .get(driven_axle)
+                    .map(|a| a.tyre_radius_m)
+                    .unwrap_or(0.3);
+                let d = asc_physics::DiffParams {
+                    power_lock: vehicle.drivetrain.differential.power_lock,
+                    coast_lock: vehicle.drivetrain.differential.coast_lock,
+                    preload_nm: vehicle.drivetrain.differential.preload_nm,
+                };
+                d.validate()?;
+                diff = Some(d);
+                awd_binding = None;
+            }
+            let gc = drivetrain.gear_count() as i32;
+            let tyre_models: Vec<Option<asc_physics::TyreModel>> = bench
+                .config_uprights()
+                .iter()
+                .map(|u| {
+                    vehicle
+                        .axles
+                        .get(u.axle())
+                        .and_then(|a| a.tyre_force.as_ref())
+                        .map(|tf| {
+                            asc_physics::TyreModel::new(asc_physics::TyreModelConfig {
+                                fz0: tf.fz0,
+                                dx_ref: tf.dx_ref,
+                                dy_ref: tf.dy_ref,
+                                ls_expx: tf.ls_expx,
+                                ls_expy: tf.ls_expy,
+                            })
                         })
-                    })
-                    .transpose()
-            })
-            .collect::<std::result::Result<_, _>>()?;
-        bench.set_engine(chassis_run::EngineBinding {
-            drivetrain,
-            driven_indices,
-            tyre_radius_m: tyre_radius,
-            diff: Some(diff),
-            tyre_models,
-        });
-        bench.set_brakes_from_vehicle(
-            vehicle.brakes.max_torque_nm,
-            vehicle.brakes.front_share,
-            vehicle.brakes.handbrake_torque_nm,
-            1.0,
-        )?;
-        let front_z = vehicle.wheelbase_m * (1.0 - vehicle.front_weight_fraction);
-        let rear_z = -vehicle.wheelbase_m * vehicle.front_weight_fraction;
-        bench.set_aero(chassis_run::AeroBinding {
-            reference_area_m2: vehicle.aero.reference_area_m2,
-            cd: vehicle.aero.cd,
-            cl_front: vehicle.aero.cl_front,
-            cl_rear: vehicle.aero.cl_rear,
-            front_axle_z_m: front_z,
-            rear_axle_z_m: rear_z,
-        });
-        (
-            gc,
-            vehicle.drivetrain.gearbox.change_up_time_ms / 1000.,
-            vehicle.drivetrain.gearbox.change_dn_time_ms / 1000.,
-        )
-    } else {
-        (0, 0., 0.)
-    };
+                        .transpose()
+                })
+                .collect::<std::result::Result<_, _>>()?;
+            bench.set_engine(chassis_run::EngineBinding {
+                drivetrain,
+                driven_indices,
+                tyre_radius_m: tyre_radius,
+                diff,
+                tyre_models,
+                awd: awd_binding,
+            });
+            bench.set_brakes_from_vehicle(
+                vehicle.brakes.max_torque_nm,
+                vehicle.brakes.front_share,
+                vehicle.brakes.handbrake_torque_nm,
+                1.0,
+            )?;
+            let front_z = vehicle.wheelbase_m * (1.0 - vehicle.front_weight_fraction);
+            let rear_z = -vehicle.wheelbase_m * vehicle.front_weight_fraction;
+            bench.set_aero(chassis_run::AeroBinding {
+                reference_area_m2: vehicle.aero.reference_area_m2,
+                cd: vehicle.aero.cd,
+                cl_front: vehicle.aero.cl_front,
+                cl_rear: vehicle.aero.cl_rear,
+                front_axle_z_m: front_z,
+                rear_axle_z_m: rear_z,
+            });
+            (
+                gc,
+                vehicle.drivetrain.gearbox.change_up_time_ms / 1000.,
+                vehicle.drivetrain.gearbox.change_dn_time_ms / 1000.,
+            )
+        } else {
+            (0, 0., 0.)
+        };
     let event_loop = EventLoop::new()?;
     let has_walls = wall.is_some();
     let mut app = App {
